@@ -15,8 +15,16 @@ def _env(key, default=''):
                     return v.strip()
     return os.environ.get(key, default)
 
+def _env_obrigatoria(key):
+    valor = _env(key, '')
+    if not valor:
+        raise RuntimeError(
+            f"{key} não definida. Defina no arquivo .env antes de iniciar o servidor."
+        )
+    return valor
+
 class Config:
-    SECRET_KEY         = _env('FLASK_SECRET', 'neurabusiness-creative-2026-secret')
+    SECRET_KEY         = _env_obrigatoria('FLASK_SECRET')
     UPLOAD_FOLDER      = os.path.join(BASE_DIR, 'static', 'uploads')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
 
@@ -25,7 +33,7 @@ class Config:
     PG_PORT     = _env('NB_PG_PORT',     '5432')
     PG_DATABASE = _env('NB_PG_DATABASE', 'neura')
     PG_USER     = _env('NB_PG_USER',     'nbuser')
-    PG_PASS     = _env('NB_PG_PASS',     '***REMOVED_DB_PASSWORD***')
+    PG_PASS     = _env_obrigatoria('NB_PG_PASS')
 
     @classmethod
     def get_db_uri(cls):

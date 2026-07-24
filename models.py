@@ -305,6 +305,10 @@ class LicencaNeuraDesk(db.Model):
     valor_mensal           = db.Column(db.Float, default=0)
     mp_preapproval_id      = db.Column(db.String(100))
     mp_status              = db.Column(db.String(30))
+    # Ultimo pagamento do Mercado Pago ja processado -- evita renovar duas
+    # vezes se o MP reenviar a mesma notificacao de webhook (ele reenvia
+    # quando nao recebe 200 a tempo, entao duplicata e esperada).
+    mp_ultimo_pagamento_id = db.Column(db.String(50))
     ultima_verificacao     = db.Column(db.DateTime)
     ultimo_ip_verificacao  = db.Column(db.String(45))
     observacoes            = db.Column(db.Text)
