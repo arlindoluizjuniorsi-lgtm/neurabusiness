@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}NeuraBusiness{% endblock %}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--nb-accent:#f97316;--nb-accent2:#ea6c0a;--nb-accent3:#10B981;--nb-bg:#f8fafc;--nb-surface:#fff;--nb-surface-alt:#f1f5f9;--nb-border:#e2e8f0;--nb-text:#0f172a;--nb-muted:#64748b;--nb-light:#94a3b8;--nb-navbar:linear-gradient(135deg,#0a0a0a 0%,#111111 100%);--nb-sidebar:#0f0f0f;--nb-card-shadow:rgba(0,0,0,.07);--nb-card-hover:rgba(0,0,0,.11);--nb-input:#fff;--nb-input-border:#cbd5e1;}
+[data-theme=dark]{--nb-bg:#080808;--nb-surface:#0f0f0f;--nb-surface-alt:#111827;--nb-border:#1e293b;--nb-text:#e2e8f0;--nb-muted:#94a3b8;--nb-light:#64748b;--nb-card-shadow:rgba(0,0,0,.5);--nb-card-hover:rgba(249,115,22,.05);--nb-input:#111827;--nb-input-border:#1e293b;}
+*{font-family:'Inter',sans-serif;}
+html{visibility:hidden;}html.pronto{visibility:visible;}
+body{background:var(--nb-bg);color:var(--nb-text);padding-top:58px;min-height:100vh;transition:background .3s,color .3s;}
+/* NAVBAR */
+.navbar{background:var(--nb-navbar)!important;border-bottom:1px solid rgba(249,115,22,.15);box-shadow:0 2px 20px rgba(0,0,0,.4);}
+.nb-brand{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:1.1rem;color:#fff!important;text-decoration:none;display:flex;align-items:center;gap:10px;}
+.nb-brand .icon{width:30px;height:30px;background:linear-gradient(135deg,#f97316,#ea6c0a);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:900;color:#0a0a0a;font-family:'Barlow Condensed',sans-serif;}
+.nb-brand .acc{color:#f97316;}
+.nb-brand .sub{font-size:.58rem;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:1px;font-weight:400;display:block;margin-top:-4px;}
+.empresa-badge{background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.25);border-radius:8px;padding:3px 10px;font-size:.72rem;font-weight:700;color:#f97316;display:flex;align-items:center;gap:5px;}
+/* SIDEBAR */
+.sidebar{position:fixed;top:58px;left:0;width:230px;height:calc(100vh - 58px);background:var(--nb-sidebar);border-right:1px solid rgba(249,115,22,.1);overflow-y:auto;z-index:100;padding:16px 0;transition:transform .3s;}
+.sidebar::-webkit-scrollbar{width:3px;}.sidebar::-webkit-scrollbar-thumb{background:rgba(249,115,22,.2);border-radius:2px;}
+.sb-lbl{font-size:.6rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.25);padding:10px 14px 5px;}
+.sb-item{display:flex;align-items:center;gap:9px;padding:8px 14px;border-radius:7px;color:rgba(255,255,255,.6)!important;text-decoration:none;font-size:.825rem;font-weight:500;transition:all .2s;margin:1px 8px;position:relative;}
+.sb-item:hover{background:rgba(249,115,22,.07);color:#f97316!important;}
+.sb-item.active{background:linear-gradient(90deg,rgba(249,115,22,.14),rgba(249,115,22,.04));color:#f97316!important;border-left:3px solid #f97316;padding-left:11px;}
+.sb-item i{width:15px;text-align:center;font-size:.8rem;}
+.sb-footer{position:absolute;bottom:12px;left:0;right:0;padding:0 10px;}
+.sb-footer-box{background:rgba(249,115,22,.04);border:1px solid rgba(249,115,22,.12);border-radius:9px;padding:10px;text-align:center;}
+/* MAIN */
+.main-content{margin-left:230px;padding:22px;}
+/* CARDS */
+.card{background:var(--nb-surface)!important;border:1px solid var(--nb-border)!important;border-radius:12px;box-shadow:0 2px 8px var(--nb-card-shadow);transition:all .3s;animation:si .3s ease;}
+.card:hover{box-shadow:0 4px 20px var(--nb-card-hover);transform:translateY(-1px);}
+.card-header{background:linear-gradient(135deg,#0a0a0a 0%,#111111 100%)!important;color:#f97316!important;border-radius:12px 12px 0 0!important;font-weight:600;font-size:.88rem;border-bottom:1px solid rgba(249,115,22,.2)!important;padding:11px 16px;}
+.card-header i{margin-right:7px;}
+/* STAT CARDS */
+.stat-card{background:var(--nb-surface);border:1px solid var(--nb-border);border-radius:12px;padding:18px;transition:all .3s;position:relative;overflow:hidden;}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--sc,#f97316);}
+.stat-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.12);}
+.stat-val{font-size:1.9rem;font-weight:800;font-family:'Barlow Condensed',sans-serif;color:var(--nb-text);line-height:1;}
+.stat-lbl{font-size:.72rem;color:var(--nb-muted);margin-top:3px;text-transform:uppercase;letter-spacing:.4px;font-weight:500;}
+.stat-icon{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:2.3rem;opacity:.07;}
+/* BUTTONS */
+.btn-nb{background:linear-gradient(135deg,#0a0a0a,#111111);color:#fff;border:1px solid rgba(249,115,22,.3);border-radius:8px;font-weight:600;font-size:.83rem;transition:all .3s;}
+.btn-nb:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(249,115,22,.25);color:#f97316;border-color:#f97316;}
+.btn-accent{background:linear-gradient(135deg,#f97316,#ea6c0a);color:#0a0a0a;border:none;border-radius:8px;font-weight:700;font-size:.83rem;transition:all .3s;}
+.btn-accent:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(249,115,22,.35);color:#0a0a0a;}
+/* FORMS */
+.form-control,.form-select{background:var(--nb-input)!important;border:1px solid var(--nb-input-border)!important;color:var(--nb-text)!important;border-radius:8px;font-size:.87rem;transition:border-color .2s,box-shadow .2s;}
+.form-control:focus,.form-select:focus{border-color:#f97316!important;box-shadow:0 0 0 3px rgba(249,115,22,.12)!important;}
+.form-label{font-weight:600;font-size:.78rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;}
+/* TABLES */
+.table{color:var(--nb-text);}
+.table th{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--nb-muted);border-bottom:2px solid var(--nb-border)!important;padding:9px 12px;}
+.table td{font-size:.84rem;padding:9px 12px;border-color:var(--nb-border)!important;vertical-align:middle;}
+.table tbody tr:hover{background:rgba(249,115,22,.025);}
+/* BADGES */
+.status-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:20px;font-size:.68rem;font-weight:700;letter-spacing:.3px;text-transform:uppercase;}
+.s-rascunho{background:rgba(100,116,139,.12);color:#64748b;}
+.s-enviada{background:rgba(59,130,246,.12);color:#3b82f6;}
+.s-aprovada,.s-concluida{background:rgba(16,185,129,.12);color:#10b981;}
+.s-recusada,.s-cancelada{background:rgba(239,68,68,.12);color:#ef4444;}
+.s-aberta{background:rgba(249,115,22,.12);color:#f97316;}
+.s-em_andamento{background:rgba(245,158,11,.12);color:#f59e0b;}
+/* PAGE HEADER */
+.page-header{margin-bottom:22px;}
+.page-header h1{font-family:'Barlow Condensed',sans-serif;font-size:1.45rem;font-weight:700;color:var(--nb-text);margin:0;}
+.page-header p{color:var(--nb-muted);font-size:.83rem;margin:3px 0 0;}
+/* ALERTS */
+.alert{border:none;border-radius:10px;font-size:.86rem;}
+.alert-success{background:rgba(16,185,129,.1);color:#065f46;}
+.alert-danger{background:rgba(239,68,68,.1);color:#7f1d1d;}
+.alert-warning{background:rgba(245,158,11,.1);color:#713f12;}
+.alert-info{background:rgba(249,115,22,.1);color:#0c4a6e;}
+/* DROPDOWN */
+.nb-dropdown{background:var(--nb-surface)!important;border:1px solid var(--nb-border)!important;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15)!important;}
+.nb-dropdown .dropdown-item{color:var(--nb-text)!important;font-size:.84rem;padding:7px 14px;border-radius:6px;margin:2px 4px;}
+.nb-dropdown .dropdown-item:hover{background:rgba(249,115,22,.07)!important;}
+/* ANIMATIONS */
+@keyframes si{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:768px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.main-content{margin-left:0;padding:14px}}
+</style>
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark fixed-top">
+  <div class="container-fluid">
+    <a class="nb-brand" href="{{ url_for('dashboard') }}">
+      <div class="icon">C</div>
+      <div><span>Neura<span class="acc">Business</span></span><span class="sub">Creative Soluções</span></div>
+    </a>
+    <div class="ms-3">
+      {% if empresa_atual %}
+      <div class="empresa-badge">
+        <i class="fas fa-building" style="font-size:.65rem"></i>
+        {{ empresa_atual.fantasia }}
+      </div>
+      {% endif %}
+    </div>
+    <div class="ms-auto d-flex align-items-center gap-2">
+      <button class="btn btn-sm btn-nb" id="toggleTheme" title="Tema"><i class="fas fa-moon"></i></button>
+      {% if empresa_atual %}
+      <a href="{{ url_for('selecionar_empresa') }}" class="btn btn-sm btn-nb" title="Trocar empresa">
+        <i class="fas fa-exchange-alt"></i>
+      </a>
+      {% endif %}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-nb dropdown-toggle" data-bs-toggle="dropdown">
+          <i class="fas fa-user-circle me-1"></i>{{ current_user.nome.split()[0] if current_user else '' }}
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end nb-dropdown">
+          <li><span class="dropdown-item-text" style="color:var(--nb-muted);font-size:.74rem;">{{ current_user.email if current_user else '' }}</span></li>
+          <li><hr class="dropdown-divider" style="border-color:var(--nb-border)"></li>
+          {% if session.is_admin %}
+          <li><a class="dropdown-item" href="{{ url_for('listar_empresas') }}"><i class="fas fa-building me-2 text-info"></i>Empresas</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('listar_usuarios') }}"><i class="fas fa-users-cog me-2 text-info"></i>Usuários</a></li>
+          <li><hr class="dropdown-divider" style="border-color:var(--nb-border)"></li>
+          {% endif %}
+          <li><a class="dropdown-item" href="ssh://root@109.123.248.251" title="Abrir terminal SSH da VPS"><i class="fas fa-terminal me-2" style="color:#f97316"></i>Terminal VPS</a></li>
+          <li><hr class="dropdown-divider" style="border-color:var(--nb-border)"></li>
+          <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt me-2 text-danger"></i>Sair</a></li>
+        </ul>
+      </div>
+      <button class="navbar-toggler d-lg-none" id="sbToggle"><span class="navbar-toggler-icon"></span></button>
+    </div>
+  </div>
+</nav>
+
+<div class="sidebar" id="sidebar">
+  <div class="sb-lbl">Principal</div>
+  <a href="{{ url_for('dashboard') }}" class="sb-item {% if request.endpoint=='dashboard' %}active{% endif %}">
+    <i class="fas fa-chart-line"></i>Dashboard
+  </a>
+  <div class="sb-lbl">Catálogo</div>
+  <a href="{{ url_for('listar_produtos') }}" class="sb-item {% if 'produto' in (request.endpoint or '') %}active{% endif %}">
+    <i class="fas fa-box"></i>Produtos
+  </a>
+  <a href="{{ url_for('listar_servicos') }}" class="sb-item {% if 'servico' in (request.endpoint or '') %}active{% endif %}">
+    <i class="fas fa-wrench"></i>Serviços
+  </a>
+  <a href="{{ url_for('listar_clientes') }}" class="sb-item {% if 'cliente' in (request.endpoint or '') %}active{% endif %}">
+    <i class="fas fa-users"></i>Clientes
+  </a>
+  <div class="sb-lbl">Comercial</div>
+  <a href="{{ url_for('listar_propostas') }}" class="sb-item {% if 'proposta' in (request.endpoint or '') %}active{% endif %}">
+    <i class="fas fa-file-invoice-dollar"></i>Propostas
+  </a>
+  <a href="{{ url_for('listar_os') }}" class="sb-item {% if request.endpoint in ['listar_os','ver_os','nova_os'] %}active{% endif %}">
+    <i class="fas fa-tools"></i>Ordens de Serviço
+  </a>
+  {% if session.is_admin %}
+  <div class="sb-lbl">Admin</div>
+  <a href="{{ url_for('listar_empresas') }}" class="sb-item {% if 'empresa' in (request.endpoint or '') %}active{% endif %}">
+    <i class="fas fa-building"></i>Empresas
+  </a>
+  <a href="{{ url_for('listar_usuarios') }}" class="sb-item {% if 'usuario' in (request.endpoint or '') %}active{% endif %}">
+    <i class="fas fa-users-cog"></i>Usuários
+  </a>
+  {% endif %}
+  <div class="sb-footer">
+    <div class="sb-footer-box">
+      <div style="font-size:.65rem;color:rgba(255,255,255,.3)">NeuraBusiness v2.0</div>
+      <div style="font-size:.58rem;color:rgba(255,255,255,.18);margin-top:2px">Creative TI</div>
+    </div>
+  </div>
+</div>
+
+<div class="main-content">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for cat,msg in messages %}
+      <div class="alert alert-{{ cat }} alert-dismissible fade show">
+        <i class="fas fa-{% if cat=='success' %}check-circle{% elif cat=='danger' %}exclamation-circle{% elif cat=='warning' %}exclamation-triangle{% else %}info-circle{% endif %} me-2"></i>{{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const html=document.documentElement;
+const th=localStorage.getItem('nb-theme')||'light';
+if(th==='dark')html.setAttribute('data-theme','dark');
+html.classList.add('pronto');
+document.getElementById('toggleTheme')?.addEventListener('click',()=>{
+  const d=html.getAttribute('data-theme')==='dark';
+  html.setAttribute('data-theme',d?'light':'dark');
+  localStorage.setItem('nb-theme',d?'light':'dark');
+  document.getElementById('toggleTheme').innerHTML=d?'<i class="fas fa-moon"></i>':'<i class="fas fa-sun"></i>';
+});
+if(th==='dark')document.getElementById('toggleTheme').innerHTML='<i class="fas fa-sun"></i>';
+document.getElementById('sbToggle')?.addEventListener('click',()=>document.getElementById('sidebar').classList.toggle('open'));
+setTimeout(()=>document.querySelectorAll('.alert').forEach(a=>{try{bootstrap.Alert.getOrCreateInstance(a).close()}catch{}}),5000);
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

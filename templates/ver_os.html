@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}{{ os_obj.numero }} — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="fas fa-tools me-2" style="color:#7C3AED"></i>{{ os_obj.numero }}</h1>
+    <p><a href="{{ url_for('listar_os') }}" style="color:var(--nb-text-muted)">OS</a> › {{ os_obj.titulo }}</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('editar_os', id=os_obj.id) }}" class="btn btn-nb">
+      <i class="fas fa-edit me-1" style="color:#f59e0b"></i>Editar
+    </a>
+    {% if os_obj.status == 'aberta' %}
+    <form method="POST" action="{{ url_for('mudar_status_os', id=os_obj.id, novo_status='em_andamento') }}">
+      <button type="submit" class="btn btn-nb"><i class="fas fa-play me-1"></i>Iniciar</button>
+    </form>
+    {% endif %}
+    {% if os_obj.status in ['aberta','em_andamento'] %}
+    <button type="button" class="btn btn-accent" data-bs-toggle="modal" data-bs-target="#modalConcluir">
+      <i class="fas fa-check me-1"></i>Concluir
+    </button>
+    {% endif %}
+    {% if os_obj.status not in ['cancelada','concluida'] %}
+    <form method="POST" action="{{ url_for('mudar_status_os', id=os_obj.id, novo_status='cancelada') }}" onsubmit="return confirm('Cancelar esta OS?')">
+      <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:8px"><i class="fas fa-times me-1"></i>Cancelar</button>
+    </form>
+    {% endif %}
+    <form method="POST" action="{{ url_for('excluir_os', id=os_obj.id) }}" onsubmit="return confirm('Excluir esta OS permanentemente?')" style="display:inline">
+      <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:8px">
+        <i class="fas fa-trash me-1"></i>Excluir
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+    <div class="card mb-4">
+      <div class="card-header"><i class="fas fa-clipboard-list"></i>Detalhes da OS</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Cliente</div>
+            <div style="font-weight:700">{{ os_obj.cliente.nome }}</div>
+            {% if os_obj.cliente.tel %}<div style="font-size:0.82rem;color:var(--nb-text-muted)">{{ os_obj.cliente.tel }}</div>{% endif %}
+          </div>
+          <div class="col-md-3">
+            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Status</div>
+            <span class="status-badge status-{{ os_obj.status }}" style="font-size:0.85rem;padding:5px 14px">{{ os_obj.status }}</span>
+          </div>
+          <div class="col-md-3">
+            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Prioridade</div>
+            <span class="status-badge" style="font-size:0.85rem;padding:5px 14px;background:{% if os_obj.prioridade=='urgente' %}rgba(239,68,68,0.15);color:#ef4444{% elif os_obj.prioridade=='alta' %}rgba(245,158,11,0.15);color:#f59e0b{% else %}rgba(100,116,139,0.15);color:#64748b{% endif %}">{{ os_obj.prioridade }}</span>
+          </div>
+          {% if os_obj.tecnico %}
+          <div class="col-md-4">
+            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Técnico</div>
+            <div style="font-weight:600"><i class="fas fa-user-hard-hat me-1" style="color:#7C3AED"></i>{{ os_obj.tecnico }}</div>
+          </div>
+          {% endif %}
+          {% if os_obj.data_prevista %}
+          <div class="col-md-4">
+            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Data Prevista</div>
+            <div style="font-weight:600">{{ os_obj.data_prevista|data }}</div>
+          </div>
+          {% endif %}
+          {% if os_obj.proposta_id %}
+          <div class="col-md-4">
+            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Proposta</div>
+            <a href="{{ url_for('ver_proposta', id=os_obj.proposta_id) }}" style="color:#00D4FF;font-weight:600;font-size:0.85rem">Ver proposta</a>
+          </div>
+          {% endif %}
+        </div>
+        
+        <div style="margin-top:20px">
+          <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Descrição</div>
+          <div style="background:var(--nb-surface-alt);border:1px solid var(--nb-border);border-radius:8px;padding:14px;font-size:0.88rem;line-height:1.6;white-space:pre-wrap">{{ os_obj.descricao }}</div>
+        </div>
+        
+        {% if os_obj.solucao %}
+        <div style="margin-top:16px">
+          <div style="font-size:0.7rem;color:#10B981;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px"><i class="fas fa-check-circle me-1"></i>Solução Aplicada</div>
+          <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:14px;font-size:0.88rem;line-height:1.6;white-space:pre-wrap">{{ os_obj.solucao }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <!-- TIMELINE -->
+    <div class="card">
+      <div class="card-header"><i class="fas fa-clock"></i>Linha do Tempo</div>
+      <div class="card-body">
+        <div style="position:relative;padding-left:20px">
+          <div style="position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--nb-border)"></div>
+          
+          <div style="position:relative;margin-bottom:16px">
+            <div style="position:absolute;left:-16px;width:10px;height:10px;background:#00D4FF;border-radius:50%;top:4px"></div>
+            <div style="font-size:0.78rem;font-weight:700;color:var(--nb-text)">OS Criada</div>
+            <div style="font-size:0.72rem;color:var(--nb-text-muted)">{{ os_obj.criado_em|data('%d/%m/%Y às %H:%M') }}</div>
+          </div>
+          
+          {% if os_obj.status in ['em_andamento','concluida'] %}
+          <div style="position:relative;margin-bottom:16px">
+            <div style="position:absolute;left:-16px;width:10px;height:10px;background:#f59e0b;border-radius:50%;top:4px"></div>
+            <div style="font-size:0.78rem;font-weight:700;color:var(--nb-text)">Em Andamento</div>
+          </div>
+          {% endif %}
+          
+          {% if os_obj.status == 'concluida' %}
+          <div style="position:relative">
+            <div style="position:absolute;left:-16px;width:10px;height:10px;background:#10B981;border-radius:50%;top:4px"></div>
+            <div style="font-size:0.78rem;font-weight:700;color:#10B981">Concluída</div>
+            {% if os_obj.data_conclusao %}
+            <div style="font-size:0.72rem;color:var(--nb-text-muted)">{{ os_obj.data_conclusao|data }}</div>
+            {% endif %}
+          </div>
+          {% endif %}
+          
+          {% if os_obj.status == 'cancelada' %}
+          <div style="position:relative">
+            <div style="position:absolute;left:-16px;width:10px;height:10px;background:#ef4444;border-radius:50%;top:4px"></div>
+            <div style="font-size:0.78rem;font-weight:700;color:#ef4444">Cancelada</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONCLUIR -->
+<div class="modal fade" id="modalConcluir" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:var(--nb-surface);border:1px solid var(--nb-border)">
+      <div class="modal-header" style="border-color:var(--nb-border)">
+        <h5 class="modal-title" style="color:var(--nb-text)"><i class="fas fa-check-circle me-2" style="color:#10B981"></i>Concluir OS</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('mudar_status_os', id=os_obj.id, novo_status='concluida') }}">
+        <div class="modal-body">
+          <label class="form-label">Solução Aplicada</label>
+          <textarea name="solucao" class="form-control" rows="4" placeholder="Descreva o que foi feito para resolver o problema...">{{ os_obj.solucao or '' }}</textarea>
+        </div>
+        <div class="modal-footer" style="border-color:var(--nb-border)">
+          <button type="button" class="btn btn-nb" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-accent"><i class="fas fa-check me-1"></i>Marcar como Concluída</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

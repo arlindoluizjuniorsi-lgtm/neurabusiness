@@ -1,0 +1,592 @@
+{% extends "base.html" %}
+{% block title %}{% if proposta %}Editar {{ proposta.numero }}{% else %}Nova Proposta{% endif %} — NeuraBusiness{% endblock %}
+{% block extra_head %}
+<style>
+.prop-tab{padding:10px 16px;border:none;background:transparent;color:var(--nb-muted);font-size:.82rem;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;}
+.prop-tab.active{color:#00D4FF;border-bottom-color:#00D4FF;}
+.prop-panel{display:none;} .prop-panel.active{display:block;}
+.item-card{background:var(--nb-surface);border:1px solid var(--nb-border);border-radius:10px;padding:12px;margin-bottom:8px;}
+.cat-item{padding:9px 11px;border-radius:8px;cursor:pointer;border:1px solid transparent;margin-bottom:3px;transition:all .2s;}
+.cat-item:hover{background:rgba(0,212,255,.05);border-color:rgba(0,212,255,.15);}
+.cat-chip{display:inline-block;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.18);border-radius:20px;padding:2px 10px;font-size:.68rem;font-weight:700;color:#00D4FF;cursor:pointer;margin:2px;transition:all .2s;}
+.cat-chip:hover,.cat-chip.active{background:rgba(0,212,255,.2);}
+.tb-s{background:rgba(0,212,255,.1);color:#00D4FF;} .tb-m{background:rgba(124,58,237,.1);color:#7C3AED;} .tb-p{background:rgba(16,185,129,.1);color:#10B981;}
+.tipo-badge{font-size:.6rem;font-weight:800;text-transform:uppercase;padding:2px 8px;border-radius:20px;}
+.total-box{background:linear-gradient(135deg,#0A0E1A,#120B2E);border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:18px;}
+.prec-box{background:rgba(0,212,255,.03);border:1px solid rgba(0,212,255,.12);border-radius:10px;padding:14px;}
+.etapa-row{background:var(--nb-surface);border:1px solid var(--nb-border);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;gap:10px;align-items:flex-start;}
+.etapa-n{width:24px;height:24px;min-width:24px;background:rgba(0,212,255,.12);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:800;color:#00D4FF;margin-top:3px;}
+.estilo-card{border:2px solid var(--nb-border);border-radius:8px;padding:8px;cursor:pointer;transition:all .2s;text-align:center;display:block;}
+.estilo-card.sel{border-color:#00D4FF;background:rgba(0,212,255,.06);}
+.estilo-prev{height:32px;border-radius:5px;margin-bottom:4px;}
+.anx-item{display:flex;align-items:center;gap:10px;padding:8px;background:var(--nb-surface-alt);border-radius:8px;margin-bottom:5px;}
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="fas fa-file-invoice-dollar me-2" style="color:#00D4FF"></i>{% if proposta %}Editar {{ proposta.numero }}{% else %}Nova Proposta{% endif %}</h1>
+    <p><a href="{{ url_for('listar_propostas') }}" style="color:var(--nb-muted)">Propostas</a> › {% if proposta %}{{ proposta.numero }}{% else %}Nova{% endif %}</p>
+  </div>
+</div>
+
+<form method="POST" id="fProp">
+<div class="row g-4">
+  <div class="col-12 col-xl-8">
+
+    <!-- TABS -->
+    <div style="display:flex;border-bottom:1px solid var(--nb-border);margin-bottom:18px;overflow-x:auto">
+      <button type="button" class="prop-tab active" onclick="showTab('dados',this)"><i class="fas fa-info-circle me-1"></i>Dados</button>
+      <button type="button" class="prop-tab" onclick="showTab('itens',this)"><i class="fas fa-list me-1"></i>Itens</button>
+      <button type="button" class="prop-tab" onclick="showTab('etapas',this)"><i class="fas fa-tasks me-1"></i>Etapas</button>
+      <button type="button" class="prop-tab" onclick="showTab('custos',this)"><i class="fas fa-calculator me-1"></i>Custos</button>
+      {% if proposta %}<button type="button" class="prop-tab" onclick="showTab('anexos',this)"><i class="fas fa-paperclip me-1"></i>Anexos</button>{% endif %}
+    </div>
+
+    <!-- ── DADOS ── -->
+    <div id="tab-dados" class="prop-panel active">
+      <div class="card">
+        <div class="card-header"><i class="fas fa-file-alt"></i>Informações</div>
+        <div class="card-body"><div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Título *</label>
+            <input type="text" name="titulo" class="form-control" required value="{{ proposta.titulo if proposta else '' }}" placeholder="Ex: Instalação de sistema CFTV — Comércio João Silva">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Cliente *</label>
+            <select name="cliente_id" class="form-select" required>
+              <option value="">Selecione...</option>
+              {% for c in clientes %}<option value="{{ c.id }}" {% if proposta and proposta.cliente_id==c.id %}selected{% endif %}>{{ c.nome }}{% if c.cidade %} — {{ c.cidade }}{% endif %}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Validade (dias)</label>
+            <input type="number" name="validade" class="form-control" value="{{ proposta.validade if proposta else 15 }}" min="1" max="365">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Forma de Pagamento</label>
+            <select name="forma_pagamento" class="form-select">
+              {% set fp_atual = proposta.forma_pagamento if proposta else '' %}
+              {% for fp in ['Pix à Vista','Transferência Bancária','Dinheiro','50% entrada + 50% conclusão','30/70','Parcelado (combinar)'] %}
+              <option value="{{ fp }}" {% if fp_atual==fp %}selected{% endif %}>{{ fp }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Diagnóstico / Análise do Ambiente <small style="color:var(--nb-muted)">(aparece na proposta do cliente)</small></label>
+            <textarea name="analise_ambiente" class="form-control" rows="3" placeholder="Descreva o ambiente, necessidades identificadas, pontos técnicos relevantes...">{{ proposta.analise_ambiente or '' if proposta else '' }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Condições Comerciais</label>
+            <textarea name="condicoes" class="form-control" rows="3">{{ proposta.condicoes or 'Garantia de 90 dias para serviços de mão de obra.\nEquipamentos com garantia do fabricante.\nPrazo de execução: a confirmar após aprovação.' if not proposta else proposta.condicoes }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Observações Internas <small style="color:var(--nb-muted)">(não vai para o cliente)</small></label>
+            <textarea name="observacoes" class="form-control" rows="3" placeholder="Anotações internas...">{{ proposta.observacoes or '' if proposta else '' }}</textarea>
+          </div>
+        </div></div>
+      </div>
+    </div>
+
+    <!-- ── ITENS ── -->
+    <div id="tab-itens" class="prop-panel">
+      <div class="row g-3">
+        <div class="col-12 col-lg-6">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div style="font-weight:700;font-size:.9rem">Itens da Proposta</div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-nb" onclick="addItem('servico')"><i class="fas fa-wrench me-1"></i>Serviço</button>
+              <button type="button" class="btn btn-sm btn-nb" onclick="addItem('material')"><i class="fas fa-box me-1"></i>Material</button>
+            </div>
+          </div>
+          <div id="itens-container">
+            <div id="empty-msg" class="text-center py-4" style="color:var(--nb-muted){% if proposta and proposta.itens %};display:none{% endif %}">
+              <i class="fas fa-list fa-2x d-block mb-2" style="opacity:.2"></i>
+              Clique no catálogo ou nos botões acima
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div style="background:var(--nb-surface);border:1px solid var(--nb-border);border-radius:10px;padding:14px">
+            <!-- Abas do seletor -->
+            <div style="display:flex;border-bottom:1px solid var(--nb-border);margin-bottom:10px;gap:0">
+              <button type="button" class="sel-tab active" id="st-servicos" onclick="showSelTab('servicos',this)"
+                style="flex:1;padding:6px 4px;border:none;background:transparent;font-size:.72rem;font-weight:700;color:#00D4FF;border-bottom:2px solid #00D4FF;cursor:pointer">
+                <i class="fas fa-wrench me-1"></i>Serviços
+              </button>
+              <button type="button" class="sel-tab" id="st-catalogo" onclick="showSelTab('catalogo',this)"
+                style="flex:1;padding:6px 4px;border:none;background:transparent;font-size:.72rem;font-weight:700;color:var(--nb-muted);border-bottom:2px solid transparent;cursor:pointer">
+                <i class="fas fa-book-open me-1"></i>Catálogo
+              </button>
+              <button type="button" class="sel-tab" id="st-produtos" onclick="showSelTab('produtos',this)"
+                style="flex:1;padding:6px 4px;border:none;background:transparent;font-size:.72rem;font-weight:700;color:var(--nb-muted);border-bottom:2px solid transparent;cursor:pointer">
+                <i class="fas fa-box me-1"></i>Produtos
+              </button>
+            </div>
+
+            <input type="text" id="buscaCat" class="form-control form-control-sm mb-2" placeholder="Buscar..." oninput="filtrarTudo()">
+
+            <!-- SERVIÇOS -->
+            <div id="sel-servicos" style="max-height:360px;overflow-y:auto">
+              {% if servicos %}
+                {% set ns_cat = namespace(cat_atual='') %}
+                {% for s in servicos|sort(attribute='nome') %}
+                <div class="cat-item" data-src="servico" data-nome="{{ s.nome }}" data-tipo="servico" data-preco="{{ s.preco_unitario }}" data-desc="{{ (s.descricao or '')|replace('"','') }}" onclick="addFromCat(this)">
+                  <div style="font-size:.83rem;font-weight:600">{{ s.nome }}</div>
+                  {% if s.descricao %}<div style="font-size:.7rem;color:var(--nb-muted);line-height:1.3;margin-top:1px">{{ s.descricao[:65] }}</div>{% endif %}
+                  <div style="display:flex;gap:6px;margin-top:3px;align-items:center">
+                    <span class="tipo-badge tb-s" style="font-size:.58rem">Serviço</span>
+                    {% if s.preco_unitario > 0 %}<span style="font-size:.68rem;color:#10B981;font-weight:700">R$ {{ "%.2f"|format(s.preco_unitario) }}</span>
+                    {% else %}<span style="font-size:.68rem;color:#f59e0b">A definir</span>{% endif %}
+                  </div>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div style="text-align:center;padding:24px;color:var(--nb-muted)">
+                  <i class="fas fa-wrench fa-2x d-block mb-2" style="opacity:.2"></i>
+                  <div style="font-size:.8rem">Nenhum serviço cadastrado</div>
+                  <a href="{{ url_for('novo_servico') }}" class="btn btn-sm btn-nb mt-2" style="font-size:.72rem">+ Cadastrar serviço</a>
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- CATÁLOGO -->
+            <div id="sel-catalogo" style="max-height:360px;overflow-y:auto;display:none">
+              {% if categorias_catalogo %}
+              <div style="margin-bottom:8px;display:flex;flex-wrap:wrap;gap:3px">
+                <span class="cat-chip active" onclick="setCat('',this)">Todos</span>
+                {% for cat in categorias_catalogo %}<span class="cat-chip" onclick="setCat('{{ cat }}',this)">{{ cat.split('(')[0].strip()[:14] }}</span>{% endfor %}
+              </div>
+              {% endif %}
+              {% if catalogo %}
+                {% for s in catalogo %}
+                <div class="cat-item" data-src="catalogo" data-cat="{{ s.categoria }}" data-nome="{{ s.nome }}" data-tipo="{{ s.tipo_preco }}" data-preco="{{ s.preco_base }}" data-desc="{{ (s.descricao_cliente or s.descricao or '')|replace('"','') }}" data-horas="{{ s.tempo_horas }}" onclick="addFromCat(this)">
+                  <div style="font-size:.83rem;font-weight:600">{{ s.nome }}</div>
+                  <div style="font-size:.7rem;color:var(--nb-muted);line-height:1.3;margin-top:1px">{{ (s.descricao_cliente or s.descricao or '')[:65] }}</div>
+                  <div style="display:flex;gap:6px;margin-top:3px;align-items:center">
+                    <span class="tipo-badge tb-s" style="font-size:.58rem">{{ s.subcategoria[:10] if s.subcategoria else 'Catálogo' }}</span>
+                    {% if s.tipo_preco=='metro' %}<span style="font-size:.68rem;color:#00D4FF">por metro</span>
+                    {% elif s.tipo_preco=='ponto' %}<span style="font-size:.68rem;color:#00D4FF">por ponto</span>
+                    {% elif s.tipo_preco=='orcamento' %}<span style="font-size:.68rem;color:#f59e0b">sob orçamento</span>
+                    {% elif s.preco_base > 0 %}<span style="font-size:.68rem;color:#10B981;font-weight:700">R$ {{ "%.0f"|format(s.preco_base) }}</span>
+                    {% else %}<span style="font-size:.68rem;color:#f59e0b">A definir</span>{% endif %}
+                    {% if s.tempo_horas %}<span style="font-size:.65rem;color:var(--nb-muted)">~{{ s.tempo_horas }}h</span>{% endif %}
+                  </div>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div style="text-align:center;padding:24px;color:var(--nb-muted)">
+                  <i class="fas fa-book-open fa-2x d-block mb-2" style="opacity:.2"></i>
+                  <div style="font-size:.8rem">Catálogo vazio</div>
+                  <small>Execute: python resetar_catalogo.py</small>
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- PRODUTOS -->
+            <div id="sel-produtos" style="max-height:360px;overflow-y:auto;display:none">
+              {% if produtos %}
+                {% for p in produtos %}
+                <div class="cat-item" data-src="produto" data-nome="{{ p.nome }}" data-tipo="produto" data-preco="{{ p.preco_venda }}" data-desc="{{ (p.descricao or '')|replace('"','') }}" onclick="addFromCat(this)">
+                  <div style="font-size:.83rem;font-weight:600">{{ p.nome }}</div>
+                  {% if p.descricao %}<div style="font-size:.7rem;color:var(--nb-muted);margin-top:1px">{{ p.descricao[:60] }}</div>{% endif %}
+                  <div style="display:flex;gap:6px;margin-top:3px;align-items:center">
+                    <span class="tipo-badge tb-p" style="font-size:.58rem">Produto</span>
+                    {% if p.preco_venda > 0 %}<span style="font-size:.68rem;color:#10B981;font-weight:700">R$ {{ "%.2f"|format(p.preco_venda) }}</span>
+                    {% else %}<span style="font-size:.68rem;color:#f59e0b">A definir</span>{% endif %}
+                    {% if p.estoque is defined and p.estoque %}<span style="font-size:.65rem;color:var(--nb-muted)">Estoque: {{ p.estoque }}</span>{% endif %}
+                  </div>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div style="text-align:center;padding:24px;color:var(--nb-muted)">
+                  <i class="fas fa-box fa-2x d-block mb-2" style="opacity:.2"></i>
+                  <div style="font-size:.8rem">Nenhum produto cadastrado</div>
+                  <a href="{{ url_for('novo_produto') }}" class="btn btn-sm btn-nb mt-2" style="font-size:.72rem">+ Cadastrar produto</a>
+                </div>
+              {% endif %}
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ETAPAS ── -->
+    <div id="tab-etapas" class="prop-panel">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <div style="font-weight:700">Fases de Execução</div>
+          <small style="color:var(--nb-muted)">Aparece na proposta como cronograma de entrega ao cliente</small>
+        </div>
+        <button type="button" class="btn btn-sm btn-accent" onclick="addEtapa()"><i class="fas fa-plus me-1"></i>Adicionar Fase</button>
+      </div>
+      <div id="etapas-container">
+        {% if proposta and proposta.etapas %}
+          {% for e in proposta.etapas|sort(attribute='ordem') %}
+          <div class="etapa-row">
+            <div class="etapa-n">{{ loop.index }}</div>
+            <div class="flex-grow-1"><div class="row g-2">
+              <div class="col-md-6"><input type="text" name="etapa_titulo[]" class="form-control form-control-sm" value="{{ e.titulo }}" placeholder="Título da fase" required></div>
+              <div class="col-md-2"><input type="number" name="etapa_dias[]" class="form-control form-control-sm" value="{{ e.duracao_dias }}" placeholder="Dias" min="1"></div>
+              <div class="col-md-4 d-flex gap-1"><textarea name="etapa_desc[]" class="form-control form-control-sm" rows="1" placeholder="Detalhes...">{{ e.descricao or '' }}</textarea>
+                <button type="button" onclick="this.closest('.etapa-row').remove();renumEtapas()" style="background:none;border:none;color:#ef4444;padding:2px;flex-shrink:0"><i class="fas fa-times"></i></button>
+              </div>
+            </div></div>
+          </div>
+          {% endfor %}
+        {% else %}
+        <div id="etapa-empty" style="text-align:center;padding:30px;color:var(--nb-muted)">
+          <i class="fas fa-tasks fa-2x d-block mb-2" style="opacity:.2"></i>Nenhuma fase adicionada
+        </div>
+        {% endif %}
+      </div>
+      <div class="mt-3 p-3" style="background:rgba(0,212,255,.04);border-radius:8px;border:1px solid rgba(0,212,255,.1)">
+        <div style="font-size:.72rem;color:#00D4FF;font-weight:700;margin-bottom:8px"><i class="fas fa-lightbulb me-1"></i>Sugestões rápidas</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          {% for e in ['Levantamento técnico e visita ao local','Projeto e planejamento detalhado','Aquisição de materiais e equipamentos','Instalação e execução do serviço','Configuração e testes finais','Entrega, documentação e treinamento'] %}
+          <button type="button" class="btn btn-sm" style="background:rgba(0,212,255,.07);color:#00D4FF;border:1px solid rgba(0,212,255,.2);border-radius:15px;font-size:.7rem;padding:3px 12px" onclick="addEtapa('{{ e }}',1,'')">+ {{ e }}</button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CUSTOS ── -->
+    <div id="tab-custos" class="prop-panel">
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="prec-box">
+            <div style="font-size:.72rem;font-weight:700;color:#00D4FF;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px"><i class="fas fa-car me-1"></i>Custos Adicionais</div>
+            <div class="row g-2">
+              <div class="col-6 col-md-3"><label style="font-size:.72rem">Locomoção (R$)</label>
+                <input type="number" name="custo_locomocao" id="c_loco" class="form-control form-control-sm" value="{{ proposta.custo_locomocao or 0 if proposta else 0 }}" min="0" step="0.01" oninput="calcTotal()"></div>
+              <div class="col-6 col-md-3"><label style="font-size:.72rem">Alimentação (R$)</label>
+                <input type="number" name="custo_alimentacao" id="c_alim" class="form-control form-control-sm" value="{{ proposta.custo_alimentacao or 0 if proposta else 0 }}" min="0" step="0.01" oninput="calcTotal()"></div>
+              <div class="col-6 col-md-3"><label style="font-size:.72rem">Outros (R$)</label>
+                <input type="number" name="custo_outros" id="c_out" class="form-control form-control-sm" value="{{ proposta.custo_outros or 0 if proposta else 0 }}" min="0" step="0.01" oninput="calcTotal()"></div>
+              <div class="col-6 col-md-3"><label style="font-size:.72rem">Descrição</label>
+                <input type="text" name="descricao_custos" class="form-control form-control-sm" value="{{ proposta.descricao_custos or '' if proposta else '' }}" placeholder="Ex: 80km ida+volta"></div>
+            </div>
+            <div style="border-top:1px solid rgba(0,212,255,.1);margin-top:12px;padding-top:10px">
+              <div style="font-size:.68rem;color:var(--nb-muted);margin-bottom:6px">Calculadora de deslocamento (Linea 1.8 — R$6,60/L)</div>
+              <div class="d-flex gap-2 align-items-end flex-wrap">
+                <div><label style="font-size:.68rem">km ida+volta</label><input type="number" id="calc_km" class="form-control form-control-sm" style="width:80px" placeholder="0"></div>
+                <div><label style="font-size:.68rem">Refeições</label><input type="number" id="calc_ref" class="form-control form-control-sm" style="width:65px" value="0" min="0"></div>
+                <button type="button" class="btn btn-sm btn-nb" onclick="calcDesloc()"><i class="fas fa-calculator me-1"></i>Calc</button>
+                <span id="desloc-r" style="font-size:.85rem;font-weight:700;color:#10B981"></span>
+                <button type="button" id="btn-usar" class="btn btn-sm" style="display:none;background:rgba(16,185,129,.1);color:#10B981;border:1px solid rgba(16,185,129,.3);border-radius:8px;font-size:.72rem" onclick="usarDesloc()">Usar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="prec-box">
+            <div style="font-size:.72rem;font-weight:700;color:#7C3AED;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px"><i class="fas fa-percentage me-1"></i>Calculadora de Margem MEI</div>
+            <div class="row g-2">
+              <div class="col-md-4"><label style="font-size:.72rem">Tipo</label>
+                <select id="p_tipo" class="form-select form-select-sm"><option value="servico">Serviço</option><option value="produto">Produto/Revenda</option></select></div>
+              <div class="col-md-4"><label style="font-size:.72rem">Custo (R$)</label>
+                <input type="number" id="p_custo" class="form-control form-control-sm" placeholder="0.00" min="0" step="0.01"></div>
+              <div class="col-md-4"><label style="font-size:.72rem">Margem desejada (%)</label>
+                <input type="number" id="p_margem" class="form-control form-control-sm" value="30" min="5" max="300"></div>
+              <div class="col-md-4"><label style="font-size:.72rem">Horas trabalhadas</label>
+                <input type="number" id="p_horas" class="form-control form-control-sm" value="0" min="0" step="0.25"></div>
+              <div class="col-md-4"><label style="font-size:.72rem">Valor da sua hora (R$)</label>
+                <input type="number" id="p_hora_val" class="form-control form-control-sm" value="80" min="0"></div>
+              <div class="col-md-4 d-flex align-items-end">
+                <button type="button" class="btn btn-sm w-100" style="background:rgba(124,58,237,.15);color:#7C3AED;border:1px solid rgba(124,58,237,.3);border-radius:8px" onclick="calcPreco()"><i class="fas fa-calculator me-1"></i>Calcular</button>
+              </div>
+            </div>
+            <div id="prec-r" style="display:none;margin-top:12px;background:rgba(0,0,0,.2);border-radius:8px;padding:14px">
+              <div class="row g-2" style="font-size:.8rem">
+                <div class="col-6"><span style="color:var(--nb-muted)">Custo total:</span> <b id="pr-c">—</b></div>
+                <div class="col-6"><span style="color:var(--nb-muted)">DAS + Reserva:</span> <b id="pr-i">—</b></div>
+                <div class="col-6"><span style="color:var(--nb-muted)">Lucro líquido:</span> <b id="pr-l" style="color:#10B981">—</b></div>
+                <div class="col-6"><span style="color:var(--nb-muted)">Preço mínimo:</span> <b id="pr-m" style="color:#f59e0b">—</b></div>
+              </div>
+              <div style="text-align:center;margin-top:10px">
+                <div style="font-size:.65rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.5px">Preço Sugerido</div>
+                <div id="pr-p" style="font-size:1.9rem;font-weight:900;color:#00D4FF">—</div>
+                <div id="pr-a" style="font-size:.8rem;color:#10B981;font-weight:700">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ANEXOS ── -->
+    {% if proposta %}
+    <div id="tab-anexos" class="prop-panel">
+      <div class="mb-3">
+        <div style="font-weight:700;margin-bottom:4px">Documentação do Projeto</div>
+        <small style="color:var(--nb-muted)">Plantas baixas, fotos, diagramas elétricos/hidráulicos — aparecem na proposta do cliente</small>
+      </div>
+      {% if proposta.anexos_projeto %}
+        {% for anx in proposta.anexos_projeto %}
+        <div class="anx-item">
+          <i class="fas fa-file{% if anx.nome_arquivo.endswith(('jpg','jpeg','png','gif')) %}-image{% elif anx.nome_arquivo.endswith('pdf') %}-pdf{% endif %}" style="color:#00D4FF;font-size:1.1rem;flex-shrink:0"></i>
+          <div class="flex-grow-1">
+            <div style="font-size:.83rem;font-weight:600">{{ anx.nome_original }}</div>
+            <div style="font-size:.7rem;color:var(--nb-muted)">{{ anx.descricao or anx.tipo or '' }}</div>
+          </div>
+          <form method="POST" action="{{ url_for('excluir_anexo_proposta', id=proposta.id, aid=anx.id) }}" onsubmit="return confirm('Remover?')">
+            <button type="submit" style="background:none;border:none;color:#ef4444;font-size:.85rem"><i class="fas fa-trash"></i></button>
+          </form>
+        </div>
+        {% endfor %}
+      {% endif %}
+      <div class="card mt-3">
+        <div class="card-header"><i class="fas fa-upload"></i>Adicionar Documento</div>
+        <div class="card-body">
+          <div class="row g-2">
+            <div class="col-md-4"><label style="font-size:.72rem">Tipo</label>
+              <select id="anx_tipo" class="form-select form-select-sm">
+                <option value="planta_baixa">Planta Baixa</option><option value="planta_eletrica">Planta Elétrica</option>
+                <option value="planta_hidraulica">Planta Hidráulica</option><option value="foto">Foto do Ambiente</option>
+                <option value="diagrama_rede">Diagrama de Rede</option><option value="outro">Outro</option>
+              </select></div>
+            <div class="col-md-4"><label style="font-size:.72rem">Descrição</label>
+              <input type="text" id="anx_desc" class="form-control form-control-sm" placeholder="Ex: Planta térrea"></div>
+            <div class="col-md-4"><label style="font-size:.72rem">Arquivo</label>
+              <input type="file" id="anx_file" class="form-control form-control-sm" accept=".jpg,.jpeg,.png,.gif,.pdf,.webp"></div>
+            <div class="col-12">
+              <button type="button" class="btn btn-sm btn-accent" onclick="uploadAnexo()"><i class="fas fa-upload me-1"></i>Enviar</button>
+              <span id="anx-status" style="font-size:.78rem;margin-left:8px;color:var(--nb-muted)"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  </div><!-- /col-xl-8 -->
+
+  <!-- ═══ SIDEBAR ═══ -->
+  <div class="col-12 col-xl-4">
+    <div style="position:sticky;top:76px">
+      <div class="total-box mb-3">
+        <div style="color:rgba(255,255,255,.35);font-size:.62rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Total da Proposta</div>
+        <div id="totalGeral" style="font-size:2rem;font-weight:900;color:#00D4FF;line-height:1.1">R$ 0,00</div>
+        <div id="totalExtra" style="font-size:.72rem;color:rgba(255,255,255,.3);margin-top:2px"></div>
+        <div id="itensCount" style="color:rgba(255,255,255,.2);font-size:.7rem;margin-top:3px">0 item(s)</div>
+        <div id="breakdown" style="margin-top:10px;font-size:.72rem;color:rgba(255,255,255,.35)"></div>
+      </div>
+      <div class="card mb-3">
+        <div class="card-header"><i class="fas fa-palette"></i>Estilo Visual</div>
+        <div class="card-body">
+          <div class="row g-2">
+            {% for est, nome, grad in [('tech','Tech Dark','linear-gradient(135deg,#0A0E1A,#120B2E)'),('clean','Clean Light','linear-gradient(135deg,#f8fafc,#e2e8f0)'),('premium','Premium','linear-gradient(135deg,#1a0530,#2d1665)')] %}
+            <div class="col-4">
+              <label class="estilo-card {% if (proposta and proposta.template_estilo==est) or (not proposta and est=='tech') %}sel{% endif %}" id="ec-{{ est }}" onclick="selEstilo('{{ est }}')">
+                <input type="radio" name="template_estilo" value="{{ est }}" {% if (proposta and proposta.template_estilo==est) or (not proposta and est=='tech') %}checked{% endif %}>
+                <div class="estilo-prev" style="background:{{ grad }};border-radius:4px"></div>
+                <div style="font-size:.65rem;font-weight:700">{{ nome }}</div>
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="d-flex flex-column gap-2">
+        <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>{% if proposta %}Salvar Alterações{% else %}Criar Proposta{% endif %}</button>
+        {% if proposta %}<a href="{{ url_for('ver_proposta', id=proposta.id) }}" class="btn btn-nb"><i class="fas fa-eye me-1"></i>Ver Proposta</a>{% endif %}
+        <a href="{{ url_for('listar_propostas') }}" class="btn btn-nb">Cancelar</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+</form>
+{% endblock %}
+{% block extra_js %}
+<script>
+// TABS
+function showTab(id,btn){
+  document.querySelectorAll('.prop-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.prop-tab').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ITENS
+let iIdx=0;
+const TCFG={servico:{cor:'#00D4FF',icon:'fa-wrench',lbl:'Serviço',cls:'tb-s'},material:{cor:'#7C3AED',icon:'fa-ethernet',lbl:'Material',cls:'tb-m'},produto:{cor:'#10B981',icon:'fa-box',lbl:'Produto',cls:'tb-p'}};
+
+function addItem(tipo,nome='',preco=0,qtd=1,desc=''){
+  iIdx++;
+  const c=TCFG[tipo]||TCFG.servico;
+  const em=document.getElementById('empty-msg'); if(em) em.style.display='none';
+  const d=document.createElement('div'); d.className='item-card'; d.id='ic-'+iIdx;
+  d.style.borderLeft='3px solid '+c.cor;
+  d.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <span class="tipo-badge ${c.cls}">${c.lbl}</span>
+    <input type="hidden" name="item_tipo[]" value="${tipo}">
+    <button type="button" onclick="document.getElementById('ic-${iIdx}').remove();calcTotal()" style="margin-left:auto;background:none;border:none;color:#ef4444;font-size:.85rem"><i class="fas fa-times"></i></button>
+  </div>
+  <div class="row g-2">
+    <div class="col-12"><input type="text" name="item_desc[]" class="form-control form-control-sm" placeholder="Descrição para o cliente..." value="${nome}" required oninput="calcTotal()"></div>
+    <div class="col-12"><textarea name="item_desc_detalhada[]" class="form-control form-control-sm" rows="2" placeholder="Descrição técnica detalhada (opcional — aparece na proposta)...">${desc}</textarea></div>
+    <div class="col-4"><label style="font-size:.68rem;color:var(--nb-muted)">Quantidade</label>
+      <input type="number" name="item_qtd[]" class="form-control form-control-sm" value="${qtd}" min="0.01" step="0.01" oninput="calcTotal()"></div>
+    <div class="col-4"><label style="font-size:.68rem;color:var(--nb-muted)">Preço Unit.</label>
+      <input type="number" name="item_preco[]" class="form-control form-control-sm" value="${preco}" min="0" step="0.01" oninput="calcTotal()" data-base="${preco}"></div>
+    <div class="col-4"><label style="font-size:.68rem;color:var(--nb-muted)">Subtotal</label>
+      <div class="item-sub form-control form-control-sm" style="background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.2);color:#10B981;font-weight:700;text-align:right">R$ ${(qtd*preco).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+    </div>
+  </div>`;
+  document.getElementById('itens-container').appendChild(d);
+  calcTotal();
+}
+
+function addFromCat(el){
+  const tipo=el.dataset.tipo==='produto'?'produto':(['metro','ponto'].includes(el.dataset.tipo)?'material':'servico');
+  addItem(tipo,el.dataset.nome,parseFloat(el.dataset.preco)||0,1,el.dataset.desc||'');
+  el.style.background='rgba(0,212,255,.08)'; setTimeout(()=>el.style.background='',600);
+  showTab('itens',document.querySelectorAll('.prop-tab')[1]);
+}
+
+function calcTotal(){
+  let tot=0,cnt=0,srv=0,mat=0;
+  document.querySelectorAll('.item-card').forEach(card=>{
+    const desc=card.querySelector('[name="item_desc[]"]')?.value||'';
+    if(!desc.trim())return;
+    const q=parseFloat(card.querySelector('[name="item_qtd[]"]').value)||0;
+    const p=parseFloat(card.querySelector('[name="item_preco[]"]').value)||0;
+    const sub=q*p; tot+=sub; cnt++;
+    const tipo=card.querySelector('[name="item_tipo[]"]').value;
+    if(tipo==='servico') srv+=sub; else mat+=sub;
+    const s=card.querySelector('.item-sub');
+    if(s) s.textContent='R$ '+sub.toLocaleString('pt-BR',{minimumFractionDigits:2});
+  });
+  const loco=parseFloat(document.getElementById('c_loco')?.value)||0;
+  const alim=parseFloat(document.getElementById('c_alim')?.value)||0;
+  const out=parseFloat(document.getElementById('c_out')?.value)||0;
+  const extra=loco+alim+out;
+  document.getElementById('totalGeral').textContent='R$ '+(tot+extra).toLocaleString('pt-BR',{minimumFractionDigits:2});
+  document.getElementById('itensCount').textContent=cnt+' item(s)';
+  document.getElementById('totalExtra').textContent=extra>0?'(+R$ '+extra.toLocaleString('pt-BR',{minimumFractionDigits:2})+' extras)':'';
+  let bd='';
+  if(srv>0) bd+='Serviços: R$ '+srv.toLocaleString('pt-BR',{minimumFractionDigits:2})+'<br>';
+  if(mat>0) bd+='Materiais: R$ '+mat.toLocaleString('pt-BR',{minimumFractionDigits:2});
+  document.getElementById('breakdown').innerHTML=bd;
+}
+
+// SELETOR COM ABAS
+let catAtiva='', selTabAtiva='servicos';
+function showSelTab(tab, btn){
+  selTabAtiva=tab;
+  document.querySelectorAll('.sel-tab').forEach(b=>{
+    b.style.color='var(--nb-muted)';b.style.borderBottomColor='transparent';
+  });
+  btn.style.color='#00D4FF'; btn.style.borderBottomColor='#00D4FF';
+  ['servicos','catalogo','produtos'].forEach(t=>{
+    const el=document.getElementById('sel-'+t);
+    if(el) el.style.display=t===tab?'block':'none';
+  });
+  catAtiva='';
+  document.querySelectorAll('.cat-chip').forEach(c=>c.classList.remove('active'));
+  const first=document.querySelector('.cat-chip');
+  if(first) first.classList.add('active');
+  filtrarTudo();
+}
+function setCat(cat,el){
+  catAtiva=cat;
+  document.querySelectorAll('.cat-chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  filtrarTudo();
+}
+function filtrarTudo(){
+  const q=document.getElementById('buscaCat').value.toLowerCase();
+  document.querySelectorAll('.cat-item').forEach(el=>{
+    const src=el.dataset.src||'catalogo';
+    const visible=(src===selTabAtiva)||
+      (selTabAtiva==='servicos'&&src==='servico')||
+      (selTabAtiva==='catalogo'&&src==='catalogo')||
+      (selTabAtiva==='produtos'&&src==='produto');
+    if(!visible){el.style.display='none';return;}
+    const matchQ=el.dataset.nome.toLowerCase().includes(q);
+    const matchCat=!catAtiva||el.dataset.cat===catAtiva;
+    el.style.display=(matchQ&&matchCat)?'block':'none';
+  });
+}
+function filtrarCat(){filtrarTudo();}
+
+// ETAPAS
+let eIdx=0;
+function addEtapa(titulo='',dias=1,desc=''){
+  const em=document.getElementById('etapa-empty'); if(em) em.style.display='none';
+  eIdx++;
+  const num=document.querySelectorAll('.etapa-row').length+1;
+  const d=document.createElement('div'); d.className='etapa-row';
+  d.innerHTML=`<div class="etapa-n">${num}</div>
+  <div class="flex-grow-1"><div class="row g-2">
+    <div class="col-md-6"><input type="text" name="etapa_titulo[]" class="form-control form-control-sm" placeholder="Título da fase" value="${titulo}" required></div>
+    <div class="col-md-2"><input type="number" name="etapa_dias[]" class="form-control form-control-sm" placeholder="Dias" value="${dias}" min="1"></div>
+    <div class="col-md-4 d-flex gap-1"><textarea name="etapa_desc[]" class="form-control form-control-sm" rows="1" placeholder="Detalhes...">${desc}</textarea>
+      <button type="button" onclick="this.closest('.etapa-row').remove();renumEtapas()" style="background:none;border:none;color:#ef4444;padding:2px;flex-shrink:0"><i class="fas fa-times"></i></button>
+    </div>
+  </div></div>`;
+  document.getElementById('etapas-container').appendChild(d);
+}
+function renumEtapas(){document.querySelectorAll('.etapa-row .etapa-n').forEach((n,i)=>n.textContent=i+1);}
+
+// CALCULADORAS
+let dVal=0;
+function calcDesloc(){
+  const km=parseFloat(document.getElementById('calc_km').value)||0;
+  const ref=parseInt(document.getElementById('calc_ref').value)||0;
+  dVal=Math.round(((km/11.5)*6.60+ref*25)*100)/100;
+  document.getElementById('desloc-r').textContent='R$ '+dVal.toFixed(2).replace('.',',');
+  document.getElementById('btn-usar').style.display='inline-block';
+}
+function usarDesloc(){document.getElementById('c_loco').value=dVal.toFixed(2);calcTotal();}
+
+async function calcPreco(){
+  const r=await fetch('/api/calc/preco',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tipo:document.getElementById('p_tipo').value,custo:parseFloat(document.getElementById('p_custo').value)||0,
+    margem:parseFloat(document.getElementById('p_margem').value)||30,horas:parseFloat(document.getElementById('p_horas').value)||0,
+    hora_val:parseFloat(document.getElementById('p_hora_val').value)||80})}).then(r=>r.json());
+  const f=v=>'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
+  document.getElementById('pr-c').textContent=f(r.custo_total);
+  document.getElementById('pr-i').textContent=f((r.valor_das||0)+(r.valor_reserva||0));
+  document.getElementById('pr-l').textContent=f(r.valor_lucro||0);
+  document.getElementById('pr-m').textContent=f(r.preco_minimo||r.preco_sugerido);
+  document.getElementById('pr-p').textContent=f(r.preco_sugerido);
+  document.getElementById('pr-a').textContent='Arredondado: '+f(r.preco_arredondado);
+  document.getElementById('prec-r').style.display='block';
+}
+
+// UPLOAD ANEXO
+async function uploadAnexo(){
+  const file=document.getElementById('anx_file').files[0];
+  if(!file){alert('Selecione um arquivo');return;}
+  const fd=new FormData();
+  fd.append('arquivo',file);
+  fd.append('tipo_anexo',document.getElementById('anx_tipo').value);
+  fd.append('descricao',document.getElementById('anx_desc').value);
+  document.getElementById('anx-status').textContent='Enviando...';
+  try{
+    const resp=await fetch('{% if proposta %}{{ url_for("upload_anexo_proposta", id=proposta.id) }}{% else %}#{% endif %}',{method:'POST',body:fd});
+    if(resp.ok){document.getElementById('anx-status').textContent='✅ Enviado!';setTimeout(()=>location.reload(),800);}
+    else{document.getElementById('anx-status').textContent='❌ Erro ao enviar';}
+  }catch(e){document.getElementById('anx-status').textContent='❌ Erro de conexão';}
+}
+
+// ESTILO
+function selEstilo(e){
+  document.querySelectorAll('.estilo-card').forEach(c=>c.classList.remove('sel'));
+  const card=document.getElementById('ec-'+e);
+  if(card){card.classList.add('sel');card.querySelector('input').checked=true;}
+}
+
+// PRÉ-PREENCHIMENTO ao editar
+{% if proposta and proposta.itens %}
+window.addEventListener('load',function(){
+  {% for item in proposta.itens %}
+  addItem("{{ item.tipo or 'servico' }}",{{ item.descricao|tojson }},{{ item.preco_unitario or 0 }},{{ item.quantidade or 1 }},{{ (item.descricao_detalhada or '')|tojson }});
+  {% endfor %}
+});
+{% endif %}
+</script>
+{% endblock %}

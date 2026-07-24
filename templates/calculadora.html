@@ -1,0 +1,355 @@
+{% extends "base.html" %}
+{% block title %}Calculadoras — NeuraBusiness{% endblock %}
+{% block extra_head %}
+<style>
+.calc-card{background:var(--nb-surface);border:1px solid var(--nb-border);border-radius:12px;overflow:hidden;}
+.calc-tab{display:flex;gap:0;border-bottom:1px solid var(--nb-border);overflow-x:auto;}
+.calc-tab-btn{padding:10px 16px;border:none;background:transparent;color:var(--nb-muted);font-size:.82rem;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s;}
+.calc-tab-btn.active{color:#00D4FF;border-bottom-color:#00D4FF;}
+.calc-panel{display:none;padding:20px;}
+.calc-panel.active{display:block;}
+.result-box{background:linear-gradient(135deg,#0A0E1A,#120B2E);border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:18px;margin-top:16px;}
+.result-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.84rem;}
+.result-row:last-child{border:none;}
+.result-lbl{color:rgba(255,255,255,.5);}
+.result-val{font-weight:700;color:#e2e8f0;}
+.result-destaque{font-size:1.8rem;font-weight:900;color:#00D4FF;font-family:'Space Grotesk',sans-serif;}
+.result-arredond{font-size:1.1rem;font-weight:700;color:#10B981;}
+.mat-table{width:100%;border-collapse:collapse;font-size:.83rem;margin-top:10px;}
+.mat-table th{text-align:left;padding:7px 8px;background:linear-gradient(135deg,#0A0E1A,#120B2E);color:#00D4FF;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;}
+.mat-table td{padding:7px 8px;border-bottom:1px solid var(--nb-border);}
+.mat-table tr:nth-child(even) td{background:var(--nb-surface-alt);}
+.btn-calcular{background:linear-gradient(135deg,#00D4FF,#0099CC);color:#0A0E1A;border:none;border-radius:8px;font-weight:800;font-size:.9rem;padding:10px 24px;cursor:pointer;transition:all .3s;width:100%;margin-top:8px;}
+.btn-calcular:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,212,255,.3);}
+.tip-box{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:10px 14px;font-size:.8rem;color:var(--nb-text);margin-top:10px;}
+.tip-box i{color:#f59e0b;margin-right:6px;}
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fas fa-calculator me-2" style="color:#00D4FF"></i>Calculadoras Inteligentes</h1>
+  <p>MEI · Deslocamento · Infraestrutura de Rede · CFTV · Cerca Elétrica</p>
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="calc-card">
+      <div class="calc-tab">
+        <button class="calc-tab-btn active" onclick="aba('mei',this)"><i class="fas fa-tag me-1"></i>Precificação MEI</button>
+        <button class="calc-tab-btn" onclick="aba('desloc',this)"><i class="fas fa-car me-1"></i>Deslocamento</button>
+        <button class="calc-tab-btn" onclick="aba('rede',this)"><i class="fas fa-network-wired me-1"></i>Rede</button>
+        <button class="calc-tab-btn" onclick="aba('cftv',this)"><i class="fas fa-video me-1"></i>CFTV</button>
+        <button class="calc-tab-btn" onclick="aba('cerca',this)"><i class="fas fa-bolt me-1"></i>Cerca Elétrica</button>
+      </div>
+
+      <!-- PRECIFICAÇÃO MEI -->
+      <div id="p-mei" class="calc-panel active">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Tipo</label>
+            <select id="mei-tipo" class="form-select">
+              <option value="servico">Serviço</option>
+              <option value="produto">Produto / Revenda</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Margem de Lucro Desejada (%)</label>
+            <input type="number" id="mei-margem" class="form-control" value="30" min="5" max="200" step="1">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Custo do Produto/Material (R$)</label>
+            <input type="number" id="mei-custo" class="form-control" value="0" min="0" step="0.01">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Custo de Deslocamento (R$)</label>
+            <input type="number" id="mei-desloc" class="form-control" value="0" min="0" step="0.01">
+            <small style="color:var(--nb-muted);font-size:.72rem">Use a calc. de deslocamento ao lado</small>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Horas de Execução</label>
+            <input type="number" id="mei-horas" class="form-control" value="0" min="0" step="0.25">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Valor por Hora (R$)</label>
+            <input type="number" id="mei-hora-val" class="form-control" value="80" min="0" step="1">
+          </div>
+          <div class="col-12"><button class="btn-calcular" onclick="calcMEI()"><i class="fas fa-calculator me-2"></i>Calcular Preço</button></div>
+        </div>
+        <div id="mei-result" style="display:none" class="result-box">
+          <div class="result-row"><span class="result-lbl">Custo total</span><span class="result-val" id="r-custo-tot">—</span></div>
+          <div class="result-row"><span class="result-lbl">DAS (5%)</span><span class="result-val" id="r-das">—</span></div>
+          <div class="result-row"><span class="result-lbl">ISS (2%)</span><span class="result-val" id="r-iss">—</span></div>
+          <div class="result-row"><span class="result-lbl">Reserva (5%)</span><span class="result-val" id="r-res">—</span></div>
+          <div class="result-row"><span class="result-lbl">Lucro desejado</span><span class="result-val" id="r-lucro">—</span></div>
+          <div style="margin-top:12px;text-align:center">
+            <div style="color:rgba(255,255,255,.4);font-size:.7rem;text-transform:uppercase;letter-spacing:1px">Preço sugerido</div>
+            <div class="result-destaque" id="r-preco">—</div>
+            <div class="result-arredond" id="r-arr">—</div>
+          </div>
+        </div>
+        <div class="tip-box"><i class="fas fa-lightbulb"></i><b>MEI:</b> O DAS corresponde a 5% do faturamento. Para serviços, inclui INSS e ISS. Faturamento máximo MEI: R$81.000/ano.</div>
+      </div>
+
+      <!-- DESLOCAMENTO -->
+      <div id="p-desloc" class="calc-panel">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Distância Total (km) <small style="color:var(--nb-muted)">ida + volta</small></label>
+            <input type="number" id="d-km" class="form-control" value="0" min="0" step="1">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Tipo de Via</label>
+            <select id="d-via" class="form-select">
+              <option value="estrada">Estrada (11,5 km/l)</option>
+              <option value="cidade">Cidade (9,5 km/l)</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Refeições (R$25/un)</label>
+            <input type="number" id="d-ref" class="form-control" value="0" min="0">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Diária (R$)</label>
+            <input type="number" id="d-diaria" class="form-control" value="0" min="0" step="1">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Pedágios (R$)</label>
+            <input type="number" id="d-ped" class="form-control" value="0" min="0" step="0.5">
+          </div>
+          <div class="col-12"><button class="btn-calcular" onclick="calcDesloc()"><i class="fas fa-car me-2"></i>Calcular Custo</button></div>
+        </div>
+        <div id="desloc-result" style="display:none" class="result-box">
+          <div class="result-row"><span class="result-lbl">Distância</span><span class="result-val" id="d-r-km">—</span></div>
+          <div class="result-row"><span class="result-lbl">Litros gastos</span><span class="result-val" id="d-r-litros">—</span></div>
+          <div class="result-row"><span class="result-lbl">Combustível</span><span class="result-val" id="d-r-comb">—</span></div>
+          <div class="result-row"><span class="result-lbl">Refeições</span><span class="result-val" id="d-r-ref">—</span></div>
+          <div class="result-row"><span class="result-lbl">Diária</span><span class="result-val" id="d-r-diaria">—</span></div>
+          <div class="result-row"><span class="result-lbl">Pedágios</span><span class="result-val" id="d-r-ped">—</span></div>
+          <div class="result-row" style="border:none;margin-top:6px">
+            <span style="color:rgba(255,255,255,.5)">Custo total</span>
+            <span class="result-destaque" id="d-r-tot">—</span>
+          </div>
+          <div style="text-align:center;margin-top:6px">
+            <button onclick="copiarDeslocMEI()" class="btn btn-sm btn-nb"><i class="fas fa-arrow-right me-1"></i>Usar na Precificação MEI</button>
+          </div>
+        </div>
+        <div class="tip-box"><i class="fas fa-car"></i><b>Fiat Linea 1.8 Dualogic</b> | Base: Mataraca-PB | Gasolina R$6,60/litro</div>
+      </div>
+
+      <!-- INFRA DE REDE -->
+      <div id="p-rede" class="calc-panel">
+        <div class="row g-3">
+          <div class="col-md-4"><label class="form-label">Nº de Pontos de Rede</label><input type="number" id="r-pontos" class="form-control" value="8" min="1"></div>
+          <div class="col-md-4">
+            <label class="form-label">Tipo de Cabo</label>
+            <select id="r-cabo" class="form-select">
+              <option value="cat6_cobre">Cat6 100% Cobre</option>
+              <option value="cat5e_cobre">Cat5e 100% Cobre</option>
+              <option value="cat5e_acobreado">Cat5e Acobreado</option>
+              <option value="fibra_monomodo">Fibra Óptica</option>
+            </select>
+          </div>
+          <div class="col-md-4"><label class="form-label">Metros por Ponto (estimativa)</label><input type="number" id="r-metros" class="form-control" value="15" min="5"></div>
+          <div class="col-md-4">
+            <label class="form-label">Dificuldade da Obra</label>
+            <select id="r-dif" class="form-select">
+              <option value="facil">Fácil (forro/shaft)</option>
+              <option value="normal" selected>Normal (parede)</option>
+              <option value="dificil">Difícil (laje/subterrâneo)</option>
+            </select>
+          </div>
+          <div class="col-md-4 d-flex align-items-end gap-3 pb-1">
+            <div class="form-check"><input type="checkbox" id="r-tomada" class="form-check-input" checked><label class="form-check-label" style="color:var(--nb-text);font-size:.83rem">Tomadas Keystone</label></div>
+          </div>
+          <div class="col-md-4 d-flex align-items-end gap-3 pb-1">
+            <div class="form-check"><input type="checkbox" id="r-patch" class="form-check-input" checked><label class="form-check-label" style="color:var(--nb-text);font-size:.83rem">Patch Panel</label></div>
+          </div>
+          <div class="col-12"><button class="btn-calcular" onclick="calcRede()"><i class="fas fa-network-wired me-2"></i>Calcular Materiais</button></div>
+        </div>
+        <div id="rede-result" style="display:none">
+          <table class="mat-table" id="rede-mat-table"><thead><tr><th>Material</th><th>Qtd</th><th>Un</th><th>Unit.</th><th>Total</th></tr></thead><tbody></tbody></table>
+          <div class="result-box" style="margin-top:10px">
+            <div class="result-row"><span class="result-lbl">Custo de material</span><span class="result-val" id="r-r-mat">—</span></div>
+            <div class="result-row"><span class="result-lbl">Mão de obra estimada</span><span class="result-val" id="r-r-hrs">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CFTV -->
+      <div id="p-cftv" class="calc-panel">
+        <div class="row g-3">
+          <div class="col-md-4"><label class="form-label">Nº de Câmeras</label><input type="number" id="c-cams" class="form-control" value="4" min="1"></div>
+          <div class="col-md-4">
+            <label class="form-label">Tipo de Cabo</label>
+            <select id="c-cabo" class="form-select">
+              <option value="cftv_4vias">CFTV 4 Vias</option>
+              <option value="rg59">Coaxial RG59</option>
+              <option value="rg6">Coaxial RG6</option>
+              <option value="utp_cat6">UTP Cat6 (IP)</option>
+            </select>
+          </div>
+          <div class="col-md-4"><label class="form-label">Metros por Câmera</label><input type="number" id="c-metros" class="form-control" value="20" min="5"></div>
+          <div class="col-12">
+            <label class="form-label">Dificuldade</label>
+            <select id="c-dif" class="form-select">
+              <option value="facil">Fácil</option><option value="normal" selected>Normal</option><option value="dificil">Difícil</option>
+            </select>
+          </div>
+          <div class="col-12"><button class="btn-calcular" onclick="calcCFTV()"><i class="fas fa-video me-2"></i>Calcular Materiais</button></div>
+        </div>
+        <div id="cftv-result" style="display:none">
+          <table class="mat-table" id="cftv-mat-table"><thead><tr><th>Material</th><th>Qtd</th><th>Un</th><th>Unit.</th><th>Total</th></tr></thead><tbody></tbody></table>
+          <div class="result-box" style="margin-top:10px">
+            <div class="result-row"><span class="result-lbl">Custo de material</span><span class="result-val" id="c-r-mat">—</span></div>
+            <div class="result-row"><span class="result-lbl">Mão de obra estimada</span><span class="result-val" id="c-r-hrs">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CERCA ELÉTRICA -->
+      <div id="p-cerca" class="calc-panel">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">Metros de Cerca</label><input type="number" id="ce-metros" class="form-control" value="50" min="1"></div>
+          <div class="col-md-6">
+            <label class="form-label">Dificuldade</label>
+            <select id="ce-dif" class="form-select">
+              <option value="facil">Fácil (terreno plano)</option><option value="normal" selected>Normal</option><option value="dificil">Difícil (terreno irregular)</option>
+            </select>
+          </div>
+          <div class="col-12"><button class="btn-calcular" onclick="calcCerca()"><i class="fas fa-bolt me-2"></i>Calcular Materiais</button></div>
+        </div>
+        <div id="cerca-result" style="display:none">
+          <table class="mat-table" id="cerca-mat-table"><thead><tr><th>Material</th><th>Qtd</th><th>Un</th><th>Unit.</th><th>Total</th></tr></thead><tbody></tbody></table>
+          <div class="result-box" style="margin-top:10px">
+            <div class="result-row"><span class="result-lbl">Custo de material</span><span class="result-val" id="ce-r-mat">—</span></div>
+            <div class="result-row"><span class="result-lbl">Mão de obra estimada</span><span class="result-val" id="ce-r-hrs">—</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAINEL DIREITO: REFERÊNCIA -->
+  <div class="col-12 col-lg-5">
+    <div class="card mb-3">
+      <div class="card-header"><i class="fas fa-info-circle"></i>Guia de Margens — MEI</div>
+      <div class="card-body" style="font-size:.83rem">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Tipo de Serviço</th><th>Margem Mínima</th><th>Ideal</th></tr></thead>
+          <tbody>
+            <tr><td>Manutenção Simples</td><td style="color:#f59e0b">25%</td><td style="color:#10B981">35–45%</td></tr>
+            <tr><td>Manutenção Complexa</td><td style="color:#f59e0b">30%</td><td style="color:#10B981">40–50%</td></tr>
+            <tr><td>Instalação de Rede</td><td style="color:#f59e0b">25%</td><td style="color:#10B981">35–40%</td></tr>
+            <tr><td>Instalação CFTV</td><td style="color:#f59e0b">25%</td><td style="color:#10B981">35–40%</td></tr>
+            <tr><td>Revenda de Produto</td><td style="color:#f59e0b">20%</td><td style="color:#10B981">30–40%</td></tr>
+            <tr><td>Consultoria/Projeto</td><td style="color:#f59e0b">40%</td><td style="color:#10B981">50–60%</td></tr>
+          </tbody>
+        </table>
+        <div class="tip-box mt-2"><i class="fas fa-info-circle"></i>Para MEI, o DAS+ISS consome ~7% da receita. Adicione sempre uma reserva para ferramentas, imprevistos e reposição de equipamentos.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><i class="fas fa-list"></i>Catálogo de Serviços</div>
+      <div class="card-body p-0">
+        <a href="{{ url_for('catalogo_servicos') }}" class="d-flex align-items-center gap-3 p-3" style="text-decoration:none;border-bottom:1px solid var(--nb-border)">
+          <i class="fas fa-book-open" style="color:#00D4FF;font-size:1.2rem"></i>
+          <div><div style="font-weight:600;color:var(--nb-text)">Ver Catálogo Completo</div><div style="font-size:.78rem;color:var(--nb-muted)">49 serviços pré-cadastrados</div></div>
+          <i class="fas fa-chevron-right ms-auto" style="color:var(--nb-muted)"></i>
+        </a>
+        <a href="{{ url_for('listar_materiais') }}" class="d-flex align-items-center gap-3 p-3" style="text-decoration:none">
+          <i class="fas fa-boxes" style="color:#7C3AED;font-size:1.2rem"></i>
+          <div><div style="font-weight:600;color:var(--nb-text)">Materiais de Infra</div><div style="font-size:.78rem;color:var(--nb-muted)">32 materiais cadastrados</div></div>
+          <i class="fas fa-chevron-right ms-auto" style="color:var(--nb-muted)"></i>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}<script>
+const R=v=>'R$ '+parseFloat(v).toLocaleString('pt-BR',{minimumFractionDigits:2});
+let lastDesloc=0;
+
+function aba(id,btn){
+  document.querySelectorAll('.calc-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.calc-tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('p-'+id).classList.add('active');
+  btn.classList.add('active');
+}
+
+async function calcMEI(){
+  const data={
+    tipo:document.getElementById('mei-tipo').value,
+    margem:+document.getElementById('mei-margem').value,
+    preco_custo:+document.getElementById('mei-custo').value,
+    desloc:+document.getElementById('mei-desloc').value,
+    horas:+document.getElementById('mei-horas').value,
+    valor_hora:+document.getElementById('mei-hora-val').value
+  };
+  const r=await(await fetch('/api/calc/mei',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json();
+  document.getElementById('r-custo-tot').textContent=R(r.custo_total);
+  document.getElementById('r-das').textContent=R(r.valor_impostos*(r.das_pct/(r.das_pct+r.iss_pct||1)));
+  document.getElementById('r-iss').textContent=r.iss_pct?R(r.valor_impostos*(r.iss_pct/(r.das_pct+r.iss_pct))):'—';
+  document.getElementById('r-res').textContent=R(r.valor_reserva);
+  document.getElementById('r-lucro').textContent=R(r.valor_lucro);
+  document.getElementById('r-preco').textContent=R(r.preco_sugerido);
+  document.getElementById('r-arr').textContent='Arredondado: '+R(r.preco_arredond);
+  document.getElementById('mei-result').style.display='block';
+}
+
+async function calcDesloc(){
+  const data={km:+document.getElementById('d-km').value,tipo_via:document.getElementById('d-via').value,refeicoes:+document.getElementById('d-ref').value,diaria:+document.getElementById('d-diaria').value,pedagios:+document.getElementById('d-ped').value};
+  const r=await(await fetch('/api/calc/desloc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json();
+  lastDesloc=r.custo_total;
+  document.getElementById('d-r-km').textContent=r.distancia_km+' km';
+  document.getElementById('d-r-litros').textContent=r.litros+' L';
+  document.getElementById('d-r-comb').textContent=R(r.custo_combustivel);
+  document.getElementById('d-r-ref').textContent=R(r.custo_refeicoes);
+  document.getElementById('d-r-diaria').textContent=R(r.diaria);
+  document.getElementById('d-r-ped').textContent=R(r.pedagios);
+  document.getElementById('d-r-tot').textContent=R(r.custo_total);
+  document.getElementById('desloc-result').style.display='block';
+}
+
+function copiarDeslocMEI(){
+  document.getElementById('mei-desloc').value=lastDesloc.toFixed(2);
+  aba('mei',document.querySelectorAll('.calc-tab-btn')[0]);
+}
+
+function renderMat(tblId,mats,matEl,hrEl){
+  const tb=document.getElementById(tblId).querySelector('tbody');
+  tb.innerHTML=mats.map(m=>`<tr><td>${m.nome}</td><td>${m.qtd}</td><td>${m.un}</td><td>${R(m.preco_unit)}</td><td>${R(m.total)}</td></tr>`).join('');
+  document.getElementById(matEl).textContent=R(mats.reduce((a,m)=>a+m.total,0));
+  document.getElementById(hrEl).textContent=document.getElementById(hrEl.replace('-r-','-r-'))?.textContent||'';
+}
+
+async function calcRede(){
+  const data={pontos:+document.getElementById('r-pontos').value,cabo:document.getElementById('r-cabo').value,metros_ponto:+document.getElementById('r-metros').value,dificuldade:document.getElementById('r-dif').value,tomadas:document.getElementById('r-tomada').checked,patch_panel:document.getElementById('r-patch').checked};
+  const r=await(await fetch('/api/calc/infra-rede',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json();
+  const tb=document.getElementById('rede-mat-table').querySelector('tbody');
+  tb.innerHTML=r.materiais.filter(m=>m.qtd>0).map(m=>`<tr><td>${m.nome}</td><td>${m.qtd}</td><td>${m.un}</td><td>${R(m.preco_unit)}</td><td>${R(m.total)}</td></tr>`).join('');
+  document.getElementById('r-r-mat').textContent=R(r.custo_material);
+  document.getElementById('r-r-hrs').textContent=r.horas_estimadas+' horas estimadas';
+  document.getElementById('rede-result').style.display='block';
+}
+
+async function calcCFTV(){
+  const data={cameras:+document.getElementById('c-cams').value,cabo:document.getElementById('c-cabo').value,metros_camera:+document.getElementById('c-metros').value,dificuldade:document.getElementById('c-dif').value};
+  const r=await(await fetch('/api/calc/infra-cftv',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json();
+  const tb=document.getElementById('cftv-mat-table').querySelector('tbody');
+  tb.innerHTML=r.materiais.map(m=>`<tr><td>${m.nome}</td><td>${m.qtd}</td><td>${m.un}</td><td>${R(m.preco_unit)}</td><td>${R(m.total)}</td></tr>`).join('');
+  document.getElementById('c-r-mat').textContent=R(r.custo_material);
+  document.getElementById('c-r-hrs').textContent=r.horas_estimadas+' horas estimadas';
+  document.getElementById('cftv-result').style.display='block';
+}
+
+async function calcCerca(){
+  const data={metros:+document.getElementById('ce-metros').value,dificuldade:document.getElementById('ce-dif').value};
+  const r=await(await fetch('/api/calc/cerca',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json();
+  const tb=document.getElementById('cerca-mat-table').querySelector('tbody');
+  tb.innerHTML=r.materiais.map(m=>`<tr><td>${m.nome}</td><td>${m.qtd}</td><td>${m.un}</td><td>${R(m.preco_unit)}</td><td>${R(m.total)}</td></tr>`).join('');
+  document.getElementById('ce-r-mat').textContent=R(r.custo_material);
+  document.getElementById('ce-r-hrs').textContent=r.horas_estimadas+' horas estimadas';
+  document.getElementById('cerca-result').style.display='block';
+}
+</script>{% endblock %}

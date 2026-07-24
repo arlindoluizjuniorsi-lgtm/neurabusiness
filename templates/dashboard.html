@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h1><i class="fas fa-chart-line me-2" style="color:#f97316"></i>Dashboard</h1>
+    <p id="dataAtual">Carregando...</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('nova_proposta') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Nova Proposta</a>
+    <a href="{{ url_for('nova_os') }}" class="btn btn-nb"><i class="fas fa-tools me-1"></i>Nova OS</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#f97316"><div class="stat-val">{{ total_produtos }}</div><div class="stat-lbl">Produtos Ativos</div><i class="fas fa-box stat-icon"></i></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#ea6c0a"><div class="stat-val">{{ total_clientes }}</div><div class="stat-lbl">Clientes</div><i class="fas fa-users stat-icon"></i></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#10B981"><div class="stat-val">{{ propostas_aprovadas }}</div><div class="stat-lbl">Propostas Aprovadas</div><i class="fas fa-check-circle stat-icon"></i></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#F59E0B"><div class="stat-val">R${{ "%.0f"|format(receita_aprovada) }}</div><div class="stat-lbl">Receita Aprovada</div><i class="fas fa-dollar-sign stat-icon"></i></div></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-4"><div class="stat-card text-center" style="--sc:#3B82F6"><div style="font-size:1.5rem;font-weight:800;color:#3b82f6;font-family:'Space Grotesk',sans-serif">{{ propostas_enviadas }}</div><div class="stat-lbl">Enviadas</div></div></div>
+  <div class="col-4"><div class="stat-card text-center" style="--sc:#f97316"><div style="font-size:1.5rem;font-weight:800;color:#f97316;font-family:'Space Grotesk',sans-serif">{{ os_abertas }}</div><div class="stat-lbl">OS Abertas</div></div></div>
+  <div class="col-4"><div class="stat-card text-center" style="--sc:#F59E0B"><div style="font-size:1.5rem;font-weight:800;color:#f59e0b;font-family:'Space Grotesk',sans-serif">{{ os_andamento }}</div><div class="stat-lbl">OS em Andamento</div></div></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-file-invoice-dollar"></i>Últimas Propostas
+        <a href="{{ url_for('listar_propostas') }}" class="btn btn-sm float-end" style="color:#f97316;font-size:.68rem;padding:2px 8px;border:1px solid rgba(249,115,22,.3);border-radius:5px">Ver todas</a>
+      </div>
+      <div class="card-body p-0">
+        {% if ultimas_propostas %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Número</th><th>Cliente</th><th>Total</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for p in ultimas_propostas %}
+            <tr style="cursor:pointer" onclick="location.href='{{ url_for('ver_proposta', id=p.id) }}'">
+              <td><code style="color:#f97316;font-size:.78rem">{{ p.numero }}</code></td>
+              <td style="font-weight:500">{{ (p.cliente.nome or '')[:18] if p.cliente else '' }}</td>
+              {% set total_p = namespace(v=0) %}
+              {% for i in p.itens %}{% set total_p.v = total_p.v + i.quantidade * i.preco_unitario %}{% endfor %}
+              {% set total_p.v = total_p.v + (p.custo_locomocao or 0) + (p.custo_alimentacao or 0) + (p.custo_outros or 0) %}
+              <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(total_p.v) }}</td>
+              <td><span class="status-badge s-{{ p.status }}">{{ p.status }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-4" style="color:var(--nb-muted)"><i class="fas fa-file-invoice-dollar fa-2x d-block mb-2" style="opacity:.2"></i>Nenhuma proposta ainda</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-tools"></i>Últimas OS
+        <a href="{{ url_for('listar_os') }}" class="btn btn-sm float-end" style="color:#f97316;font-size:.68rem;padding:2px 8px;border:1px solid rgba(249,115,22,.3);border-radius:5px">Ver todas</a>
+      </div>
+      <div class="card-body p-0">
+        {% if ultimas_os %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Número</th><th>Título</th><th>Prioridade</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for os in ultimas_os %}
+            <tr style="cursor:pointer" onclick="location.href='{{ url_for('ver_os', id=os.id) }}'">
+              <td><code style="color:#ea6c0a;font-size:.78rem">{{ os.numero }}</code></td>
+              <td style="font-weight:500">{{ (os.titulo or '')[:20] }}</td>
+              <td><span class="status-badge" style="background:{% if os.prioridade=='urgente' %}rgba(239,68,68,.15);color:#ef4444{% elif os.prioridade=='alta' %}rgba(245,158,11,.15);color:#f59e0b{% else %}rgba(100,116,139,.12);color:#64748b{% endif %}">{{ os.prioridade }}</span></td>
+              <td><span class="status-badge s-{{ os.status }}">{{ os.status }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-4" style="color:var(--nb-muted)"><i class="fas fa-tools fa-2x d-block mb-2" style="opacity:.2"></i>Nenhuma OS ainda</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const m=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const d=new Date();
+document.getElementById('dataAtual').textContent=`${d.getDate()} de ${m[d.getMonth()]} de ${d.getFullYear()} — {{ empresa_atual.fantasia if empresa_atual else '' }}`;
+</script>
+{% endblock %}

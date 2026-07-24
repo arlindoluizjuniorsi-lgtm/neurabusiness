@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeuraBusiness — Login</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{font-family:'Inter',sans-serif;}
+body{background:linear-gradient(135deg,#080808 0%,#0a0a0a 50%,#111111 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.grid-bg{position:fixed;inset:0;background-image:linear-gradient(rgba(249,115,22,.03)1px,transparent 1px),linear-gradient(90deg,rgba(249,115,22,.03)1px,transparent 1px);background-size:40px 40px;pointer-events:none;}
+.glow{position:fixed;width:400px;height:400px;border-radius:50%;pointer-events:none;}
+.glow1{top:-120px;right:-120px;background:radial-gradient(circle,rgba(234,108,10,.08),transparent 70%);}
+.glow2{bottom:-120px;left:-120px;background:radial-gradient(circle,rgba(249,115,22,.06),transparent 70%);}
+.wrap{width:100%;max-width:460px;position:relative;z-index:10;padding:20px;}
+.brand{text-align:center;margin-bottom:22px;animation:fd .5s ease both;}
+.logo-box{width:56px;height:56px;background:linear-gradient(135deg,#f97316,#ea6c0a);border-radius:15px;display:inline-flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:900;color:#0a0a0a;margin-bottom:12px;box-shadow:0 8px 24px rgba(249,115,22,.25);}
+.brand h1{font-family:'Barlow Condensed',sans-serif;font-size:1.65rem;font-weight:900;color:#fff;margin:0;}
+.brand h1 span{color:#f97316;}
+.brand p{color:rgba(255,255,255,.3);font-size:.7rem;margin:3px 0 0;letter-spacing:1.5px;text-transform:uppercase;}
+.card{background:rgba(13,18,32,.97)!important;border:1px solid rgba(249,115,22,.15)!important;border-radius:20px;padding:28px 26px;box-shadow:0 24px 64px rgba(0,0,0,.6)!important;animation:fu .5s ease .1s both;}
+/* STEP INDICATOR */
+.steps{display:flex;align-items:center;margin-bottom:20px;gap:0;}
+.step{display:flex;align-items:center;gap:6px;font-size:.72rem;font-weight:700;color:rgba(255,255,255,.3);transition:color .3s;}
+.step.active{color:#f97316;}
+.step.done{color:rgba(16,185,129,.8);}
+.step-dot{width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:800;transition:all .3s;flex-shrink:0;}
+.step.active .step-dot{border-color:#f97316;background:rgba(249,115,22,.1);color:#f97316;}
+.step.done .step-dot{border-color:#10B981;background:rgba(16,185,129,.12);color:#10B981;}
+.step-line{flex:1;height:1px;background:rgba(255,255,255,.08);margin:0 6px;}
+/* PANELS */
+.panel{display:none;} .panel.active{display:block;}
+.lbl{font-size:.7rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:7px;}
+.iw{position:relative;}
+.iw i{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:#f97316;font-size:.8rem;z-index:2;}
+.fc{background:#111827!important;border:1px solid #1e293b!important;color:#e2e8f0!important;border-radius:10px;padding:10px 14px 10px 38px;font-size:.9rem;transition:all .3s;width:100%;}
+.fc:focus{border-color:#f97316!important;box-shadow:0 0 0 3px rgba(249,115,22,.1)!important;outline:none;}
+.fc::placeholder{color:#374151;}
+.btn-p{width:100%;padding:13px;background:linear-gradient(135deg,#f97316,#ea6c0a);border:none;color:#0a0a0a;font-weight:900;border-radius:10px;font-size:.93rem;cursor:pointer;transition:all .3s;font-family:'Barlow Condensed',sans-serif;margin-top:4px;}
+.btn-p:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(249,115,22,.4);}
+.btn-p:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+/* EMPRESA CARDS */
+.emp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:16px;}
+.emp-card{background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.08);border-radius:12px;padding:10px 6px;text-align:center;cursor:pointer;transition:all .2s;position:relative;}
+.emp-card:hover{border-color:rgba(249,115,22,.4);background:rgba(249,115,22,.05);}
+.emp-card.sel{border-color:#f97316;background:rgba(249,115,22,.1);}
+.emp-card input{display:none;}
+.emp-logo{width:44px;height:44px;object-fit:contain;margin:0 auto 5px;display:block;border-radius:6px;}
+.emp-ph{width:44px;height:44px;background:linear-gradient(135deg,#0a0a0a,#1a1040);border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 5px;font-family:'Barlow Condensed',sans-serif;font-weight:800;color:#f97316;font-size:1.1rem;border:1px solid rgba(249,115,22,.2);}
+.emp-nm{font-size:.7rem;font-weight:700;color:rgba(255,255,255,.7);}
+.emp-chk{position:absolute;top:5px;right:5px;width:15px;height:15px;background:#f97316;border-radius:50%;display:none;align-items:center;justify-content:center;}
+.emp-chk i{font-size:.5rem;color:#0a0a0a;}
+.emp-card.sel .emp-chk{display:flex;}
+.user-info{display:flex;align-items:center;gap:10px;background:rgba(249,115,22,.06);border:1px solid rgba(249,115,22,.15);border-radius:10px;padding:10px 14px;margin-bottom:16px;}
+.user-avatar{width:32px;height:32px;background:linear-gradient(135deg,#f97316,#ea6c0a);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#0a0a0a;font-size:.85rem;flex-shrink:0;}
+.alert{border:none;border-radius:10px;font-size:.83rem;margin-bottom:14px;padding:9px 13px;}
+.alert-danger{background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.2);}
+.alert-warning{background:rgba(245,158,11,.12);color:#fcd34d;border:1px solid rgba(245,158,11,.2);}
+.ft{text-align:center;margin-top:14px;color:rgba(255,255,255,.15);font-size:.67rem;}
+@keyframes fd{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fu{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="glow glow1"></div>
+<div class="glow glow2"></div>
+
+<div class="wrap">
+  <div class="brand">
+    <div class="logo-box">N</div>
+    <h1>Neura<span>Business</span></h1>
+    <p>Sistema Comercial Multi-Empresa</p>
+  </div>
+
+  <div class="card">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat,msg in messages %}
+      <div class="alert alert-{{ cat }}"><i class="fas fa-exclamation-circle me-2"></i>{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <!-- STEP INDICATOR -->
+    <div class="steps">
+      <div class="step {% if step==1 %}active{% else %}done{% endif %}" id="st1">
+        <div class="step-dot">{% if step==2 %}<i class="fas fa-check" style="font-size:.55rem"></i>{% else %}1{% endif %}</div>
+        <span>Credenciais</span>
+      </div>
+      <div class="step-line"></div>
+      <div class="step {% if step==2 %}active{% endif %}" id="st2">
+        <div class="step-dot">2</div>
+        <span>Empresa</span>
+      </div>
+    </div>
+
+    <!-- STEP 1: USUÁRIO E SENHA -->
+    <div class="panel {% if step==1 %}active{% endif %}" id="p1">
+      <form method="POST" action="{{ url_for('login_step1') }}">
+        <div style="margin-bottom:16px">
+          <span class="lbl">Usuário</span>
+          <div class="iw"><i class="fas fa-user"></i>
+            <input type="text" name="usuario" class="fc" placeholder="seu.usuario" required autofocus value="{{ usuario_pre or '' }}">
+          </div>
+        </div>
+        <div style="margin-bottom:16px">
+          <span class="lbl">Senha</span>
+          <div class="iw"><i class="fas fa-lock"></i>
+            <input type="password" name="senha" class="fc" placeholder="••••••••" required>
+          </div>
+        </div>
+        <button type="submit" class="btn-p"><i class="fas fa-arrow-right me-2"></i>Continuar</button>
+      </form>
+    </div>
+
+    <!-- STEP 2: ESCOLHER EMPRESA -->
+    <div class="panel {% if step==2 %}active{% endif %}" id="p2">
+      {% if usuario_nome %}
+      <div class="user-info">
+        <div class="user-avatar">{{ usuario_nome[0].upper() }}</div>
+        <div>
+          <div style="font-weight:700;font-size:.88rem;color:#e2e8f0">{{ usuario_nome }}</div>
+          <div style="font-size:.72rem;color:rgba(255,255,255,.4)">Selecione a empresa para acessar</div>
+        </div>
+        <a href="{{ url_for('login') }}" style="margin-left:auto;color:rgba(255,255,255,.3);font-size:.75rem">Trocar →</a>
+      </div>
+      {% endif %}
+
+      <span class="lbl"><i class="fas fa-building me-1"></i>Suas empresas</span>
+      <form method="POST" action="{{ url_for('login_step2') }}">
+        <input type="hidden" name="usuario_id" value="{{ usuario_id or '' }}">
+        {% if empresas %}
+        <div class="emp-grid">
+          {% for emp in empresas %}
+          <label class="emp-card{% if loop.first and empresas|length==1 %} sel{% endif %}" id="ec-{{ emp.id }}" onclick="selEmp({{ emp.id }})">
+            <input type="radio" name="empresa_id" value="{{ emp.id }}" {% if loop.first and empresas|length==1 %}checked{% endif %}>
+            {% if emp.logo %}
+              <img src="{{ url_for('static', filename='uploads/empresas/' + emp.logo) }}" class="emp-logo" alt="{{ emp.fantasia }}">
+            {% else %}
+              <div class="emp-ph">{{ (emp.fantasia or 'E')[0] }}</div>
+            {% endif %}
+            <div class="emp-nm">{{ emp.fantasia }}</div>
+            <div class="emp-chk"><i class="fas fa-check"></i></div>
+          </label>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p style="color:rgba(255,255,255,.3);font-size:.83rem;text-align:center;padding:16px 0">Nenhuma empresa disponível para este usuário.</p>
+        {% endif %}
+        <button type="submit" class="btn-p" {% if not empresas %}disabled{% endif %}>
+          <i class="fas fa-sign-in-alt me-2"></i>Entrar no Sistema
+        </button>
+      </form>
+    </div>
+  </div>
+  <div class="ft">NeuraBusiness v3 &nbsp;•&nbsp; Creative Tecnologia e Segurança Eletrônica</div>
+</div>
+
+<script>
+function selEmp(id){
+  document.querySelectorAll('.emp-card').forEach(c=>c.classList.remove('sel'));
+  const c=document.getElementById('ec-'+id);
+  if(c){c.classList.add('sel');c.querySelector('input').checked=true;}
+}
+{% if empresas and empresas|length==1 %}selEmp({{ empresas[0].id }});{% endif %}
+</script>
+</body>
+</html>

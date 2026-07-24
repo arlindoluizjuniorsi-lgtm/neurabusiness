@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ produto.nome }} — {{ empresa.fantasia if empresa else 'NeuraBusiness' }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{font-family:'Inter',sans-serif;}
+body{background:linear-gradient(135deg,#070B14,#0A0E1A,#120B2E);min-height:100vh;color:#e2e8f0;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025)1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025)1px,transparent 1px);background-size:40px 40px;pointer-events:none;}
+.cp{max-width:860px;margin:0 auto;padding:32px 18px;position:relative;z-index:1;}
+.brand-bar{display:flex;align-items:center;gap:12px;margin-bottom:32px;padding-bottom:16px;border-bottom:1px solid rgba(0,212,255,.15);}
+.card-prod{background:rgba(13,18,32,.95);border:1px solid rgba(0,212,255,.15);border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+.prod-foto{height:320px;background:linear-gradient(135deg,#0A0E1A,#1a1040);display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.prod-foto img{width:100%;height:100%;object-fit:contain;}
+.prod-body{padding:28px;}
+.prod-cat{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#00D4FF;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.2);border-radius:20px;padding:3px 12px;display:inline-block;margin-bottom:12px;}
+.prod-nome{font-family:'Space Grotesk',sans-serif;font-size:clamp(1.4rem,4vw,2.1rem);font-weight:900;color:#fff;line-height:1.15;margin-bottom:10px;}
+.prod-desc{font-size:.9rem;color:rgba(255,255,255,.55);line-height:1.6;margin-bottom:20px;}
+.preco-box{background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:18px;text-align:center;margin-bottom:20px;}
+.preco-lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,.35);}
+.preco-val{font-family:'Space Grotesk',sans-serif;font-size:2.4rem;font-weight:900;color:#00D4FF;line-height:1;}
+.spec-table tr td{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.05);font-size:.84rem;}
+.spec-table tr td:first-child{color:rgba(255,255,255,.45);font-weight:600;width:45%;}
+.spec-table tr td:last-child{color:#e2e8f0;}
+.spec-table tr:last-child td{border:none;}
+.contato-box{background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:12px;padding:16px;}
+.footer-bar{margin-top:32px;padding:16px 0;border-top:1px solid rgba(0,212,255,.1);text-align:center;font-size:.7rem;color:rgba(255,255,255,.2);}
+</style>
+</head>
+<body>
+<div class="cp">
+  <!-- BRAND -->
+  <div class="brand-bar">
+    {% if empresa and empresa.logo %}
+      {% set lb = logo_b64(empresa) %}
+      {% if lb %}<img src="{{ lb }}" style="height:36px;object-fit:contain;border-radius:5px">{% endif %}
+    {% else %}
+      <div style="width:36px;height:36px;background:linear-gradient(135deg,#00D4FF,#7C3AED);border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-size:.9rem;font-weight:900;color:#0A0E1A">N</div>
+    {% endif %}
+    <div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;color:#00D4FF;font-size:.95rem">{{ empresa.fantasia if empresa else 'NeuraBusiness' }}</div>
+      {% if empresa and empresa.cnpj %}<div style="font-size:.65rem;color:rgba(255,255,255,.3)">{{ empresa.cnpj }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="card-prod">
+    <div class="prod-foto">
+      {% if produto.foto %}
+        <img src="/static/uploads/{{ produto.foto }}" alt="{{ produto.nome }}">
+      {% else %}
+        <i class="fas fa-box" style="font-size:5rem;color:rgba(0,212,255,.2)"></i>
+      {% endif %}
+    </div>
+    <div class="prod-body">
+      <div class="row g-4">
+        <div class="col-12 col-md-7">
+          {% if produto.categoria %}<span class="prod-cat">{{ produto.categoria }}</span>{% endif %}
+          <h1 class="prod-nome">{{ produto.nome }}</h1>
+          {% if produto.descricao %}<p class="prod-desc">{{ produto.descricao }}</p>{% endif %}
+
+          {% if produto.especificacoes_dict %}
+          <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:#00D4FF;font-weight:700;margin-bottom:10px">Especificações</div>
+          <table class="spec-table w-100">
+            {% for k,v in produto.especificacoes_dict.items() %}
+            <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+            {% endfor %}
+          </table>
+          {% endif %}
+        </div>
+        <div class="col-12 col-md-5">
+          <div class="preco-box">
+            <div class="preco-lbl">Preço</div>
+            <div class="preco-val">R$ {{ "%.2f"|format(produto.preco_venda) }}</div>
+          </div>
+          <div class="contato-box">
+            <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:#7C3AED;font-weight:700;margin-bottom:10px">Contato</div>
+            {% if empresa %}
+            {% if empresa.telefone %}<div style="font-size:.84rem;margin-bottom:6px"><i class="fas fa-phone me-2" style="color:#7C3AED"></i>{{ empresa.telefone }}</div>{% endif %}
+            {% if empresa.email %}<div style="font-size:.84rem;margin-bottom:6px"><i class="fas fa-envelope me-2" style="color:#7C3AED"></i>{{ empresa.email }}</div>{% endif %}
+            {% if empresa.cidade %}<div style="font-size:.84rem"><i class="fas fa-map-marker-alt me-2" style="color:#7C3AED"></i>{{ empresa.cidade }}{% if empresa.estado %}/{{ empresa.estado }}{% endif %}</div>{% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bar">{{ empresa.razao_social if empresa else 'NeuraBusiness' }} &nbsp;•&nbsp; Link gerado por NeuraBusiness Sistema Comercial</div>
+</div>
+</body>
+</html>

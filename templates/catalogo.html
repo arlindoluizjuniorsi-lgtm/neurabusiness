@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Catálogo de Serviços{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div><h1><i class="fas fa-book-open me-2" style="color:#00D4FF"></i>Catálogo de Serviços</h1><p>{{ servicos|length }} serviços — Creative TI</p></div>
+  <a href="{{ url_for('calculadora') }}" class="btn btn-accent"><i class="fas fa-calculator me-1"></i>Calculadoras</a>
+</div>
+<div class="d-flex gap-2 mb-4 flex-wrap">
+  <a href="{{ url_for('catalogo_servicos') }}" class="btn btn-sm {% if not cat_filtro %}btn-accent{% else %}btn-nb{% endif %}">Todos</a>
+  {% for cat in categorias %}
+  <a href="{{ url_for('catalogo_servicos', categoria=cat) }}" class="btn btn-sm {% if cat_filtro==cat %}btn-accent{% else %}btn-nb{% endif %}">{{ cat }}</a>
+  {% endfor %}
+</div>
+{% set ns = namespace(cat_atual='') %}
+{% for s in servicos %}
+  {% if s.categoria != ns.cat_atual %}
+    {% if not loop.first %}</tbody></table></div>{% endif %}
+    {% set ns.cat_atual = s.categoria %}
+    <div class="card mb-4">
+    <div class="card-header"><i class="fas fa-folder me-1"></i>{{ s.categoria }}</div>
+    <table class="table table-hover mb-0"><thead><tr><th>Serviço</th><th>Subcategoria</th><th>Unidade</th><th>Tempo Est.</th><th>Preço Base</th><th>Ação</th></tr></thead><tbody>
+  {% endif %}
+  <tr>
+    <td><div style="font-weight:600">{{ s.nome }}</div><div style="font-size:.76rem;color:var(--nb-muted)">{{ (s.descricao or '')[:60] }}</div></td>
+    <td><span class="status-badge s-rascunho">{{ s.subcategoria or '—' }}</span></td>
+    <td style="font-size:.82rem">{{ s.unidade }}</td>
+    <td style="font-size:.82rem;color:var(--nb-muted)">{% if s.tempo_horas %}{{ s.tempo_horas }}h{% else %}—{% endif %}</td>
+    <td style="font-weight:700;color:#10B981">{% if s.preco_base %}R$ {{ "%.2f"|format(s.preco_base) }}{% else %}<span style="color:var(--nb-muted)">A calcular</span>{% endif %}</td>
+    <td><a href="{{ url_for('editar_catalogo', id=s.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-edit"></i></a></td>
+  </tr>
+{% endfor %}
+{% if servicos %}</tbody></table></div>{% endif %}
+{% if not servicos %}<div class="text-center py-5"><i class="fas fa-book-open fa-3x mb-3 d-block" style="opacity:.2"></i><p>Catálogo vazio</p></div>{% endif %}
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{% if os %}Editar {{ os.numero }}{% else %}Nova OS{% endif %} — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fas fa-tools me-2" style="color:#7C3AED"></i>{% if os %}Editar {{ os.numero }}{% else %}Nova Ordem de Serviço{% endif %}</h1>
+  <p><a href="{{ url_for('listar_os') }}" style="color:var(--nb-text-muted)">OS</a> › {% if os %}{{ os.numero }}{% else %}Nova{% endif %}</p>
+</div>
+
+<form method="POST">
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+    <div class="card mb-4">
+      <div class="card-header"><i class="fas fa-info-circle"></i>Dados da OS</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Título *</label>
+            <input type="text" name="titulo" class="form-control" required value="{{ os.titulo if os else '' }}" placeholder="Ex: Instalação de câmeras de segurança">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Cliente *</label>
+            <select name="cliente_id" class="form-select" required>
+              <option value="">Selecione...</option>
+              {% for c in clientes %}
+              <option value="{{ c.id }}" {% if (os and os.cliente_id==c.id) or request.args.get('cliente_id')==c.id|string %}selected{% endif %}>{{ c.nome }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Proposta Vinculada</label>
+            <select name="proposta_id" class="form-select">
+              <option value="">Nenhuma</option>
+              {% for p in propostas %}
+              <option value="{{ p.id }}" {% if (os and os.proposta_id==p.id) or request.args.get('proposta_id')==p.id|string %}selected{% endif %}>{{ p.numero }} — {{ p.titulo[:30] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Prioridade</label>
+            <select name="prioridade" class="form-select">
+              <option value="baixa" {% if os and os.prioridade=="baixa" %}selected{% endif %}>Baixa</option>
+              <option value="normal" {% if not os or os.prioridade=="normal" %}selected{% endif %}>Normal</option>
+              <option value="alta" {% if os and os.prioridade=="alta" %}selected{% endif %}>Alta</option>
+              <option value="urgente" {% if os and os.prioridade=="urgente" %}selected{% endif %}>Urgente</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Técnico Responsável</label>
+            <input type="text" name="tecnico" class="form-control" value="{{ os.tecnico or '' if os else '' }}" placeholder="Nome do técnico">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Data Prevista</label>
+            <input type="date" name="data_prevista" class="form-control" value="{{ os.data_prevista|data if os and os.data_prevista else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Descrição do Serviço *</label>
+            <textarea name="descricao" class="form-control" rows="5" required placeholder="Descreva em detalhes o serviço a ser executado, local, equipamentos envolvidos...">{{ os.descricao if os else '' }}</textarea>
+          </div>
+          {% if os %}
+          <div class="col-12">
+            <label class="form-label">Solução / Laudo Técnico</label>
+            <textarea name="solucao" class="form-control" rows="4" placeholder="Descreva a solução aplicada, peças substituídas, observações técnicas...">{{ os.solucao or '' }}</textarea>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="card mb-3" style="background:linear-gradient(135deg,#0A0E1A,#120B2E);border-color:rgba(124,58,237,0.3)">
+      <div class="card-body p-4">
+        <div style="color:rgba(255,255,255,0.4);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Número</div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:800;color:#7C3AED">{% if os %}{{ os.numero }}{% else %}Gerado automaticamente{% endif %}</div>
+        <div style="color:rgba(255,255,255,0.3);font-size:0.75rem;margin-top:6px">Formato: OS-AAAAMM-XXXX</div>
+      </div>
+    </div>
+    <div class="d-flex flex-column gap-2">
+      <button type="submit" class="btn btn-accent btn-lg"><i class="fas fa-save me-2"></i>{% if os %}Salvar Alterações{% else %}Criar OS{% endif %}</button>
+      <a href="{{ url_for('listar_os') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+{% endblock %}

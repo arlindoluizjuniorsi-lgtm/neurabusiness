@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}{{ proposta.numero }} — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="fas fa-file-invoice-dollar me-2" style="color:#00D4FF"></i>{{ proposta.numero }}</h1>
+    <p><a href="{{ url_for('listar_propostas') }}" style="color:var(--nb-muted)">Propostas</a> › {{ proposta.titulo }}</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('proposta_pdf', id=proposta.id) }}" class="btn btn-nb" target="_blank">
+      <i class="fas fa-file-pdf me-1" style="color:#ef4444"></i>PDF
+    </a>
+    <a href="{{ url_for('proposta_premium_pub', token=proposta.token_publico) }}" class="btn btn-accent" target="_blank">
+      <i class="fas fa-star me-1"></i>Proposta Premium
+    </a>
+    <a href="{{ url_for('proposta_publica', token=proposta.token_publico) }}" class="btn btn-nb" target="_blank">
+      <i class="fas fa-external-link-alt me-1"></i>Ver Público
+    </a>
+    <button onclick="copyLink()" class="btn btn-nb"><i class="fas fa-copy me-1"></i>Copiar Link</button>
+    {% if proposta.status == 'rascunho' %}
+    <form method="POST" action="{{ url_for('mudar_status_proposta', id=proposta.id, novo_status='enviada') }}" style="display:inline">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-paper-plane me-1"></i>Marcar como Enviada</button>
+    </form>
+    {% elif proposta.status == 'enviada' %}
+    <form method="POST" action="{{ url_for('mudar_status_proposta', id=proposta.id, novo_status='aprovada') }}" style="display:inline">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-check me-1"></i>Aprovar</button>
+    </form>
+    <form method="POST" action="{{ url_for('mudar_status_proposta', id=proposta.id, novo_status='recusada') }}" style="display:inline">
+      <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:8px"><i class="fas fa-times me-1"></i>Recusada</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- LINK BOX -->
+<div style="background:rgba(0,212,255,.05);border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:12px 16px;margin-bottom:22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+  <i class="fas fa-link" style="color:#00D4FF;flex-shrink:0"></i>
+  <span style="font-size:.78rem;color:var(--nb-muted)">Link público:</span>
+  <code id="linkPublico" style="color:#00D4FF;font-size:.78rem;flex:1;word-break:break-all">{{ link_publico }}</code>
+  <div style="font-size:.7rem;color:var(--nb-muted)">Expira: {{ proposta.token_expira_em|data if proposta.token_expira_em else '—' }}</div>
+  <button onclick="copyLink()" class="btn btn-sm" style="background:rgba(0,212,255,.12);color:#00D4FF;border:1px solid rgba(0,212,255,.3);border-radius:7px;white-space:nowrap;flex-shrink:0"><i class="fas fa-copy me-1"></i>Copiar</button>
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+    <div class="card mb-4">
+      <div class="card-header"><i class="fas fa-info-circle"></i>Detalhes</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-5">
+            <div style="font-size:.68rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Cliente</div>
+            <div style="font-weight:700">{{ proposta.cliente_nome }}</div>
+            {% if proposta.cliente_tel %}<div style="font-size:.8rem;color:var(--nb-muted)"><i class="fas fa-phone me-1" style="color:#00D4FF"></i>{{ proposta.cliente_tel }}</div>{% endif %}
+            {% if proposta.cliente_email %}<div style="font-size:.8rem;color:var(--nb-muted)"><i class="fas fa-envelope me-1" style="color:#00D4FF"></i>{{ proposta.cliente_email }}</div>{% endif %}
+          </div>
+          <div class="col-md-3">
+            <div style="font-size:.68rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Status</div>
+            <span class="status-badge s-{{ proposta.status }}" style="font-size:.82rem;padding:5px 12px">{{ proposta.status }}</span>
+          </div>
+          <div class="col-md-2">
+            <div style="font-size:.68rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Validade</div>
+            <div style="font-weight:600">{{ proposta.validade }} dias</div>
+          </div>
+          <div class="col-md-2">
+            <div style="font-size:.68rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Emitida em</div>
+            <div style="font-size:.82rem">{{ proposta.criado_em|data if proposta.criado_em else '' }}</div>
+          </div>
+        </div>
+        {% if proposta.forma_pagamento %}
+        <div class="mt-3" style="font-size:.84rem"><i class="fas fa-money-bill me-1" style="color:#10B981"></i><b>Pagamento:</b> {{ proposta.forma_pagamento }}</div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><i class="fas fa-list"></i>Itens</div>
+      <div class="card-body p-0">
+        <table class="table mb-0">
+          <thead><tr><th>Tipo</th><th>Descrição</th><th class="text-center">Qtd</th><th class="text-end">Markup</th><th class="text-end">Unit.</th><th class="text-end">Total</th></tr></thead>
+          <tbody>
+            {% for item in itens %}
+            <tr>
+              <td><span class="status-badge" style="font-size:.65rem;{% if item.tipo=='produto' %}background:rgba(0,212,255,.1);color:#00D4FF{% elif item.tipo=='servico' %}background:rgba(124,58,237,.1);color:#7C3AED{% else %}background:rgba(16,185,129,.1);color:#10B981{% endif %}">{{ item.tipo }}</span></td>
+              <td style="font-weight:500">{{ item.descricao }}</td>
+              <td class="text-center">{{ item.quantidade }}</td>
+              <td class="text-end" style="font-size:.8rem;color:var(--nb-muted)">{{ "+%.0f%%"|format(item.markup) if item.markup else '—' }}</td>
+              <td class="text-end">R$ {{ "%.2f"|format(item.preco_unitario) }}</td>
+              <td class="text-end" style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(item.quantidade * item.preco_unitario) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr style="background:linear-gradient(135deg,#0A0E1A,#120B2E)">
+              <td colspan="5" style="text-align:right;font-weight:700;color:rgba(255,255,255,.6);padding:12px 16px">TOTAL GERAL</td>
+              <td class="text-end" style="font-size:1.2rem;font-weight:900;color:#00D4FF;font-family:'Space Grotesk',sans-serif;padding:12px 16px">R$ {{ "%.2f"|format(total) }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div style="background:linear-gradient(135deg,#0A0E1A,#120B2E);border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:22px;text-align:center;margin-bottom:16px">
+      <div style="color:rgba(255,255,255,.35);font-size:.68rem;text-transform:uppercase;letter-spacing:1px">Valor Total</div>
+      <div style="font-size:2.4rem;font-weight:900;color:#00D4FF;font-family:'Space Grotesk',sans-serif;line-height:1">R$ {{ "%.2f"|format(total) }}</div>
+      <div style="color:rgba(255,255,255,.25);font-size:.75rem;margin-top:6px">{{ itens|length }} item(s)</div>
+    </div>
+    {% if proposta.observacoes %}
+    <div class="card mb-3"><div class="card-header"><i class="fas fa-sticky-note"></i>Observações</div><div class="card-body" style="font-size:.84rem">{{ proposta.observacoes }}</div></div>
+    {% endif %}
+    {% if proposta.condicoes %}
+    <div class="card mb-3"><div class="card-header"><i class="fas fa-handshake"></i>Condições</div><div class="card-body" style="font-size:.84rem">{{ proposta.condicoes }}</div></div>
+    {% endif %}
+    {% if proposta.status == 'aprovada' %}
+    <a href="{{ url_for('nova_os') }}?proposta_id={{ proposta.id }}&cliente_id={{ proposta.cliente_id }}" class="btn btn-nb w-100 mb-2">
+      <i class="fas fa-tools me-2"></i>Criar Ordem de Serviço
+    </a>
+    {% if proposta.contrato %}
+    <a href="{{ url_for('ver_contrato', id=proposta.contrato.id) }}" class="btn btn-nb w-100 mb-2" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3)">
+      <i class="fas fa-file-contract me-2"></i>Ver Contrato
+      {% if proposta.contrato.status == 'assinado_cliente' %}
+      <span class="badge ms-1" style="background:#f97316;font-size:.65rem">Pendente</span>
+      {% elif proposta.contrato.status == 'assinado' %}
+      <span class="badge ms-1" style="background:#10B981;font-size:.65rem">Assinado</span>
+      {% endif %}
+    </a>
+    {% else %}
+    <form method="POST" action="{{ url_for('gerar_contrato', id=proposta.id) }}">
+      <button type="submit" class="btn btn-accent w-100">
+        <i class="fas fa-file-contract me-2"></i>Gerar Contrato
+      </button>
+    </form>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+<script>
+function copyLink(){
+  const link=document.getElementById('linkPublico').textContent.trim();
+  navigator.clipboard.writeText(link).then(()=>{
+    const btns=document.querySelectorAll('[onclick="copyLink()"]');
+    btns.forEach(b=>{const o=b.innerHTML;b.innerHTML='<i class="fas fa-check me-1"></i>Copiado!';b.style.color='#10B981';setTimeout(()=>{b.innerHTML=o;b.style.color='';},2000);});
+  });
+}
+</script>
+{% endblock %}

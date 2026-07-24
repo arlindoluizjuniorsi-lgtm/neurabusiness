@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{% if usuario %}Editar{% else %}Novo{% endif %} Usuário{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fas fa-user-plus me-2" style="color:#7C3AED"></i>{% if usuario %}Editar Usuário{% else %}Novo Usuário{% endif %}</h1>
+  <p><a href="{{ url_for('listar_usuarios') }}" style="color:var(--nb-muted)">Usuários</a> › {% if usuario %}{{ usuario.nome }}{% else %}Novo{% endif %}</p>
+</div>
+<form method="POST">
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-user"></i>Dados do Usuário</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Nome *</label><input type="text" name="nome" class="form-control" value="{{ usuario.nome if usuario else '' }}" required></div>
+          <div class="col-md-6"><label class="form-label">Usuário (login) *</label><input type="text" name="usuario" class="form-control" value="{{ usuario.usuario if usuario else '' }}" {% if usuario %}readonly{% endif %} required></div>
+          <div class="col-md-6"><label class="form-label">E-mail *</label><input type="email" name="email" class="form-control" value="{{ usuario.email if usuario else '' }}" required></div>
+          <div class="col-md-6">
+            <label class="form-label">Senha {% if usuario %}(deixe em branco p/ manter){% endif %}</label>
+            <input type="password" name="senha" class="form-control" {% if not usuario %}required{% endif %} placeholder="••••••••">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Empresa (acesso)</label>
+            <select name="empresa_id" class="form-select">
+              <option value="">Super Admin (todas)</option>
+              {% for e in empresas %}
+              <option value="{{ e.id }}" {% if usuario and usuario.empresa_id==e.id %}selected{% endif %}>{{ e.fantasia }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <div class="form-check">
+              <input type="checkbox" name="is_admin" class="form-check-input" id="isAdmin" {% if usuario and usuario.is_admin %}checked{% endif %}>
+              <label for="isAdmin" class="form-check-label" style="color:var(--nb-text)">Administrador (acessa painel admin)</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="card mb-3" style="background:linear-gradient(135deg,#0A0E1A,#120B2E);border-color:rgba(124,58,237,.3)">
+      <div class="card-body p-4">
+        <div style="color:rgba(255,255,255,.4);font-size:.68rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Isolamento de dados</div>
+        <div style="font-size:.84rem;color:rgba(255,255,255,.65);line-height:1.6">Ao vincular um usuário a uma empresa, ele <b style="color:#00D4FF">só verá dados dessa empresa</b>. Sem vínculo, acessa tudo (Super Admin).</div>
+      </div>
+    </div>
+    <div class="d-flex flex-column gap-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar Usuário</button>
+      <a href="{{ url_for('listar_usuarios') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+{% endblock %}

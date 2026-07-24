@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OS {{ os_obj.numero }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+*{font-family:'Inter',sans-serif;}
+body{background:#f8fafc;color:#0f172a;}
+.header-bar{background:linear-gradient(135deg,#0A0E1A,#120B2E);padding:20px 0;border-bottom:2px solid #7C3AED;}
+.cp{max-width:800px;margin:0 auto;padding:0 18px;}
+.os-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:28px;margin:22px 0;box-shadow:0 2px 12px rgba(0,0,0,.06);}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+.info-cell{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;}
+.info-lbl{font-size:.68rem;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;font-weight:700;margin-bottom:3px;}
+.info-val{font-weight:700;color:#0f172a;}
+.desc-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;font-size:.87rem;line-height:1.7;white-space:pre-wrap;}
+.sign-box{background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:2px solid #7C3AED;border-radius:14px;padding:24px;margin-top:20px;}
+.btn-sign{background:linear-gradient(135deg,#7C3AED,#5b21b6);color:#fff;border:none;border-radius:10px;font-weight:800;font-size:.95rem;padding:13px 32px;cursor:pointer;transition:all .3s;font-family:'Space Grotesk',sans-serif;}
+.btn-sign:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(124,58,237,.35);}
+.alert{border:none;border-radius:10px;font-size:.85rem;margin-bottom:14px;padding:10px 14px;}
+.alert-success{background:rgba(16,185,129,.12);color:#065f46;}
+.status-pill{display:inline-block;padding:3px 12px;border-radius:20px;font-size:.72rem;font-weight:700;text-transform:uppercase;}
+.footer-bar{text-align:center;font-size:.7rem;color:#94a3b8;margin:20px 0;}
+</style>
+</head>
+<body>
+<div class="header-bar">
+  <div class="cp d-flex align-items-center justify-content-between">
+    <div class="d-flex align-items-center gap-3">
+      {% if empresa and empresa.logo %}
+        {% set lb = logo_b64(empresa) %}
+        {% if lb %}<img src="{{ lb }}" style="height:36px;object-fit:contain;border-radius:5px">{% endif %}
+      {% endif %}
+      <div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;color:#c4b5fd;font-size:.95rem">{{ empresa.fantasia if empresa else 'NeuraBusiness' }}</div>
+        {% if empresa %}<div style="font-size:.64rem;color:rgba(255,255,255,.35)">{{ empresa.cnpj or '' }}</div>{% endif %}
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:.68rem;color:rgba(255,255,255,.35)">ORDEM DE SERVIÇO</div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:800;color:#c4b5fd">{{ os_obj.numero }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="cp">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat,msg in messages %}
+    <div class="alert alert-{{ cat }}" style="margin-top:16px"><i class="fas fa-check-circle me-2"></i>{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="os-card">
+    <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1.15rem;font-weight:800;margin-bottom:16px">{{ os_obj.titulo }}</h2>
+    <div class="grid2">
+      <div class="info-cell"><div class="info-lbl">Cliente</div><div class="info-val">{{ os_obj.cliente_nome }}</div><div style="font-size:.78rem;color:#64748b">{{ os_obj.cliente_tel or '' }}</div></div>
+      <div class="info-cell"><div class="info-lbl">Técnico</div><div class="info-val">{{ os_obj.tecnico or '—' }}</div></div>
+      <div class="info-cell">
+        <div class="info-lbl">Status</div>
+        <span class="status-pill" style="background:rgba(124,58,237,.12);color:#7C3AED">{{ os_obj.status }}</span>
+      </div>
+      <div class="info-cell"><div class="info-lbl">Prioridade</div>
+        <span class="status-pill" style="background:{% if os_obj.prioridade=='urgente' %}rgba(239,68,68,.12);color:#ef4444{% elif os_obj.prioridade=='alta' %}rgba(245,158,11,.12);color:#f59e0b{% else %}rgba(100,116,139,.12);color:#64748b{% endif %}">{{ os_obj.prioridade }}</span>
+      </div>
+    </div>
+    <div style="font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:8px">Descrição do Serviço</div>
+    <div class="desc-box">{{ os_obj.descricao }}</div>
+    {% if os_obj.solucao %}
+    <div style="margin-top:14px;font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.5px;color:#10B981;margin-bottom:8px">Solução Aplicada</div>
+    <div class="desc-box" style="background:rgba(16,185,129,.04);border-color:rgba(16,185,129,.2)">{{ os_obj.solucao }}</div>
+    {% endif %}
+    {% if os_obj.data_prevista %}<div style="margin-top:10px;font-size:.83rem;color:#64748b"><i class="fas fa-calendar me-1"></i>Previsão: {{ os_obj.data_prevista }}</div>{% endif %}
+  </div>
+
+  <!-- ASSINATURA / ACEITE -->
+  {% if not assinatura.assinado_em %}
+  <div class="sign-box">
+    <div style="font-family:'Space Grotesk',sans-serif;font-size:1.05rem;font-weight:800;color:#4c1d95;margin-bottom:8px">
+      <i class="fas fa-signature me-2"></i>Confirmar e Assinar OS
+    </div>
+    <p style="font-size:.84rem;color:#5b21b6;margin-bottom:16px">
+      Ao assinar, você confirma que o serviço foi executado conforme descrito acima e concorda com os termos da prestação.
+    </p>
+    <form method="POST">
+      <div class="mb-3">
+        <label style="font-weight:700;font-size:.82rem;color:#4c1d95;display:block;margin-bottom:6px">Seu nome completo *</label>
+        <input type="text" name="nome_assinatura" class="form-control" placeholder="Digite seu nome para assinar" required style="max-width:400px;border:1.5px solid #7C3AED">
+      </div>
+      <button type="submit" class="btn-sign"><i class="fas fa-check-circle me-2"></i>Assinar e Confirmar OS</button>
+      <p style="font-size:.7rem;color:#6b7280;margin-top:8px"><i class="fas fa-lock me-1"></i>Assinatura registrada com data e hora</p>
+    </form>
+  </div>
+  {% else %}
+  <div class="sign-box" style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-color:#10B981;text-align:center">
+    <i class="fas fa-check-circle fa-2x" style="color:#10B981;margin-bottom:10px"></i>
+    <div style="font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:800;color:#065f46">OS Assinada!</div>
+    <p style="font-size:.85rem;color:#134e4a;margin-top:6px">
+      Assinado por: <b>{{ assinatura.assinatura_nome }}</b><br>
+      Em: {{ assinatura.assinado_em|data('%d/%m/%Y %H:%M') if assinatura.assinado_em else '' }}
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="footer-bar">{{ empresa.razao_social if empresa else 'NeuraBusiness' }} • NeuraBusiness Sistema Comercial</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

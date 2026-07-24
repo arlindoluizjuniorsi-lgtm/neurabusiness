@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Nova Licença NeuraDesk — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div><h1><i class="fas fa-key me-2" style="color:var(--nb-accent)"></i>Nova Licença NeuraDesk</h1></div>
+  <a href="{{ url_for('listar_licencas_neuradesk') }}" class="btn btn-nb btn-sm"><i class="fas fa-times me-1"></i>Cancelar</a>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-body p-4">
+        <form method="POST">
+          <div class="mb-3">
+            <label class="form-label">Nome da Empresa <span class="text-danger">*</span></label>
+            <input type="text" name="empresa_nome" class="form-control" required placeholder="Ex: D'Pádua Destilação">
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label">CNPJ</label>
+              <input type="text" name="empresa_cnpj" class="form-control" placeholder="00.000.000/0001-00">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Usuários contratados</label>
+              <input type="number" name="max_usuarios" class="form-control" value="5" min="1">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Valor mensal (R$)</label>
+              <input type="number" step="0.01" name="valor_mensal" class="form-control" value="0">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Vincular a uma Empresa já cadastrada (opcional)</label>
+            <select name="empresa_id_nb" class="form-select">
+              <option value="">— Não vincular —</option>
+              {% for emp in empresas %}
+              <option value="{{ emp.id }}">{{ emp.fantasia }} ({{ emp.cnpj or 'sem CNPJ' }})</option>
+              {% endfor %}
+            </select>
+            <small class="text-muted">Se essa empresa já tem proposta/contrato no NeuraBusiness, vincula aqui pra manter tudo junto.</small>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Observações</label>
+            <textarea name="observacoes" class="form-control" rows="3" placeholder="Condições combinadas, contato responsável, etc."></textarea>
+          </div>
+          <div class="d-flex gap-2 justify-content-end">
+            <a href="{{ url_for('listar_licencas_neuradesk') }}" class="btn btn-nb">Cancelar</a>
+            <button type="submit" class="btn btn-accent"><i class="fas fa-key me-1"></i>Gerar Licença</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

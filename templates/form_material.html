@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{% if material %}Editar{% else %}Novo{% endif %} Material{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-boxes me-2" style="color:#7C3AED"></i>{% if material %}Editar{% else %}Novo{% endif %} Material</h1></div>
+<form method="POST">
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card"><div class="card-header"><i class="fas fa-boxes"></i>Dados do Material</div>
+    <div class="card-body"><div class="row g-3">
+      <div class="col-12"><label class="form-label">Nome *</label><input type="text" name="nome" class="form-control" value="{{ material.nome if material else '' }}" required></div>
+      <div class="col-md-4"><label class="form-label">Unidade</label>
+        <select name="unidade" class="form-select">{% for u in ['m','un','pct','rolo','cx','m²'] %}<option value="{{ u }}" {% if material and material.unidade==u %}selected{% endif %}>{{ u }}</option>{% endfor %}</select>
+      </div>
+      <div class="col-md-4"><label class="form-label">Preço Unitário (R$)</label><input type="number" name="preco_unitario" class="form-control" value="{{ material.preco_unitario if material else 0 }}" step="0.01" min="0"></div>
+      <div class="col-md-4"><label class="form-label">Categoria</label><input type="text" name="categoria" class="form-control" value="{{ material.categoria if material else '' }}" placeholder="Ex: Cabeamento"></div>
+    </div></div></div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('listar_materiais') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+{% endblock %}

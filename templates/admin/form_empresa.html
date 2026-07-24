@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{% if empresa %}Editar{% else %}Nova{% endif %} Empresa{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fas fa-building me-2" style="color:#00D4FF"></i>{% if empresa %}Editar Empresa{% else %}Nova Empresa{% endif %}</h1>
+  <p><a href="{{ url_for('listar_empresas') }}" style="color:var(--nb-muted)">Empresas</a> › {% if empresa %}{{ empresa.fantasia }}{% else %}Nova{% endif %}</p>
+</div>
+<form method="POST" enctype="multipart/form-data">
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+    <div class="card mb-4">
+      <div class="card-header"><i class="fas fa-info-circle"></i>Dados da Empresa</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Razão Social *</label><input type="text" name="razao_social" class="form-control" value="{{ empresa.razao_social if empresa else '' }}" required></div>
+          <div class="col-md-6"><label class="form-label">Nome Fantasia *</label><input type="text" name="fantasia" class="form-control" value="{{ empresa.fantasia if empresa else '' }}" required></div>
+          <div class="col-md-6"><label class="form-label">CNPJ</label><input type="text" name="cnpj" class="form-control" value="{{ empresa.cnpj if empresa else '' }}" placeholder="00.000.000/0000-00"></div>
+          <div class="col-md-6"><label class="form-label">Telefone</label><input type="text" name="telefone" class="form-control" value="{{ empresa.telefone if empresa else '' }}"></div>
+          <div class="col-md-6"><label class="form-label">E-mail</label><input type="email" name="email" class="form-control" value="{{ empresa.email if empresa else '' }}"></div>
+          <div class="col-12"><label class="form-label">Endereço</label><input type="text" name="endereco" class="form-control" value="{{ empresa.endereco if empresa else '' }}"></div>
+          <div class="col-md-5"><label class="form-label">Cidade</label><input type="text" name="cidade" class="form-control" value="{{ empresa.cidade if empresa else '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Estado</label>
+            <select name="estado" class="form-select">
+              <option value="">—</option>
+              {% for uf in ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'] %}
+              <option value="{{ uf }}" {% if empresa and empresa.estado==uf %}selected{% endif %}>{{ uf }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4"><label class="form-label">CEP</label><input type="text" name="cep" class="form-control" value="{{ empresa.cep if empresa else '' }}"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="card mb-3">
+      <div class="card-header"><i class="fas fa-image"></i>Logo da Empresa</div>
+      <div class="card-body text-center">
+        <div id="logoPreview" style="height:100px;background:linear-gradient(135deg,#0A0E1A,#120B2E);border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:12px;overflow:hidden;border:2px dashed rgba(0,212,255,.2)">
+          {% if empresa and empresa.logo %}
+            <img src="{{ url_for('static', filename='uploads/empresas/' + empresa.logo) }}" style="max-height:90px;max-width:100%;object-fit:contain">
+          {% else %}
+            <i class="fas fa-image fa-2x" style="color:rgba(0,212,255,.3)"></i>
+          {% endif %}
+        </div>
+        <input type="file" name="logo" id="logoInput" accept="image/*" style="display:none" onchange="prevLogo(this)">
+        <button type="button" onclick="document.getElementById('logoInput').click()" class="btn btn-nb btn-sm w-100"><i class="fas fa-upload me-1"></i>Selecionar Logo</button>
+      </div>
+    </div>
+    <div class="d-flex flex-column gap-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('listar_empresas') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+{% endblock %}
+{% block extra_js %}<script>
+function prevLogo(input){
+  if(input.files&&input.files[0]){
+    const r=new FileReader();r.onload=e=>document.getElementById('logoPreview').innerHTML=`<img src="${e.target.result}" style="max-height:90px;max-width:100%;object-fit:contain">`;r.readAsDataURL(input.files[0]);
+  }
+}
+</script>{% endblock %}

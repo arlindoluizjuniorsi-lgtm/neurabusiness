@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}{{ contrato.numero }} — Contrato{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="fas fa-file-contract me-2" style="color:var(--nb-accent)"></i>{{ contrato.numero }}</h1>
+    <p><a href="{{ url_for('listar_contratos') }}" style="color:var(--nb-muted)">Contratos</a> › {{ contrato.cliente.nome if contrato.cliente else '—' }}</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('contrato_pdf', id=contrato.id) }}" class="btn btn-nb" target="_blank">
+      <i class="fas fa-file-pdf me-1" style="color:#ef4444"></i>Baixar PDF
+    </a>
+    <a href="{{ url_for('contrato_publico', token=contrato.token_assinatura) }}" class="btn btn-nb" target="_blank">
+      <i class="fas fa-external-link-alt me-1"></i>Ver Online
+    </a>
+    <button onclick="copyLink()" class="btn btn-nb"><i class="fas fa-copy me-1"></i>Copiar Link</button>
+  </div>
+</div>
+
+<!-- LINK BOX -->
+<div style="background:rgba(249,115,22,.05);border:1px solid rgba(249,115,22,.2);border-radius:12px;padding:12px 16px;margin-bottom:22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+  <i class="fas fa-link" style="color:var(--nb-accent)"></i>
+  <span style="font-size:.78rem;color:var(--nb-muted)">Link para assinatura do cliente:</span>
+  <code id="linkAss" style="color:var(--nb-accent);font-size:.78rem;flex:1;word-break:break-all">{{ link_assinatura }}</code>
+  <button onclick="copyLink()" class="btn btn-sm" style="background:rgba(249,115,22,.12);color:var(--nb-accent);border:1px solid rgba(249,115,22,.3);border-radius:7px;white-space:nowrap">
+    <i class="fas fa-copy me-1"></i>Copiar
+  </button>
+</div>
+
+<!-- TIMELINE DE STATUS -->
+<div class="card mb-4">
+  <div class="card-header"><i class="fas fa-tasks"></i>Progresso do Contrato</div>
+  <div class="card-body">
+    <div class="d-flex align-items-center flex-wrap">
+      <div class="d-flex flex-column align-items-center" style="flex:1;min-width:100px">
+        <div style="width:40px;height:40px;border-radius:50%;background:var(--nb-accent);display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-file-alt" style="color:#fff;font-size:.9rem"></i>
+        </div>
+        <div style="font-size:.72rem;font-weight:700;color:var(--nb-accent);margin-top:6px;text-align:center">Gerado</div>
+        <div style="font-size:.65rem;color:var(--nb-muted);text-align:center">{{ contrato.criado_em|data if contrato.criado_em else '—' }}</div>
+      </div>
+      <div style="flex:1;height:3px;background:{% if contrato.assinado_em %}var(--nb-accent){% else %}var(--nb-border){% endif %};min-width:20px"></div>
+      <div class="d-flex flex-column align-items-center" style="flex:1;min-width:100px">
+        <div style="width:40px;height:40px;border-radius:50%;background:{% if contrato.assinado_em %}var(--nb-accent){% else %}var(--nb-border){% endif %};display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-user-check" style="color:{% if contrato.assinado_em %}#fff{% else %}var(--nb-muted){% endif %};font-size:.9rem"></i>
+        </div>
+        <div style="font-size:.72rem;font-weight:700;color:{% if contrato.assinado_em %}var(--nb-accent){% else %}var(--nb-muted){% endif %};margin-top:6px;text-align:center">Cliente Assinou</div>
+        <div style="font-size:.65rem;color:var(--nb-muted);text-align:center">{% if contrato.assinado_em %}{{ contrato.assinado_em|data }}{% else %}Aguardando{% endif %}</div>
+      </div>
+      <div style="flex:1;height:3px;background:{% if contrato.empresa_assinado_em %}var(--nb-accent){% else %}var(--nb-border){% endif %};min-width:20px"></div>
+      <div class="d-flex flex-column align-items-center" style="flex:1;min-width:100px">
+        <div style="width:40px;height:40px;border-radius:50%;background:{% if contrato.empresa_assinado_em %}var(--nb-accent){% else %}var(--nb-border){% endif %};display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-building" style="color:{% if contrato.empresa_assinado_em %}#fff{% else %}var(--nb-muted){% endif %};font-size:.9rem"></i>
+        </div>
+        <div style="font-size:.72rem;font-weight:700;color:{% if contrato.empresa_assinado_em %}var(--nb-accent){% else %}var(--nb-muted){% endif %};margin-top:6px;text-align:center">Empresa Assinou</div>
+        <div style="font-size:.65rem;color:var(--nb-muted);text-align:center">{% if contrato.empresa_assinado_em %}{{ contrato.empresa_assinado_em|data }}{% else %}Aguardando{% endif %}</div>
+      </div>
+      <div style="flex:1;height:3px;background:{% if contrato.status == 'assinado' %}#10B981{% else %}var(--nb-border){% endif %};min-width:20px"></div>
+      <div class="d-flex flex-column align-items-center" style="flex:1;min-width:100px">
+        <div style="width:40px;height:40px;border-radius:50%;background:{% if contrato.status == 'assinado' %}#10B981{% else %}var(--nb-border){% endif %};display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-check-double" style="color:{% if contrato.status == 'assinado' %}#fff{% else %}var(--nb-muted){% endif %};font-size:.9rem"></i>
+        </div>
+        <div style="font-size:.72rem;font-weight:700;color:{% if contrato.status == 'assinado' %}#10B981{% else %}var(--nb-muted){% endif %};margin-top:6px;text-align:center">Concluido</div>
+        <div style="font-size:.65rem;color:var(--nb-muted);text-align:center">{% if contrato.status == 'assinado' %}PDF liberado{% else %}Pendente{% endif %}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+
+    <!-- DETALHES -->
+    <div class="card mb-4">
+      <div class="card-header"><i class="fas fa-info-circle"></i>Detalhes do Contrato</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <div style="font-size:.68rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Cliente</div>
+            <div style="font-weight:700">{{ contrato.cliente.nome if contrato.cliente else '—' }}</div>
+          </div>
+          <div class="col-md-4">
+            <div style="font-size:.68rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Proposta Ref.</div>
+            {% if contrato.proposta %}
+            <a href="{{ url_for('ver_proposta', id=contrato.proposta_id) }}" style="color:var(--nb-accent);font-weight:600">{{ contrato.proposta.numero if contrato.proposta else '—' }}</a>
+            {% else %}—{% endif %}
+          </div>
+          <div class="col-md-4">
+            <div style="font-size:.68rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Status</div>
+            {% if contrato.status == 'assinado' %}
+            <span class="status-badge s-aprovada" style="font-size:.85rem;padding:5px 12px"><i class="fas fa-check-double me-1"></i>Concluido</span>
+            {% elif contrato.status == 'assinado_cliente' %}
+            <span class="status-badge" style="font-size:.85rem;padding:5px 12px;background:rgba(249,115,22,.15);color:var(--nb-accent);border:1px solid rgba(249,115,22,.3)"><i class="fas fa-user-check me-1"></i>Aguard. sua assinatura</span>
+            {% else %}
+            <span class="status-badge s-enviada" style="font-size:.85rem;padding:5px 12px">Aguardando Cliente</span>
+            {% endif %}
+          </div>
+        </div>
+        {% if contrato.assinado_em %}
+        <div class="mt-3" style="background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.2);border-radius:8px;padding:12px">
+          <i class="fas fa-user-check me-2" style="color:var(--nb-accent)"></i>
+          <b>Cliente assinou:</b> {{ contrato.assinatura_nome }} em {{ contrato.assinado_em|data }}
+        </div>
+        {% endif %}
+        {% if contrato.empresa_assinado_em %}
+        <div class="mt-2" style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:12px">
+          <i class="fas fa-building me-2" style="color:#10B981"></i>
+          <b>Empresa assinou:</b> {{ contrato.empresa_assinatura_nome }} em {{ contrato.empresa_assinado_em|data }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- BOTAO ASSINAR COMO EMPRESA -->
+    {% if contrato.status == 'assinado_cliente' %}
+    <div class="card mb-4" style="border:2px solid var(--nb-accent)">
+      <div class="card-header" style="background:rgba(249,115,22,.1)">
+        <i class="fas fa-signature" style="color:var(--nb-accent)"></i>
+        <span style="color:var(--nb-accent);font-weight:700">Sua assinatura esta pendente</span>
+      </div>
+      <div class="card-body">
+        <p style="font-size:.9rem;color:var(--nb-muted);margin-bottom:16px">O cliente ja assinou. Clique abaixo para assinar como empresa e liberar o PDF para o cliente.</p>
+        <form method="POST" action="{{ url_for('assinar_contrato_empresa', id=contrato.id) }}" onsubmit="return confirm('Confirmar assinatura digital no contrato {{ contrato.numero }}?')">
+          <button type="submit" class="btn btn-nb" style="background:var(--nb-accent);color:#fff;font-size:1rem;padding:10px 28px">
+            <i class="fas fa-pen-nib me-2"></i>Assinar como Empresa
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- COMPROVANTE -->
+    {% if contrato.assinatura_nome %}
+    <div class="card">
+      <div class="card-header"><i class="fas fa-signature"></i>Comprovante de Assinaturas Digitais</div>
+      <div class="card-body">
+        <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--nb-border)">
+          <div style="font-size:.72rem;color:var(--nb-accent);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:8px"><i class="fas fa-user me-1"></i>Assinatura do Cliente</div>
+          <div class="row g-2">
+            <div class="col-md-6"><div style="font-size:.68rem;color:var(--nb-muted)">Nome</div><div style="font-weight:600;font-size:.85rem">{{ contrato.assinatura_nome }}</div></div>
+            {% if contrato.assinatura_cpf %}<div class="col-md-6"><div style="font-size:.68rem;color:var(--nb-muted)">CPF</div><div style="font-weight:600;font-size:.85rem">{{ contrato.assinatura_cpf }}</div></div>{% endif %}
+            <div class="col-md-6"><div style="font-size:.68rem;color:var(--nb-muted)">Data/Hora</div><div style="font-weight:600;font-size:.85rem">{{ contrato.assinado_em|data }}</div></div>
+            {% if contrato.assinatura_ip %}<div class="col-md-6"><div style="font-size:.68rem;color:var(--nb-muted)">IP</div><div style="font-weight:600;font-size:.85rem">{{ contrato.assinatura_ip }}</div></div>{% endif %}
+          </div>
+          {% if contrato.assinatura_hash %}
+          <div style="margin-top:8px"><div style="font-size:.68rem;color:var(--nb-muted);margin-bottom:4px">Hash SHA-256</div>
+          <div style="font-size:.7rem;font-family:monospace;word-break:break-all;color:var(--nb-accent);background:rgba(249,115,22,.05);border:1px solid rgba(249,115,22,.15);border-radius:6px;padding:8px">{{ contrato.assinatura_hash }}</div></div>
+          {% endif %}
+        </div>
+        {% if contrato.empresa_assinatura_nome %}
+        <div>
+          <div style="font-size:.72rem;color:#10B981;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:8px"><i class="fas fa-building me-1"></i>Assinatura da Empresa</div>
+          <div class="row g-2">
+            <div class="col-md-6"><div style="font-size:.68rem;color:var(--nb-muted)">Empresa</div><div style="font-weight:600;font-size:.85rem">{{ contrato.empresa_assinatura_nome }}</div></div>
+            <div class="col-md-6"><div style="font-size:.68rem;color:var(--nb-muted)">Data/Hora</div><div style="font-weight:600;font-size:.85rem">{{ contrato.empresa_assinado_em|data }}</div></div>
+            {% if contrato.empresa_assinatura_ip %}<div class="col-md-6"><div style="font-size:.68rem;color:var(--nb-muted)">IP</div><div style="font-weight:600;font-size:.85rem">{{ contrato.empresa_assinatura_ip }}</div></div>{% endif %}
+          </div>
+          {% if contrato.empresa_assinatura_hash %}
+          <div style="margin-top:8px"><div style="font-size:.68rem;color:var(--nb-muted);margin-bottom:4px">Hash SHA-256</div>
+          <div style="font-size:.7rem;font-family:monospace;word-break:break-all;color:#10B981;background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.15);border-radius:6px;padding:8px">{{ contrato.empresa_assinatura_hash }}</div></div>
+          {% endif %}
+        </div>
+        {% else %}
+        <div style="text-align:center;padding:12px;color:var(--nb-muted);font-size:.85rem"><i class="fas fa-clock me-2"></i>Aguardando assinatura da empresa</div>
+        {% endif %}
+        <div style="margin-top:12px;font-size:.7rem;color:var(--nb-muted)"><i class="fas fa-shield-alt me-1" style="color:#10B981"></i>Assinado eletronicamente conforme Lei n 14.063/2020 e Marco Civil da Internet.</div>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div style="background:linear-gradient(135deg,#0a0a0a,#111111);border:1px solid rgba(249,115,22,.2);border-radius:12px;padding:20px;text-align:center;margin-bottom:16px">
+      <i class="fas fa-file-contract fa-3x" style="color:rgba(249,115,22,.4);margin-bottom:12px"></i>
+      <div style="font-size:.72rem;color:rgba(255,255,255,.3);text-transform:uppercase;letter-spacing:1px">Contrato</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.5rem;font-weight:900;color:var(--nb-accent)">{{ contrato.numero }}</div>
+    </div>
+
+    {% if contrato.status == 'assinado' %}
+    <div class="card" style="border:2px solid #10B981">
+      <div class="card-body text-center" style="padding:20px">
+        <i class="fas fa-check-circle fa-2x" style="color:#10B981;margin-bottom:10px"></i>
+        <div style="font-weight:700;font-size:.95rem;color:#10B981;margin-bottom:6px">Contrato Totalmente Assinado</div>
+        <div style="font-size:.8rem;color:var(--nb-muted);margin-bottom:16px">PDF disponivel para o cliente baixar.</div>
+        <div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:10px;margin-bottom:12px;word-break:break-all">
+          <div style="font-size:.65rem;color:var(--nb-muted);margin-bottom:4px">Link de download do cliente:</div>
+          <code id="linkDownload" style="font-size:.7rem;color:#10B981">{{ request.host_url.rstrip('/') }}/contrato/download/{{ contrato.token_assinatura }}</code>
+        </div>
+        <button onclick="copyDownload()" class="btn btn-sm w-100 mb-2" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3)">
+          <i class="fas fa-copy me-1"></i>Copiar Link do Cliente
+        </button>
+        <a href="{{ request.host_url.rstrip('/') }}/contrato/download/{{ contrato.token_assinatura }}" class="btn btn-sm w-100" style="background:#10B981;color:#fff">
+          <i class="fas fa-download me-1"></i>Baixar PDF Assinado
+        </a>
+      </div>
+    </div>
+    {% elif contrato.status == 'assinado_cliente' %}
+    <div class="card" style="border:2px solid var(--nb-accent)">
+      <div class="card-body text-center" style="padding:20px">
+        <i class="fas fa-hourglass-half fa-2x" style="color:var(--nb-accent);margin-bottom:10px"></i>
+        <div style="font-weight:700;font-size:.95rem;color:var(--nb-accent);margin-bottom:6px">Sua assinatura pendente</div>
+        <div style="font-size:.8rem;color:var(--nb-muted)">Assine o contrato para liberar o PDF ao cliente.</div>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-body text-center" style="padding:20px">
+        <i class="fas fa-clock fa-2x" style="color:var(--nb-muted);margin-bottom:10px"></i>
+        <div style="font-weight:700;font-size:.95rem;color:var(--nb-muted);margin-bottom:6px">Aguardando cliente</div>
+        <div style="font-size:.8rem;color:var(--nb-muted)">Envie o link ao cliente para assinar a proposta.</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function copyLink(){
+  navigator.clipboard.writeText(document.getElementById('linkAss').textContent.trim()).then(()=>{
+    document.querySelectorAll('[onclick="copyLink()"]').forEach(b=>{const o=b.innerHTML;b.innerHTML='<i class="fas fa-check me-1"></i>Copiado!';b.style.color='#10B981';setTimeout(()=>{b.innerHTML=o;b.style.color='';},2000);});
+  });
+}
+function copyDownload(){
+  const btn=event.currentTarget;
+  navigator.clipboard.writeText(document.getElementById('linkDownload').textContent.trim()).then(()=>{
+    const o=btn.innerHTML;btn.innerHTML='<i class="fas fa-check me-1"></i>Copiado!';
+    setTimeout(()=>{btn.innerHTML=o;},2000);
+  });
+}
+</script>
+{% endblock %}

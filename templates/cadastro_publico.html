@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cadastro de Cliente — Creative Soluções</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800;900&family=Barlow+Condensed:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:      #0a0a0a;
+    --bg2:     #111111;
+    --bg3:     #1a1a1a;
+    --orange:  #f97316;
+    --orange2: #ea6c0a;
+    --white:   #ffffff;
+    --gray:    #a3a3a3;
+    --muted:   #525252;
+    --border:  rgba(255,255,255,0.08);
+    --danger:  #ef4444;
+    --success: #22c55e;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Barlow', sans-serif;
+    background: var(--bg);
+    color: var(--white);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(249,115,22,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(249,115,22,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .glow-top {
+    position: fixed;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 400px;
+    background: radial-gradient(ellipse, rgba(249,115,22,0.12) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 520px;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+    animation: fadeDown 0.6s ease both;
+  }
+
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .logo-icon {
+    width: 44px; height: 44px;
+    background: var(--orange);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: #000;
+    flex-shrink: 0;
+  }
+
+  .logo-name {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    text-align: left;
+  }
+
+  .logo-name span { color: var(--orange); }
+  .logo-name small {
+    display: block;
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    font-weight: 600;
+    margin-top: -2px;
+  }
+
+  .header-tag {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--orange);
+    border: 1px solid rgba(249,115,22,0.3);
+    border-radius: 2px;
+    padding: 4px 12px;
+    margin-bottom: 18px;
+  }
+
+  .header h1 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: clamp(1.9rem, 5vw, 2.5rem);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    line-height: 1.1;
+    color: var(--white);
+    margin-bottom: 12px;
+  }
+
+  .header h1 em { font-style: normal; color: var(--orange); }
+
+  .accent-line {
+    width: 40px; height: 3px;
+    background: var(--orange);
+    margin: 14px auto 16px;
+  }
+
+  .header p {
+    font-size: 0.88rem;
+    color: var(--gray);
+    line-height: 1.6;
+    font-weight: 300;
+  }
+
+  /* CARD */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 36px 32px;
+    position: relative;
+    animation: fadeUp 0.6s ease 0.15s both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--orange), transparent);
+    border-radius: 4px 4px 0 0;
+  }
+
+  /* SEÇÕES */
+  .section-title {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--orange);
+    margin-bottom: 16px;
+    margin-top: 28px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title:first-child { margin-top: 0; }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* CAMPOS */
+  .form-group { margin-bottom: 16px; }
+
+  .row-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gray);
+    margin-bottom: 7px;
+  }
+
+  label .req { color: var(--orange); margin-left: 3px; }
+  label .opt { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.68rem; }
+
+  input, select, textarea {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 11px 14px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 0.9rem;
+    color: var(--white);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+    -webkit-appearance: none;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--orange);
+    box-shadow: 0 0 0 3px rgba(249,115,22,0.12);
+  }
+
+  input.err { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(239,68,68,0.1); }
+  input::placeholder, textarea::placeholder { color: var(--muted); }
+  select option { background: var(--bg2); }
+  textarea { resize: vertical; min-height: 88px; line-height: 1.5; }
+
+  .err-msg {
+    font-size: 0.72rem;
+    color: var(--danger);
+    margin-top: 5px;
+    display: none;
+    font-weight: 500;
+  }
+  .err-msg.show { display: block; }
+
+  /* BOTÃO */
+  .btn-send {
+    width: 100%;
+    margin-top: 28px;
+    padding: 13px 24px;
+    background: var(--orange);
+    border: none;
+    border-radius: 3px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #000;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .btn-send:hover { background: var(--orange2); }
+  .btn-send:active { transform: scale(0.98); }
+  .btn-send:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .btn-send .spinner {
+    display: none;
+    width: 16px; height: 16px;
+    border: 2px solid rgba(0,0,0,0.3);
+    border-top-color: #000;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* SUCESSO */
+  .success-screen {
+    display: none;
+    text-align: center;
+    padding: 16px 0;
+  }
+
+  .success-icon {
+    width: 64px; height: 64px;
+    background: rgba(34,197,94,0.1);
+    border: 2px solid var(--success);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+    animation: popIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both;
+  }
+  @keyframes popIn {
+    from { transform: scale(0); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+
+  .success-screen h2 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--white);
+    margin-bottom: 10px;
+  }
+
+  .success-screen p {
+    font-size: 0.88rem;
+    color: var(--gray);
+    line-height: 1.6;
+    font-weight: 300;
+  }
+
+  /* FOOTER */
+  .footer {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    animation: fadeUp 0.6s ease 0.3s both;
+  }
+  .footer strong { color: var(--orange); font-weight: 600; }
+
+  @media (max-width: 480px) {
+    .card { padding: 28px 20px; }
+    .row-2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="glow-top"></div>
+
+<div class="wrap">
+
+  <div class="header">
+    <div class="logo-wrap">
+      <div class="logo-icon">C</div>
+      <div class="logo-name">
+        <span>Creative</span> Soluções
+        <small>Tecnologia &amp; Segurança Eletrônica</small>
+      </div>
+    </div>
+    <div class="header-tag">Novo Atendimento</div>
+    <h1>Informe seus <em>dados</em></h1>
+    <div class="accent-line"></div>
+    <p>Recebemos seu contato pelo WhatsApp. Preencha os dados abaixo para agilizarmos seu atendimento.</p>
+  </div>
+
+  <div class="card">
+
+    <form id="form" novalidate>
+      <input type="hidden" name="empresa_id" value="{{ empresa_id }}">
+
+      <div class="section-title">Identificação</div>
+
+      <div class="form-group">
+        <label>Nome completo / Razão Social <span class="req">*</span></label>
+        <input type="text" name="nome" id="nome" placeholder="Ex: João Silva ou Empresa Ltda" autocomplete="name">
+        <div class="err-msg" id="e-nome">Informe seu nome completo.</div>
+      </div>
+
+      <div class="row-2">
+        <div class="form-group">
+          <label>CPF / CNPJ <span class="opt">(opcional)</span></label>
+          <input type="text" name="cpf_cnpj" id="cpf_cnpj" placeholder="000.000.000-00" maxlength="18">
+        </div>
+        <div class="form-group">
+          <label>Tipo <span class="opt">(opcional)</span></label>
+          <select name="tipo">
+            <option value="PF">Pessoa Física</option>
+            <option value="PJ">Pessoa Jurídica</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section-title">Contato</div>
+
+      <div class="row-2">
+        <div class="form-group">
+          <label>WhatsApp <span class="req">*</span></label>
+          <input type="tel" name="telefone" id="telefone" placeholder="(00) 9 0000-0000" autocomplete="tel">
+          <div class="err-msg" id="e-telefone">Informe seu WhatsApp.</div>
+        </div>
+        <div class="form-group">
+          <label>E-mail <span class="opt">(opcional)</span></label>
+          <input type="email" name="email" id="email" placeholder="seu@email.com" autocomplete="email">
+          <div class="err-msg" id="e-email">E-mail inválido.</div>
+        </div>
+      </div>
+
+      <div class="section-title">Endereço</div>
+
+      <div class="form-group">
+        <label>Endereço completo <span class="req">*</span></label>
+        <textarea name="endereco" id="endereco" placeholder="Rua, número, bairro, cidade — UF"></textarea>
+        <div class="err-msg" id="e-endereco">Informe seu endereço.</div>
+      </div>
+
+      <button type="submit" class="btn-send" id="btn">
+        <span id="btn-text">Enviar dados →</span>
+        <div class="spinner" id="spinner"></div>
+      </button>
+    </form>
+
+    <div class="success-screen" id="success">
+      <div class="success-icon">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <h2>Dados recebidos!</h2>
+      <p>Obrigado! Suas informações foram salvas com sucesso.<br>Em breve entraremos em contato pelo WhatsApp.</p>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    <strong>Creative Soluções</strong> &nbsp;·&nbsp; (83) 9 8816-1245 &nbsp;·&nbsp; creativeinfo.com.br
+  </div>
+
+</div>
+
+<script>
+document.getElementById('cpf_cnpj').addEventListener('input', function() {
+  let v = this.value.replace(/\D/g, '');
+  if (v.length <= 11) {
+    v = v.replace(/(\d{3})(\d)/, '$1.$2')
+         .replace(/(\d{3})(\d)/, '$1.$2')
+         .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  } else {
+    v = v.replace(/(\d{2})(\d)/, '$1.$2')
+         .replace(/(\d{3})(\d)/, '$1.$2')
+         .replace(/(\d{3})(\d)/, '$1/$2')
+         .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+  }
+  this.value = v;
+});
+
+document.getElementById('telefone').addEventListener('input', function() {
+  let v = this.value.replace(/\D/g, '');
+  if (v.length <= 10) {
+    v = v.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2');
+  } else {
+    v = v.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2');
+  }
+  this.value = v;
+});
+
+document.getElementById('form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+
+  document.querySelectorAll('.err-msg').forEach(el => el.classList.remove('show'));
+  document.querySelectorAll('input,textarea').forEach(el => el.classList.remove('err'));
+
+  let ok = true;
+
+  const nome = document.getElementById('nome');
+  if (!nome.value.trim()) { nome.classList.add('err'); document.getElementById('e-nome').classList.add('show'); ok = false; }
+
+  const tel = document.getElementById('telefone');
+  if (!tel.value.trim()) { tel.classList.add('err'); document.getElementById('e-telefone').classList.add('show'); ok = false; }
+
+  const end = document.getElementById('endereco');
+  if (!end.value.trim()) { end.classList.add('err'); document.getElementById('e-endereco').classList.add('show'); ok = false; }
+
+  const email = document.getElementById('email');
+  if (email.value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
+    email.classList.add('err'); document.getElementById('e-email').classList.add('show'); ok = false;
+  }
+
+  if (!ok) return;
+
+  const btn = document.getElementById('btn');
+  document.getElementById('btn-text').style.display = 'none';
+  document.getElementById('spinner').style.display = 'block';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/cadastro-cliente', { method: 'POST', body: new FormData(this) });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('form').style.display = 'none';
+      document.getElementById('success').style.display = 'block';
+    } else {
+      throw new Error(data.erro || 'Erro ao salvar.');
+    }
+  } catch (err) {
+    alert('Ocorreu um erro. Tente novamente.\n' + err.message);
+    document.getElementById('btn-text').style.display = '';
+    document.getElementById('spinner').style.display = 'none';
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

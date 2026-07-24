@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Ordens de Serviço — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h1><i class="fas fa-tools me-2" style="color:#7C3AED"></i>Ordens de Serviço</h1>
+    <p>{{ ordens|length }} OS encontrada(s)</p>
+  </div>
+  <a href="{{ url_for('nova_os') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Nova OS</a>
+</div>
+
+<!-- FILTROS -->
+<div class="d-flex gap-2 mb-4 flex-wrap">
+  {% for s, label, color in [('','Todas','#64748b'),('aberta','Aberta','#00D4FF'),('em_andamento','Em Andamento','#f59e0b'),('concluida','Concluída','#10b981'),('cancelada','Cancelada','#ef4444')] %}
+  <a href="{{ url_for('listar_os', status=s) }}"
+     style="padding:6px 16px;border-radius:20px;font-size:0.8rem;font-weight:600;text-decoration:none;border:1px solid;
+     {% if status == s %}background:{{ color }};color:white;border-color:{{ color }}
+     {% else %}background:transparent;color:{{ color }};border-color:{{ color }}40{% endif %}">
+    {{ label }}
+  </a>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    {% if ordens %}
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr><th>Número</th><th>Título</th><th>Cliente</th><th>Técnico</th><th>Prioridade</th><th>Status</th><th>Previsão</th><th>Ações</th></tr>
+      </thead>
+      <tbody>
+        {% for os in ordens %}
+        <tr>
+          <td><code style="color:#7C3AED;font-size:0.8rem">{{ os.numero }}</code></td>
+          <td style="font-weight:600">{{ os.titulo[:28] }}</td>
+          <td style="font-size:0.83rem">{{ (os.cliente.nome or '')[:20] if os.cliente else '' }}</td>
+          <td style="font-size:0.83rem">{{ os.tecnico or '—' }}</td>
+          <td>
+            <span class="status-badge" style="background:{% if os.prioridade=='urgente' %}rgba(239,68,68,0.15);color:#ef4444{% elif os.prioridade=='alta' %}rgba(245,158,11,0.15);color:#f59e0b{% elif os.prioridade=='baixa' %}rgba(100,116,139,0.1);color:#94a3b8{% else %}rgba(100,116,139,0.15);color:#64748b{% endif %}">{{ os.prioridade }}</span>
+          </td>
+          <td><span class="status-badge status-{{ os.status }}">{{ os.status }}</span></td>
+          <td style="font-size:0.78rem;color:var(--nb-text-muted)">{{ os.data_prevista|data if os.data_prevista else '—' }}</td>
+          <td>
+            <a href="{{ url_for('ver_os', id=os.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-eye"></i></a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-5">
+      <i class="fas fa-tools fa-3x mb-3 d-block" style="color:var(--nb-text-light)"></i>
+      <h5 style="color:var(--nb-text-muted)">Nenhuma OS encontrada</h5>
+      <a href="{{ url_for('nova_os') }}" class="btn btn-accent mt-2">Criar primeira OS</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

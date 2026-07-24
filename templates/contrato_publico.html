@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contrato {{ contrato.numero }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{font-family:'Inter',sans-serif;}
+body{background:#f8fafc;color:#0f172a;min-height:100vh;}
+.header-bar{background:linear-gradient(135deg,#0A0E1A,#120B2E);padding:20px 0;border-bottom:2px solid #10B981;}
+.cp{max-width:860px;margin:0 auto;padding:0 20px;}
+.contrato-body{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:32px;margin:24px 0;box-shadow:0 2px 12px rgba(0,0,0,.06);}
+.contrato-body h2{font-family:'Space Grotesk',sans-serif;font-size:1.2rem;font-weight:800;color:#0f172a;text-align:center;margin-bottom:6px;}
+.contrato-body h3{font-size:.9rem;font-weight:700;color:#0f172a;margin-top:18px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;}
+.contrato-body p,.contrato-body li{font-size:.88rem;color:#334155;line-height:1.7;}
+.contrato-body table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.84rem;}
+.contrato-body table th{background:#0f172a;color:#fff;padding:7px 10px;text-align:left;}
+.contrato-body table td{padding:7px 10px;border-bottom:1px solid #f1f5f9;}
+.contrato-body table tr:nth-child(even) td{background:#f8fafc;}
+.sign-box{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:2px solid #10B981;border-radius:14px;padding:24px;margin-top:20px;}
+.sign-box.signed{background:linear-gradient(135deg,#f0fdf4,#dcfce7);}
+.btn-sign{background:linear-gradient(135deg,#10B981,#059669);color:#fff;border:none;border-radius:10px;font-weight:800;font-size:.95rem;padding:13px 32px;cursor:pointer;transition:all .3s;font-family:'Space Grotesk',sans-serif;}
+.btn-sign:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(16,185,129,.35);}
+.alert{border:none;border-radius:10px;font-size:.85rem;margin-bottom:14px;padding:10px 14px;}
+.alert-success{background:rgba(16,185,129,.12);color:#065f46;border:1px solid rgba(16,185,129,.2);}
+.footer-bar{text-align:center;padding:16px 0;font-size:.7rem;color:#94a3b8;margin-top:20px;}
+</style>
+</head>
+<body>
+<div class="header-bar">
+  <div class="cp d-flex align-items-center justify-content-between">
+    <div class="d-flex align-items-center gap-3">
+      {% if empresa and empresa.logo %}
+        {% set lb = logo_b64(empresa) %}
+        {% if lb %}<img src="{{ lb }}" style="height:36px;object-fit:contain;border-radius:5px">{% endif %}
+      {% endif %}
+      <div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;color:#10B981;font-size:.95rem">{{ empresa.fantasia if empresa else 'NeuraBusiness' }}</div>
+        {% if empresa and empresa.cnpj %}<div style="font-size:.64rem;color:rgba(255,255,255,.4)">{{ empresa.cnpj }}</div>{% endif %}
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:.72rem;color:rgba(255,255,255,.4)">CONTRATO</div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:800;color:#10B981">{{ contrato.numero }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="cp">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat,msg in messages %}
+    <div class="alert alert-{{ cat }}" style="margin-top:16px"><i class="fas fa-check-circle me-2"></i>{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="contrato-body">
+    {{ contrato.texto_contrato|safe }}
+  </div>
+
+  <!-- ASSINATURA -->
+  {% if contrato.status == 'pendente' %}
+  <div class="sign-box">
+    <div style="font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:800;color:#065f46;margin-bottom:8px">
+      <i class="fas fa-signature me-2"></i>Assinar este Contrato
+    </div>
+    <p style="font-size:.85rem;color:#134e4a;margin-bottom:16px">
+      Ao assinar, você confirma que leu e concorda com todos os termos acima.<br>
+      Sua assinatura será registrada com data, hora e nome.
+    </p>
+    <form method="POST">
+      <div class="mb-3">
+        <label style="font-weight:700;font-size:.82rem;color:#134e4a;display:block;margin-bottom:6px">Seu nome completo *</label>
+        <input type="text" name="nome_assinatura" class="form-control" placeholder="Digite seu nome completo para assinar" required style="max-width:400px;border:1.5px solid #10B981">
+      </div>
+      <button type="submit" class="btn-sign"><i class="fas fa-check-circle me-2"></i>Assinar Contrato</button>
+      <p style="font-size:.7rem;color:#6b7280;margin-top:8px"><i class="fas fa-lock me-1"></i>Assinatura registrada digitalmente com data e hora</p>
+    </form>
+  </div>
+  {% else %}
+  <div class="sign-box signed">
+    <i class="fas fa-check-circle fa-2x" style="color:#10B981;margin-bottom:10px"></i>
+    <div style="font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:800;color:#065f46">Contrato Assinado!</div>
+    <p style="font-size:.85rem;color:#134e4a;margin-top:6px">
+      Assinado por: <b>{{ contrato.assinatura_nome }}</b><br>
+      Em: {{ contrato.assinado_em|data('%d/%m/%Y %H:%M') if contrato.assinado_em else '' }}
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="footer-bar">{{ empresa.razao_social if empresa else 'NeuraBusiness' }} • Documento gerado por NeuraBusiness Sistema Comercial</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposta {{ proposta.numero }} — {{ empresa.fantasia if empresa else 'Creative' }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Barlow',sans-serif;background:#0a0a0a;color:#e2e8f0;min-height:100vh}
+
+/* ─── HERO / HEADER ─── */
+.hero{background:linear-gradient(135deg,#080808 0%,#111 60%,#1a0a00 100%);border-bottom:3px solid #f97316;padding:0}
+.hero-top{padding:28px 40px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.logo-area{display:flex;align-items:center;gap:16px}
+.logo-area img{height:52px;object-fit:contain}
+.empresa-nome{font-family:'Barlow Condensed',sans-serif;font-size:1.6rem;font-weight:900;color:#fff;line-height:1;letter-spacing:1px}
+.empresa-sub{font-size:.72rem;color:#f97316;text-transform:uppercase;letter-spacing:2px;font-weight:600}
+.prop-numero{text-align:right}
+.prop-label{font-size:.62rem;text-transform:uppercase;letter-spacing:1px;color:#64748b}
+.prop-num{font-family:'Barlow Condensed',sans-serif;font-size:1.8rem;font-weight:900;color:#f97316;line-height:1}
+.prop-meta-bar{background:rgba(249,115,22,.08);border-top:1px solid rgba(249,115,22,.15);padding:10px 40px;display:flex;gap:40px;flex-wrap:wrap}
+.meta-item{font-size:.78rem}
+.meta-lbl{color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:.65rem}
+.meta-val{color:#e2e8f0;font-weight:600}
+
+/* ─── CLIENTE ─── */
+.section{padding:28px 40px}
+.section-title{font-family:'Barlow Condensed',sans-serif;font-size:.85rem;font-weight:800;color:#f97316;text-transform:uppercase;letter-spacing:2px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.section-title::after{content:'';flex:1;height:1px;background:rgba(249,115,22,.2)}
+.card-dark{background:rgba(255,255,255,.03);border:1px solid rgba(249,115,22,.12);border-radius:12px;padding:20px 24px}
+
+/* ─── TABELA DE ITENS ─── */
+.table-dark-custom{width:100%;border-collapse:collapse}
+.table-dark-custom thead tr{background:#0f172a}
+.table-dark-custom thead th{padding:12px 14px;font-size:.72rem;font-weight:700;color:#f97316;text-transform:uppercase;letter-spacing:.8px;border:1px solid rgba(249,115,22,.15)}
+.table-dark-custom tbody tr{border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s}
+.table-dark-custom tbody tr:hover{background:rgba(249,115,22,.04)}
+.table-dark-custom tbody td{padding:11px 14px;font-size:.85rem;color:#e2e8f0;border:1px solid rgba(255,255,255,.05)}
+.table-dark-custom tbody tr:nth-child(even){background:rgba(255,255,255,.02)}
+.tipo-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.tp-servico{background:rgba(249,115,22,.12);color:#f97316}
+.tp-material{background:rgba(16,185,129,.1);color:#10B981}
+.tp-produto{background:rgba(59,130,246,.1);color:#3B82F6}
+
+/* ─── TOTAL ─── */
+.total-box{background:linear-gradient(135deg,#1a0800,#0f0a00);border:2px solid #f97316;border-radius:14px;padding:24px 32px;display:flex;justify-content:space-between;align-items:center;margin:0 40px}
+.total-lbl{font-size:.75rem;text-transform:uppercase;letter-spacing:1px;color:#64748b;font-weight:700}
+.total-val{font-family:'Barlow Condensed',sans-serif;font-size:2.4rem;font-weight:900;color:#f97316;line-height:1}
+
+/* ─── PAGAMENTO E OBSERVAÇÕES ─── */
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:24px 40px}
+@media(max-width:640px){.info-grid{grid-template-columns:1fr}}
+.info-card{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:18px}
+.info-card-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#f97316;margin-bottom:10px}
+.info-card p{font-size:.82rem;color:#94a3b8;line-height:1.7;margin-bottom:4px}
+
+/* ─── QUALIFICAÇÃO TÉCNICA ─── */
+.qualif{background:rgba(249,115,22,.04);border:1px solid rgba(249,115,22,.1);border-left:4px solid #f97316;border-radius:0 10px 10px 0;padding:18px 22px;margin:0 40px 24px}
+.qualif p{font-size:.8rem;color:#94a3b8;line-height:1.7}
+.sign-line{border-top:1px solid rgba(255,255,255,.2);margin-top:14px;padding-top:12px}
+.sign-name{font-weight:700;font-size:.9rem;color:#e2e8f0}
+.sign-role{font-size:.75rem;color:#64748b}
+
+/* ─── APROVAÇÃO ─── */
+.aprovacao{margin:0 40px 32px;background:linear-gradient(135deg,#0c2a1e,#0a1f17);border:2px solid rgba(16,185,129,.3);border-radius:14px;padding:28px;text-align:center}
+.aprovacao.assinado{border-color:rgba(16,185,129,.5);background:linear-gradient(135deg,#062016,#081a12)}
+.btn-aprovar{background:linear-gradient(135deg,#10B981,#059669);color:#fff;border:none;border-radius:10px;padding:14px 36px;font-size:1rem;font-weight:700;cursor:pointer;transition:all .2s;font-family:'Barlow',sans-serif}
+.btn-aprovar:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(16,185,129,.35)}
+.hash-box{font-family:'Courier New',monospace;font-size:.65rem;word-break:break-all;color:#10B981;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:8px;padding:10px 14px;margin-top:10px;text-align:left}
+
+/* ─── FOOTER ─── */
+.footer-bar{background:#080808;border-top:1px solid rgba(249,115,22,.15);padding:16px 40px;text-align:center;font-size:.73rem;color:#374151}
+.footer-bar span{color:#f97316;font-weight:600}
+
+/* ─── ETAPAS ─── */
+.etapa-row{display:flex;gap:14px;margin-bottom:14px}
+.etapa-num{width:32px;height:32px;min-width:32px;background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:800;color:#f97316}
+.etapa-titulo{font-size:.88rem;font-weight:700;color:#e2e8f0}
+.etapa-desc{font-size:.78rem;color:#94a3b8;margin-top:2px}
+.etapa-dias{font-size:.7rem;color:#64748b;margin-top:2px}
+
+input[type=text]{width:100%;padding:10px 14px;border:1px solid rgba(249,115,22,.25);border-radius:8px;font-size:.9rem;background:rgba(255,255,255,.05);color:#e2e8f0;outline:none;transition:border .2s}
+input[type=text]:focus{border-color:#f97316;background:rgba(249,115,22,.05)}
+input[type=text]::placeholder{color:#475569}
+</style>
+</head>
+<body>
+
+<!-- ─── HEADER ─── -->
+<div class="hero">
+  <div class="hero-top">
+    <div class="logo-area">
+      {% if logo_b64 and empresa %}
+      <img src="{{ logo_b64(empresa) }}" alt="{{ empresa.fantasia }}">
+      {% endif %}
+      <div>
+        <div class="empresa-nome">{{ empresa.fantasia if empresa else 'CREATIVE' }}</div>
+        <div class="empresa-sub">Tecnologia & Segurança Eletrônica</div>
+      </div>
+    </div>
+    <div class="prop-numero">
+      <div class="prop-label">Proposta Comercial</div>
+      <div class="prop-num">{{ proposta.numero }}</div>
+    </div>
+  </div>
+  <div class="prop-meta-bar">
+    <div class="meta-item"><div class="meta-lbl">Data</div><div class="meta-val">{{ proposta.criado_em|data }}</div></div>
+    <div class="meta-item"><div class="meta-lbl">Validade</div><div class="meta-val">{{ proposta.validade }} dias</div></div>
+    {% if empresa %}<div class="meta-item"><div class="meta-lbl">CNPJ</div><div class="meta-val">{{ empresa.cnpj }}</div></div>{% endif %}
+    {% if empresa and empresa.telefone %}<div class="meta-item"><div class="meta-lbl">Contato</div><div class="meta-val">{{ empresa.telefone }}</div></div>{% endif %}
+    {% if empresa and empresa.email %}<div class="meta-item"><div class="meta-lbl">E-mail</div><div class="meta-val">{{ empresa.email }}</div></div>{% endif %}
+  </div>
+</div>
+
+<!-- ─── CLIENTE ─── -->
+<div class="section">
+  <div class="section-title"><i class="fas fa-user-tie"></i>Cliente</div>
+  <div class="card-dark">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div style="font-size:.68rem;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Nome / Razão Social</div>
+        <div style="font-size:1.05rem;font-weight:700;color:#fff">{{ proposta.cliente.nome if proposta.cliente else '—' }}</div>
+      </div>
+      {% if proposta.cliente and proposta.cliente.cpf_cnpj %}
+      <div class="col-md-3">
+        <div style="font-size:.68rem;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">CPF/CNPJ</div>
+        <div style="font-weight:600">{{ proposta.cliente.cpf_cnpj }}</div>
+      </div>
+      {% endif %}
+      {% if proposta.cliente and proposta.cliente.telefone %}
+      <div class="col-md-3">
+        <div style="font-size:.68rem;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Telefone</div>
+        <div style="font-weight:600">{{ proposta.cliente.telefone }}</div>
+      </div>
+      {% endif %}
+      {% if proposta.cliente and proposta.cliente.endereco %}
+      <div class="col-12">
+        <div style="font-size:.68rem;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Endereço</div>
+        <div style="font-size:.85rem;color:#94a3b8">{{ proposta.cliente.endereco }}{% if proposta.cliente.cidade %}, {{ proposta.cliente.cidade }}/{{ proposta.cliente.estado }}{% endif %}{% if proposta.cliente.cep %} — CEP: {{ proposta.cliente.cep }}{% endif %}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ─── ESCOPO / DESCRIÇÃO ─── -->
+{% if proposta.analise_ambiente or proposta.titulo %}
+<div class="section" style="padding-top:0">
+  <div class="section-title"><i class="fas fa-clipboard-list"></i>Escopo do Serviço</div>
+  <div class="card-dark">
+    <p style="font-size:.9rem;color:#94a3b8;line-height:1.7">{{ proposta.analise_ambiente or proposta.titulo }}</p>
+  </div>
+</div>
+{% endif %}
+
+<!-- ─── ITENS ─── -->
+{% if proposta.itens %}
+<div class="section" style="padding-top:0">
+  <div class="section-title"><i class="fas fa-list-ul"></i>Composição do Kit / Itens</div>
+  <table class="table-dark-custom">
+    <thead>
+      <tr>
+        <th style="width:40px;text-align:center">#</th>
+        <th>Descrição do Item</th>
+        <th style="width:120px;text-align:center">Tipo</th>
+        <th style="width:80px;text-align:center">Qtd</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in proposta.itens %}
+      <tr>
+        <td style="text-align:center;color:#64748b;font-size:.78rem">{{ loop.index }}</td>
+        <td>
+          <div style="font-weight:600;color:#e2e8f0">{{ item.descricao }}</div>
+          {% if item.descricao_detalhada %}<div style="font-size:.75rem;color:#64748b;margin-top:2px">{{ item.descricao_detalhada }}</div>{% endif %}
+        </td>
+        <td style="text-align:center">
+          {% if item.tipo == 'servico' %}<span class="tipo-badge tp-servico">Serviço</span>
+          {% elif item.tipo == 'produto' %}<span class="tipo-badge tp-produto">Produto</span>
+          {% else %}<span class="tipo-badge tp-material">Material</span>{% endif %}
+        </td>
+        <td style="text-align:center;font-weight:700;color:#f97316">{{ item.quantidade|int if item.quantidade == item.quantidade|int else item.quantidade }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ─── TOTAL ─── -->
+{% set ns = namespace(total=0) %}
+{% for i in proposta.itens %}{% set ns.total = ns.total + i.quantidade * i.preco_unitario %}{% endfor %}
+{% set extra = (proposta.custo_locomocao or 0)+(proposta.custo_alimentacao or 0)+(proposta.custo_outros or 0) %}
+<div class="total-box mb-4">
+  <div>
+    <div class="total-lbl">Valor Total da Proposta</div>
+    {% if proposta.forma_pagamento %}<div style="font-size:.78rem;color:#64748b;margin-top:4px"><i class="fas fa-credit-card me-1"></i>{{ proposta.forma_pagamento }}</div>{% endif %}
+  </div>
+  <div class="total-val">R$ {{ "%.2f"|format(ns.total + extra) }}</div>
+</div>
+
+<!-- ─── ETAPAS ─── -->
+{% if proposta.etapas %}
+<div class="section" style="padding-top:0">
+  <div class="section-title"><i class="fas fa-tasks"></i>Cronograma de Execução</div>
+  <div class="card-dark">
+    {% for e in proposta.etapas|sort(attribute='ordem') %}
+    <div class="etapa-row">
+      <div class="etapa-num">{{ loop.index }}</div>
+      <div>
+        <div class="etapa-titulo">{{ e.titulo }}</div>
+        {% if e.descricao %}<div class="etapa-desc">{{ e.descricao }}</div>{% endif %}
+        {% if e.duracao_dias %}<div class="etapa-dias"><i class="fas fa-clock me-1"></i>{{ e.duracao_dias }} dia(s)</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ─── PAGAMENTO E OBSERVAÇÕES ─── -->
+{% if proposta.condicoes or proposta.forma_pagamento %}
+<div class="info-grid" style="padding-top:0">
+  {% if proposta.forma_pagamento or proposta.condicoes %}
+  <div class="info-card">
+    <div class="info-card-title"><i class="fas fa-money-bill-wave me-2"></i>Forma de Pagamento</div>
+    {% if proposta.forma_pagamento %}<p><i class="fas fa-check me-2" style="color:#10B981"></i>{{ proposta.forma_pagamento }}</p>{% endif %}
+    {% if proposta.condicoes %}{% for linha in proposta.condicoes.split('\n') %}{% if linha.strip() %}<p><i class="fas fa-check me-2" style="color:#10B981"></i>{{ linha }}</p>{% endif %}{% endfor %}{% endif %}
+  </div>
+  {% endif %}
+  {% if proposta.observacoes %}
+  <div class="info-card">
+    <div class="info-card-title"><i class="fas fa-sticky-note me-2"></i>Observações</div>
+    {% for linha in proposta.observacoes.split('\n') %}{% if linha.strip() %}<p>{{ linha }}</p>{% endif %}{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ─── QUALIFICAÇÃO TÉCNICA ─── -->
+{% if empresa %}
+<div class="qualif">
+  <div class="info-card-title" style="color:#f97316;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px"><i class="fas fa-award me-2"></i>Qualificação Técnica do Responsável</div>
+  <p>Pós-graduado em Redes | MBA em Gestão de TI | Certificações: ITIL, ISO 27001, PMBOK</p>
+  <p>Expertise: CFTV, Alarmes, Segurança Eletrônica, Redes, Infraestrutura de TI</p>
+  <div class="sign-line">
+    <div class="sign-name">Arlindo Luiz da Silva Junior</div>
+    <div class="sign-role">Responsável Técnico — {{ empresa.fantasia }} Tecnologia & Segurança Eletrônica</div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ─── APROVAÇÃO / ASSINATURA ─── -->
+<div class="aprovacao {% if proposta.status == 'aprovada' %}assinado{% endif %}">
+  {% if proposta.status == 'aprovada' %}
+    <i class="fas fa-check-circle fa-2x mb-3" style="color:#10B981"></i>
+    <div style="font-size:1.1rem;font-weight:700;color:#10B981;margin-bottom:6px">Proposta Aprovada e Assinada!</div>
+    {% if proposta.aprovado_em %}
+    <div style="font-size:.83rem;color:#94a3b8;margin-bottom:16px">Assinada em {{ proposta.aprovado_em|data }}. Entraremos em contato em breve.</div>
+    {% endif %}
+    {% if proposta.assinatura_nome %}
+    <div style="background:rgba(0,0,0,.25);border-radius:10px;padding:14px 20px;text-align:left;max-width:480px;margin:0 auto">
+      <div style="font-size:.7rem;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Assinado por</div>
+      <div style="font-weight:700;color:#e2e8f0;font-size:.95rem">{{ proposta.assinatura_nome }}</div>
+      {% if proposta.assinatura_cpf %}<div style="font-size:.8rem;color:#94a3b8">CPF: {{ proposta.assinatura_cpf }}</div>{% endif %}
+      {% if proposta.assinatura_hash %}
+      <div style="margin-top:10px">
+        <div style="font-size:.65rem;color:#64748b;margin-bottom:4px"><i class="fas fa-shield-alt me-1" style="color:#10B981"></i>Hash SHA-256 — Prova Jurídica</div>
+        <div class="hash-box">{{ proposta.assinatura_hash }}</div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  {% else %}
+    <i class="fas fa-pen-nib fa-2x mb-3" style="color:#10B981"></i>
+    <div style="font-size:1rem;font-weight:700;color:#e2e8f0;margin-bottom:4px">Aprovar e Assinar Proposta</div>
+    <div style="font-size:.82rem;color:#94a3b8;margin-bottom:20px">Preencha seus dados para aprovar esta proposta com validade jurídica.</div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}{% for cat,msg in messages %}<div class="alert alert-{{ cat }} mb-3" style="text-align:left;max-width:480px;margin:0 auto 12px">{{ msg }}</div>{% endfor %}{% endif %}
+    {% endwith %}
+    <form method="POST" action="{{ url_for('aprovar_proposta_publico', id=proposta.id, token=proposta.token_publico) }}">
+      <div style="max-width:480px;margin:0 auto">
+        <div class="mb-3 text-start">
+          <label style="font-size:.75rem;font-weight:700;color:#374151;display:block;margin-bottom:6px">Nome Completo *</label>
+          <input type="text" name="nome_assinatura" required placeholder="Seu nome completo">
+        </div>
+        <div class="mb-3 text-start">
+          <label style="font-size:.75rem;font-weight:700;color:#374151;display:block;margin-bottom:6px">CPF *</label>
+          <input type="text" name="cpf_assinatura" required placeholder="000.000.000-00" maxlength="14" oninput="fmtCpf(this)">
+        </div>
+        <div style="background:rgba(0,0,0,.2);border-radius:8px;padding:10px 14px;font-size:.72rem;color:#64748b;text-align:left;margin-bottom:16px;line-height:1.6">
+          <i class="fas fa-shield-alt me-1" style="color:#10B981"></i>
+          Ao assinar, você declara ter lido e aceito esta proposta. Serão registrados nome, CPF, IP e data/hora, gerando um hash SHA-256 como prova jurídica conforme a <strong>Lei nº 14.063/2020</strong> e o <strong>Marco Civil da Internet</strong>.
+        </div>
+        <button type="submit" class="btn-aprovar"><i class="fas fa-signature me-2"></i>Aprovar e Assinar</button>
+      </div>
+    </form>
+  {% endif %}
+</div>
+
+<!-- ─── FOOTER ─── -->
+<div class="footer-bar">
+  <span>{{ empresa.fantasia if empresa else 'Creative' }}</span> |
+  {% if empresa %}{{ empresa.cnpj }} | {{ empresa.telefone }} | {{ empresa.email }}{% endif %}<br>
+  <span style="color:#374151;font-size:.68rem">Este documento é válido como proposta comercial. A execução implica aceite das condições apresentadas.</span>
+</div>
+
+<script>
+function fmtCpf(el){
+  let v=el.value.replace(/\D/g,'');
+  if(v.length<=3)el.value=v;
+  else if(v.length<=6)el.value=v.slice(0,3)+'.'+v.slice(3);
+  else if(v.length<=9)el.value=v.slice(0,3)+'.'+v.slice(3,6)+'.'+v.slice(6);
+  else el.value=v.slice(0,3)+'.'+v.slice(3,6)+'.'+v.slice(6,9)+'-'+v.slice(9,11);
+}
+</script>
+</body>
+</html>

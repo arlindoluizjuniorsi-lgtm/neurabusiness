@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}{% if produto %}Editar{% else %}Novo{% endif %} Produto{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div><h1><i class="fas fa-box me-2" style="color:#00D4FF"></i>{% if produto %}Editar Produto{% else %}Novo Produto{% endif %}</h1>
+  <p><a href="{{ url_for('listar_produtos') }}" style="color:var(--nb-muted)">Produtos</a> › {% if produto %}{{ produto.nome }}{% else %}Novo{% endif %}</p></div>
+  {% if produto %}
+  <form method="POST" action="{{ url_for('excluir_produto', id=produto.id) }}" onsubmit="return confirm('Remover?')">
+    <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:8px"><i class="fas fa-trash me-1"></i>Remover</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if produto %}
+<!-- LINK TEMPORÁRIO -->
+<div style="background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:14px 18px;margin-bottom:20px">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <div style="font-size:.72rem;color:#00D4FF;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px"><i class="fas fa-link me-1"></i>Link Público do Produto</div>
+      {% if produto.token_link %}
+        <code id="linkProd" style="color:#00D4FF;font-size:.8rem">{{ request.host_url.rstrip('/') }}/p/{{ produto.token_link }}</code>
+        {% if produto.link_expira_em %}<span style="color:var(--nb-muted);font-size:.72rem;margin-left:8px">— expira {{ produto.link_expira_em|data }}</span>{% endif %}
+      {% else %}
+        <span style="color:var(--nb-muted);font-size:.82rem">Nenhum link ativo</span>
+      {% endif %}
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+      {% if produto.token_link %}
+      <button onclick="navigator.clipboard.writeText(document.getElementById('linkProd').textContent);this.innerHTML='<i class=\'fas fa-check\'></i>';setTimeout(()=>this.innerHTML='<i class=\'fas fa-copy\'></i>',2000)" class="btn btn-sm btn-nb"><i class="fas fa-copy"></i></button>
+      {% endif %}
+      <form method="POST" action="{{ url_for('gerar_link_produto', id=produto.id) }}" class="d-flex align-items-center gap-2">
+        <select name="validade_dias" class="form-select form-select-sm" style="width:120px">
+          <option value="1">1 dia</option>
+          <option value="3">3 dias</option>
+          <option value="7" selected>7 dias</option>
+          <option value="15">15 dias</option>
+          <option value="30">30 dias</option>
+        </select>
+        <button type="submit" class="btn btn-sm btn-accent"><i class="fas fa-magic me-1"></i>Gerar Link</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<form method="POST" enctype="multipart/form-data">
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+    <div class="card mb-4">
+      <div class="card-header"><i class="fas fa-info-circle"></i>Informações do Produto</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Nome *</label><input type="text" name="nome" class="form-control" value="{{ produto.nome if produto else '' }}" required></div>
+          <div class="col-md-5"><label class="form-label">Categoria</label><input type="text" name="categoria" class="form-control" value="{{ produto.categoria if produto else '' }}" list="cats"></div>
+          <div class="col-md-4"><label class="form-label">Tipo</label>
+            <select name="tipo" class="form-select">
+              <option value="produto" {% if not produto or produto.tipo=='produto' %}selected{% endif %}>Produto / Equipamento</option>
+              <option value="acessorio" {% if produto and produto.tipo=='acessorio' %}selected{% endif %}>Acessório</option>
+              <option value="material" {% if produto and produto.tipo=='material' %}selected{% endif %}>Material</option>
+            </select>
+          </div>
+          <div class="col-md-3"><label class="form-label">Estoque</label><input type="number" name="estoque" class="form-control" value="{{ produto.estoque if produto else 0 }}" min="0"></div>
+          <div class="col-12"><label class="form-label">Descrição</label><textarea name="descricao" class="form-control" rows="3">{{ produto.descricao if produto else '' }}</textarea></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><i class="fas fa-microchip"></i>Especificações Técnicas</div>
+      <div class="card-body">
+        <div id="specs">
+          {% if produto and produto.especificacoes_dict %}
+            {% for k,v in produto.especificacoes_dict.items() %}
+            <div class="row g-2 mb-2 spec-row">
+              <div class="col-5"><input type="text" name="spec_key[]" class="form-control form-control-sm" placeholder="Ex: Wi-Fi" value="{{ k }}"></div>
+              <div class="col-6"><input type="text" name="spec_val[]" class="form-control form-control-sm" placeholder="Ex: 6 AX1800" value="{{ v }}"></div>
+              <div class="col-1"><button type="button" class="btn btn-sm rm-spec" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2);border-radius:7px;width:100%;height:31px"><i class="fas fa-times"></i></button></div>
+            </div>
+            {% endfor %}
+          {% else %}
+          <div class="row g-2 mb-2 spec-row">
+            <div class="col-5"><input type="text" name="spec_key[]" class="form-control form-control-sm" placeholder="Ex: Proteção IP"></div>
+            <div class="col-6"><input type="text" name="spec_val[]" class="form-control form-control-sm" placeholder="Ex: IP65"></div>
+            <div class="col-1"><button type="button" class="btn btn-sm rm-spec" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2);border-radius:7px;width:100%;height:31px"><i class="fas fa-times"></i></button></div>
+          </div>
+          {% endif %}
+        </div>
+        <button type="button" id="addSpec" class="btn btn-sm btn-nb mt-2"><i class="fas fa-plus me-1"></i>Adicionar</button>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="card mb-3">
+      <div class="card-header"><i class="fas fa-image"></i>Foto</div>
+      <div class="card-body text-center">
+        <div id="fotoPrev" style="height:150px;background:linear-gradient(135deg,#0A0E1A,#120B2E);border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:10px;overflow:hidden;border:2px dashed rgba(0,212,255,.2)">
+          {% if produto and produto.foto %}
+            <img src="{{ url_for('static', filename='uploads/' + produto.foto) }}" style="max-height:140px;max-width:100%;object-fit:contain">
+          {% else %}<i class="fas fa-camera fa-2x" style="color:rgba(0,212,255,.3)"></i>{% endif %}
+        </div>
+        <input type="file" name="foto" id="fotoInput" accept="image/*" style="display:none" onchange="prevFoto(this)">
+        <button type="button" onclick="fotoInput.click()" class="btn btn-nb btn-sm w-100"><i class="fas fa-upload me-1"></i>Selecionar</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><i class="fas fa-tag"></i>Precificação</div>
+      <div class="card-body">
+        <div class="mb-3"><label class="form-label">Preço de Custo (R$)</label>
+          <input type="number" name="preco_custo" id="pc" class="form-control" value="{{ produto.preco_custo if produto else 0 }}" step="0.01" min="0" oninput="calc()"></div>
+        <div class="mb-3">
+          <label class="form-label">Markup % <small style="color:var(--nb-muted);text-transform:none">(preencher calcula venda)</small></label>
+          <div class="input-group">
+            <input type="number" name="markup_padrao" id="mk" class="form-control" value="{{ produto.markup_padrao if produto else 0 }}" step="0.1" min="0" oninput="calc()">
+            <span class="input-group-text" style="background:var(--nb-surface-alt);border-color:var(--nb-input-border);color:var(--nb-muted)">%</span>
+          </div>
+        </div>
+        <div class="mb-3"><label class="form-label">Preço de Venda (R$)</label>
+          <input type="number" name="preco_venda" id="pv" class="form-control" value="{{ produto.preco_venda if produto else 0 }}" step="0.01" min="0" oninput="calcMargem()"></div>
+        <div id="margemBox" style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:.68rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.5px">Margem de Lucro</div>
+          <div id="margemVal" style="font-size:1.4rem;font-weight:800;color:#10B981;font-family:'Space Grotesk',sans-serif">0%</div>
+        </div>
+      </div>
+    </div>
+    <div class="d-flex flex-column gap-2 mt-3">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('listar_produtos') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+{% endblock %}
+{% block extra_js %}<script>
+function calc(){
+  const c=parseFloat(document.getElementById('pc').value)||0;
+  const m=parseFloat(document.getElementById('mk').value)||0;
+  if(m>0){document.getElementById('pv').value=(c*(1+m/100)).toFixed(2);}
+  calcMargem();
+}
+function calcMargem(){
+  const c=parseFloat(document.getElementById('pc').value)||0;
+  const v=parseFloat(document.getElementById('pv').value)||0;
+  const m=c>0?((v-c)/c*100):0;
+  const el=document.getElementById('margemVal');
+  el.textContent=m.toFixed(1)+'%';
+  el.style.color=m>=20?'#10B981':m>=0?'#F59E0B':'#ef4444';
+}
+calcMargem();
+function prevFoto(i){if(i.files&&i.files[0]){const r=new FileReader();r.onload=e=>document.getElementById('fotoPrev').innerHTML=`<img src="${e.target.result}" style="max-height:140px;max-width:100%;object-fit:contain">`;r.readAsDataURL(i.files[0]);}}
+document.getElementById('addSpec').addEventListener('click',()=>{
+  const row=document.createElement('div');row.className='row g-2 mb-2 spec-row';
+  row.innerHTML=`<div class="col-5"><input type="text" name="spec_key[]" class="form-control form-control-sm" placeholder="Chave"></div><div class="col-6"><input type="text" name="spec_val[]" class="form-control form-control-sm" placeholder="Valor"></div><div class="col-1"><button type="button" class="btn btn-sm rm-spec" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2);border-radius:7px;width:100%;height:31px"><i class="fas fa-times"></i></button></div>`;
+  document.getElementById('specs').appendChild(row);
+  row.querySelector('.rm-spec').addEventListener('click',()=>row.remove());
+});
+document.querySelectorAll('.rm-spec').forEach(b=>b.addEventListener('click',()=>b.closest('.spec-row').remove()));
+</script>{% endblock %}

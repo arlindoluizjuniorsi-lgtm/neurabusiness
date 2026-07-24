@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Editar Serviço do Catálogo{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-edit me-2" style="color:#00D4FF"></i>Editar Serviço</h1></div>
+<form method="POST">
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-wrench"></i>{{ servico.categoria }} — {{ servico.subcategoria }}</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Nome *</label><input type="text" name="nome" class="form-control" value="{{ servico.nome }}" required></div>
+          <div class="col-12"><label class="form-label">Descrição (aparece na proposta ao cliente)</label><textarea name="descricao" class="form-control" rows="3">{{ servico.descricao or '' }}</textarea></div>
+          <div class="col-md-4"><label class="form-label">Unidade</label>
+            <select name="unidade" class="form-select">
+              {% for u in ['un','hr','m','m²','ponto','metro','projeto','serviço','diária'] %}
+              <option value="{{ u }}" {% if servico.unidade==u %}selected{% endif %}>{{ u }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4"><label class="form-label">Preço Base (R$)</label><input type="number" name="preco_base" class="form-control" value="{{ servico.preco_base }}" step="0.01" min="0"></div>
+          <div class="col-md-4"><label class="form-label">Tempo Estimado (horas)</label><input type="number" name="tempo_horas" class="form-control" value="{{ servico.tempo_horas }}" step="0.25" min="0"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('catalogo_servicos') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Contratos — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div><h1><i class="fas fa-file-contract me-2" style="color:#10B981"></i>Contratos</h1><p>{{ contratos|length }} contrato(s)</p></div>
+</div>
+<div class="card">
+  <div class="card-body p-0">
+    {% if contratos %}
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Número</th><th>Cliente</th><th>Proposta</th><th>Status</th><th>Criado em</th><th>Assinado em</th><th>Ações</th></tr></thead>
+      <tbody>
+        {% for ct in contratos %}
+        <tr>
+          <td><code style="color:#10B981;font-size:.8rem">{{ ct.numero }}</code></td>
+          <td style="font-weight:600">{{ ct.cliente_nome }}</td>
+          <td><code style="color:#00D4FF;font-size:.78rem">{{ ct.prop_numero }}</code></td>
+          <td>
+            {% if ct.status == 'assinado' %}<span class="status-badge s-aprovada">Assinado</span>
+            {% else %}<span class="status-badge s-enviada">Pendente</span>{% endif %}
+          </td>
+          <td style="font-size:.8rem">{{ ct.criado_em|data if ct.criado_em else '—' }}</td>
+          <td style="font-size:.8rem">{{ ct.assinado_em|data if ct.assinado_em else '—' }}</td>
+          <td class="d-flex gap-1">
+            <a href="{{ url_for('ver_contrato', id=ct.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-eye"></i></a>
+            <a href="{{ url_for('contrato_pdf', id=ct.id) }}" class="btn btn-sm btn-nb" target="_blank"><i class="fas fa-file-pdf" style="color:#ef4444"></i></a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-5"><i class="fas fa-file-contract fa-3x d-block mb-3" style="opacity:.2"></i><p style="color:var(--nb-muted)">Nenhum contrato ainda. Aprove uma proposta e clique em "Gerar Contrato".</p></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

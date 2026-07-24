@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{% if servico %}Editar{% else %}Novo{% endif %} Serviço{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fas fa-wrench me-2" style="color:#7C3AED"></i>{% if servico %}Editar Serviço{% else %}Novo Serviço{% endif %}</h1>
+  <p><a href="{{ url_for('listar_servicos') }}" style="color:var(--nb-muted)">Serviços</a> › {% if servico %}{{ servico.nome }}{% else %}Novo{% endif %}</p>
+</div>
+<form method="POST">
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-wrench"></i>Dados do Serviço</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Nome *</label><input type="text" name="nome" class="form-control" value="{{ servico.nome if servico else '' }}" required placeholder="Ex: Serviço de Instalação"></div>
+          <div class="col-md-8"><label class="form-label">Descrição</label><textarea name="descricao" class="form-control" rows="3" placeholder="Descreva o serviço...">{{ servico.descricao if servico else '' }}</textarea></div>
+          <div class="col-md-4">
+            <label class="form-label">Unidade</label>
+            <select name="unidade" class="form-select">
+              {% for u in ['un','hr','m','m²','m³','km','serviço','diária'] %}
+              <option value="{{ u }}" {% if servico and servico.unidade==u %}selected{% endif %}>{{ u }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Preço Unitário (R$)</label>
+            <input type="number" name="preco_unitario" class="form-control" value="{{ servico.preco_unitario if servico else 0 }}" step="0.01" min="0">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar Serviço</button>
+      <a href="{{ url_for('listar_servicos') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+{% endblock %}

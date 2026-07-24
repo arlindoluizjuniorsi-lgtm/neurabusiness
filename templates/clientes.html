@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Clientes — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h1><i class="fas fa-users me-2" style="color:#7C3AED"></i>Clientes</h1>
+    <p>{{ clientes|length }} cliente(s) cadastrado(s)</p>
+  </div>
+  <a href="{{ url_for('novo_cliente') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Novo Cliente</a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <form method="GET" class="row g-2 align-items-end">
+      <div class="col-md-8">
+        <label class="form-label">Buscar</label>
+        <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Nome, e-mail...">
+      </div>
+      <div class="col-md-2"><button type="submit" class="btn btn-nb w-100"><i class="fas fa-search me-1"></i>Buscar</button></div>
+      <div class="col-md-2"><a href="{{ url_for('listar_clientes') }}" class="btn btn-outline-secondary w-100">Limpar</a></div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><i class="fas fa-list"></i>Lista de Clientes</div>
+  <div class="card-body p-0">
+    {% if clientes %}
+    <table class="table table-hover mb-0">
+      <thead><tr><th>#</th><th>Nome</th><th>E-mail</th><th>Telefone</th><th>Cidade/UF</th><th>Propostas</th><th>OS</th><th>Ações</th></tr></thead>
+      <tbody>
+        {% for c in clientes %}
+        <tr>
+          <td style="color:var(--nb-text-muted);font-size:0.8rem">{{ c.id }}</td>
+          <td style="font-weight:600">{{ c.nome }}</td>
+          <td style="font-size:0.83rem">{{ c.email or '—' }}</td>
+          <td style="font-size:0.83rem">{{ c.telefone or '—' }}</td>
+          <td style="font-size:0.83rem">{{ c.cidade or '' }}{% if c.estado %}/{{ c.estado }}{% endif %}</td>
+          <td><span style="background:rgba(0,212,255,0.1);color:#00D4FF;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:700">{{ c.propostas|length }}</span></td>
+          <td><span style="background:rgba(124,58,237,0.1);color:#7C3AED;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:700">{{ c.ordens|length }}</span></td>
+          <td>
+            <a href="{{ url_for('editar_cliente', id=c.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-edit"></i></a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-5">
+      <i class="fas fa-users fa-3x mb-3 d-block" style="color:var(--nb-text-light)"></i>
+      <h5 style="color:var(--nb-text-muted)">Nenhum cliente cadastrado</h5>
+      <a href="{{ url_for('novo_cliente') }}" class="btn btn-accent mt-2">Adicionar cliente</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
