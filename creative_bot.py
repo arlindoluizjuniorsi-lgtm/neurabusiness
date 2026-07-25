@@ -8,10 +8,11 @@ from models import Empresa, Cliente, Servico, Produto, Proposta, ItemProposta, E
 import uuid, io, difflib, asyncio
 from datetime import datetime, timedelta
 from ia_audio import interpretar_audio_proposta
+from ia_chat import responder_pergunta
 
 (MENU,CLIENTE,NC_NOME,NC_TEL,SERVICO,PRODUTO,QTD,PRECO,MAIS,
  PERGUNTA_ETAPAS,ETAPA_TITULO,ETAPA_DIAS,VALIDADE,PAGAMENTO,CONFIRMAR,
- IA_AGUARDA,IA_CORRECAO,IA_CONFIRMAR,IA_TEL,IA_CADASTRAR_CLIENTE)=range(20)
+ IA_AGUARDA,IA_CORRECAO,IA_CONFIRMAR,IA_TEL,IA_CADASTRAR_CLIENTE,CHAT_IA)=range(21)
 
 def get_emp():
     with app.app_context():
@@ -60,7 +61,7 @@ async def start(u:Update,c:ContextTypes.DEFAULT_TYPE):
     await u.message.reply_text(
         f"👋 Olá *{u.effective_user.first_name}*!\n\nComo deseja criar a proposta?",
         parse_mode='Markdown',
-        reply_markup=kb(["📋 Nova Proposta Manual","🎤 Nova Proposta IA","❌ Cancelar"],1))
+        reply_markup=kb(["📋 Nova Proposta Manual","🎤 Nova Proposta IA","🤖 Perguntar algo (IA)","❌ Cancelar"],1))
     return MENU
 
 async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
@@ -68,6 +69,8 @@ async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
     if "Manual" in txt:
         c.user_data['itens']=[];c.user_data['etapas']=[]
         return await listar_clientes(u,c)
+    if "Perguntar" in txt:
+        return await chat_ia_start(u,c)
     if "IA" in txt:
         c.user_data['itens']=[];c.user_data['etapas']=[]
         c.user_data['cliente']=None
@@ -80,6 +83,42 @@ async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
         return IA_AGUARDA
     await u.message.reply_text("Cancelado.",reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
+
+# ══════════════════════ CHAT LIVRE COM IA (Gemini) ══════════════════════
+async def chat_ia_start(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    await u.message.reply_text(
+        "🤖 *Pergunte o que quiser* — cálculos, dúvidas sobre seus serviços/produtos, etc.\n"
+        "Pode mandar texto ou áudio. Digite *voltar* para sair.",
+        parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    return CHAT_IA
+
+async def chat_ia(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    if u.message.text:
+        txt = u.message.text.strip().lower().rstrip('.!?')
+        if txt in ('voltar','sair','menu'):
+            return await start(u,c)
+
+    pergunta_texto=None;audio_bytes=None;mime_type=None
+    if u.message.voice or u.message.audio:
+        voice = u.message.voice or u.message.audio
+        tg_file = await c.bot.get_file(voice.file_id)
+        audio_bytes = bytes(await tg_file.download_as_bytearray())
+        mime_type = 'audio/ogg'
+        await u.message.reply_text("🎧 Pensando...")
+    else:
+        pergunta_texto = u.message.text
+        await u.message.reply_text("🤔 Pensando...")
+
+    _, servicos_opts, produtos_opts = carregar_catalogo()
+    contexto = "Serviços:\n"+"\n".join(f"- {s['nome']} ({fmt(s['preco'])})" for s in servicos_opts)
+    contexto += "\n\nProdutos:\n"+"\n".join(f"- {p['nome']} ({fmt(p['preco'])})" for p in produtos_opts)
+
+    resposta = await asyncio.to_thread(responder_pergunta, pergunta_texto, audio_bytes, mime_type, contexto)
+    if not resposta:
+        await u.message.reply_text("❌ Não consegui responder agora. Tente de novo, ou digite *voltar*.", parse_mode='Markdown')
+    else:
+        await u.message.reply_text(resposta)
+    return CHAT_IA
 
 # ══════════════════════ FLUXO MANUAL (clientes/servicos/produtos) ══════════════════════
 async def listar_clientes(u:Update,c:ContextTypes.DEFAULT_TYPE):
@@ -508,6 +547,7 @@ def main():
             IA_CORRECAO:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT,ia_correcao)],
             IA_CONFIRMAR:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_confirmar)],
             IA_TEL:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_tel)],
+            CHAT_IA:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT,chat_ia)],
         },
         fallbacks=[CommandHandler('cancelar',cancelar)],allow_reentry=True)
     app_bot.add_handler(conv)
