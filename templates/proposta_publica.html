@@ -93,8 +93,9 @@ input[type=text]::placeholder{color:#475569}
 <div class="hero">
   <div class="hero-top">
     <div class="logo-area">
-      {% if logo_b64 and empresa %}
-      <img src="{{ logo_b64(empresa) }}" alt="{{ empresa.fantasia }}">
+      {% set _logo = logo_b64(empresa) if logo_b64 and empresa else None %}
+      {% if _logo %}
+      <img src="{{ _logo }}" alt="{{ empresa.fantasia }}">
       {% endif %}
       <div>
         <div class="empresa-nome">{{ empresa.fantasia if empresa else 'CREATIVE' }}</div>
