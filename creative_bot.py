@@ -9,6 +9,7 @@ from models import Empresa, Cliente, Servico, Produto, Proposta, ItemProposta, E
 import uuid, io, difflib, asyncio
 from datetime import datetime, timedelta
 from ia_unificada import interpretar_mensagem
+from ia_assistente import executar_comando
 
 (MENU,CLIENTE,NC_NOME,NC_TEL,SERVICO,PRODUTO,QTD,PRECO,MAIS,
  PERGUNTA_ETAPAS,ETAPA_TITULO,ETAPA_DIAS,VALIDADE,PAGAMENTO,CONFIRMAR,
@@ -77,7 +78,9 @@ async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
             "🎤🤖 *Manda um áudio ou uma mensagem de texto.*\n\n"
             "Pode ser um pedido de proposta — _\"Proposta pra Câmara de Mataraca, câmera VIP 1220 "
             "quantidade 6, serviço de instalação de CFTV, pagamento pix, validade 15 dias\"_ — "
-            "ou uma pergunta qualquer, tipo um cálculo ou dúvida sobre seus serviços.",
+            "uma pergunta qualquer (cálculo, dúvida sobre seus serviços), ou um comando de gestão, "
+            "tipo _\"mostra minhas propostas\"_, _\"quais clientes eu tenho\"_, "
+            "_\"cadastra o produto Câmera XPTO por 350 reais\"_ ou _\"muda o telefone do fulano\"_.",
             parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
         return IA_AGUARDA
     await u.message.reply_text("Cancelado.",reply_markup=ReplyKeyboardRemove())
@@ -336,6 +339,15 @@ async def processar_mensagem(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=Tru
 
     if resultado.get('tipo') == 'pergunta':
         await u.message.reply_text(resultado.get('resposta') or "Não entendi a pergunta, pode repetir?")
+        return estado_atual
+
+    if resultado.get('tipo') == 'acao':
+        comando = resultado.get('comando') or texto_msg or ''
+        emp = get_emp()
+        resposta_ia = await asyncio.to_thread(executar_comando, comando, emp.id)
+        await u.message.reply_text(
+            resposta_ia or "❌ Não consegui executar esse comando agora. Tente de novo.",
+            parse_mode='Markdown')
         return estado_atual
 
     # ── tipo == proposta ──

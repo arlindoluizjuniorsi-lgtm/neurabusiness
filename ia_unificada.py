@@ -1,10 +1,11 @@
 """
 Interpretacao unificada de mensagens (texto ou audio) via Google Gemini.
-Uma unica chamada decide se a mensagem e um pedido de PROPOSTA comercial
-ou uma PERGUNTA solta (calculo, duvida sobre servicos/produtos etc) e ja
-devolve os dados prontos pro bot do Telegram usar em qualquer um dos
-dois casos -- assim o usuario nao precisa escolher um modo antes de
-falar com a IA.
+Uma unica chamada decide se a mensagem e um pedido de PROPOSTA comercial,
+uma PERGUNTA solta (calculo, duvida sobre servicos/produtos etc) ou uma
+ACAO de gestao (consultar/cadastrar/editar propostas, clientes, produtos
+ou servicos -- ver ia_assistente.py) e ja devolve os dados prontos pro
+bot do Telegram usar em qualquer um dos casos -- assim o usuario nao
+precisa escolher um modo antes de falar com a IA.
 """
 import urllib.request
 import urllib.error
@@ -31,6 +32,8 @@ def interpretar_mensagem(texto, audio_bytes, mime_type, clientes, servicos, prod
       {"tipo": "proposta", "cliente": "...", "itens": [{"nome":..,"quantidade":..}],
        "pagamento": "..." ou None, "validade_dias": numero ou None,
        "etapas": [{"titulo":..,"dias":..}]}
+      ou
+      {"tipo": "acao", "comando": "instrução reescrita de forma clara"}
     Retorna None em caso de erro na chamada.
     """
     lista_clientes = '\n'.join(f'- {c}' for c in clientes[:100])
@@ -39,20 +42,33 @@ def interpretar_mensagem(texto, audio_bytes, mime_type, clientes, servicos, prod
 
     prompt = f"""Você é o assistente de um profissional de instalação e manutenção de CFTV e
 infraestrutura, que usa esse chat do Telegram tanto para GERAR PROPOSTAS COMERCIAIS quanto
-para tirar DÚVIDAS RÁPIDAS (cálculos, perguntas sobre os próprios serviços/produtos etc).
+para tirar DÚVIDAS RÁPIDAS (cálculos, perguntas sobre os próprios serviços/produtos etc) quanto
+para GERENCIAR o sistema (consultar ou alterar propostas, clientes, produtos, serviços).
 
 Primeiro decida o TIPO da mensagem:
-- "proposta": a pessoa está pedindo para montar uma proposta comercial para um cliente
+- "proposta": a pessoa está pedindo para montar uma proposta comercial NOVA para um cliente
   (geralmente menciona nome de cliente + serviços/produtos + quantidades).
-- "pergunta": qualquer outra coisa -- cálculo, dúvida, pergunta geral relacionada ao trabalho.
+- "acao": um comando de gestão do sistema -- consultar dados (mostrar/listar propostas,
+  clientes, produtos, serviços, resumo geral) ou alterar dados já existentes (cadastrar
+  cliente/produto/serviço novo, editar proposta/cliente/produto/serviço existente, adicionar
+  ou remover item de uma proposta). Qualquer coisa do tipo "mostra minhas propostas", "quais
+  clientes eu tenho", "cadastra um produto X por Y reais", "muda o telefone do fulano" etc.
+- "pergunta": qualquer outra coisa -- cálculo, dúvida, pergunta geral relacionada ao trabalho,
+  que não seja nem criar proposta nova nem uma ação de gestão sobre dado já cadastrado.
 
-Se for "proposta", identifique e preencha os campos de proposta (deixe "resposta" como null):
+Se for "proposta", identifique e preencha os campos de proposta (deixe "resposta" e "comando"
+como null):
 1. O CLIENTE mencionado (compare com a lista abaixo e retorne o nome mais parecido se houver
    correspondência, senão retorne exatamente o nome que foi dito)
 2. Os SERVIÇOS e PRODUTOS mencionados, com quantidades (compare com as listas abaixo)
 3. Forma de pagamento, se mencionada
 4. Validade da proposta em dias, se mencionada
 5. Etapas/fases de execução (cronograma), se mencionadas
+
+Se for "acao", deixe "resposta" e os campos de proposta como null, e preencha "comando" com
+uma reescrita clara e completa (em português, em texto corrido) do que a pessoa pediu -- essa
+reescrita é usada por outra parte do sistema pra decidir qual ferramenta executar, então inclua
+todos os detalhes/números/nomes mencionados.
 
 Se for "pergunta", responda de forma direta e objetiva em português, sem formalidade excessiva,
 e deixe os demais campos como null/vazio. Se for um cálculo, mostre o resultado com clareza. Se
@@ -70,8 +86,9 @@ PRODUTOS CADASTRADOS:
 
 Responda APENAS com um JSON no formato exato abaixo, sem texto adicional:
 {{
-  "tipo": "proposta ou pergunta",
+  "tipo": "proposta ou pergunta ou acao",
   "resposta": "resposta da pergunta (só se tipo==pergunta, senão null)",
+  "comando": "reescrita clara do pedido de gestão (só se tipo==acao, senão null)",
   "cliente": "nome do cliente identificado (só se tipo==proposta, senão null)",
   "itens": [
     {{"nome": "nome do servico ou produto", "quantidade": numero}}
