@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Instalador NeuraDesk — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h1><i class="fas fa-box-open me-2" style="color:var(--nb-accent)"></i>Instalador do NeuraDesk</h1>
+    <p>Pacote com o sistema completo pra levar e instalar num servidor novo.</p>
+  </div>
+  <a href="{{ url_for('listar_licencas_neuradesk') }}" class="btn btn-nb btn-sm"><i class="fas fa-arrow-left me-1"></i>Licenças</a>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-md-7">
+    <div class="card">
+      <div class="card-body p-4">
+
+        {% if pacote %}
+        <h6 class="fw-bold mb-3">Pacote atual</h6>
+        <div class="mb-3" style="font-size:.9rem;">
+          <div><b>Arquivo:</b> <code>{{ pacote.nome }}</code></div>
+          <div><b>Tamanho:</b> {{ pacote.tamanho_kb }} KB</div>
+          <div><b>Gerado em:</b> {{ pacote.gerado_em.strftime('%d/%m/%Y %H:%M') }}</div>
+        </div>
+        <a href="{{ url_for('instalador_neuradesk_baixar') }}" class="btn btn-accent mb-4">
+          <i class="fas fa-download me-1"></i>Baixar pacote
+        </a>
+        {% else %}
+        <p class="text-muted mb-4">Nenhum pacote gerado ainda.</p>
+        {% endif %}
+
+        <hr>
+
+        <h6 class="fw-bold mb-2 mt-3">Gerar novo pacote</h6>
+        <p class="text-muted" style="font-size:.85rem;">
+          Empacota o estado atual do código do NeuraDesk (o que estiver commitado no git em
+          <code>/opt/neuradesk</code>) — não inclui segredos (<code>.env</code>), venv nem
+          arquivos enviados por usuário. Gere de novo sempre que quiser instalar numa VPS nova
+          com as últimas mudanças.
+        </p>
+        <form method="POST" action="{{ url_for('instalador_neuradesk_gerar') }}">
+          <button type="submit" class="btn btn-nb">
+            <i class="fas fa-sync me-1"></i>Gerar novo pacote agora
+          </button>
+        </form>
+
+        <hr class="mt-4">
+
+        <h6 class="fw-bold mb-2 mt-3">Como usar numa VPS nova</h6>
+        <ol style="font-size:.85rem;color:var(--nb-muted);">
+          <li>Baixe o pacote acima e copie pra VPS nova (ex: via SFTP/WinSCP).</li>
+          <li>Extraia: <code>tar -xzf {{ pacote.nome if pacote else 'neuradesk-instalador-*.tar.gz' }}</code></li>
+          <li>Rode: <code>sudo ./instalar_neuradesk.sh --dominio dominiodocliente.com.br</code></li>
+          <li>Acesse a URL e siga o assistente de primeira configuração.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

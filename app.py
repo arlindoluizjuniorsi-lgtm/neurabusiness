@@ -5,7 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime, date, timedelta
 from sqlalchemy import func, or_
-import os, json, uuid, base64
+import os, json, uuid, base64, subprocess
 
 from config import Config
 import mp_integracao
@@ -1747,6 +1747,68 @@ def contrato_neuradesk_confirmar(id):
     db.session.commit()
     flash('Contrato confirmado! Já conta como executado por ambas as partes.', 'success')
     return redirect(url_for('detalhe_licenca_neuradesk', id=ct.licenca_id))
+
+
+# ─── PACOTE INSTALADOR DO NEURADESK ─────────────────────────────────────────────
+
+NEURADESK_REPO_DIR = '/opt/neuradesk'
+PACOTES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pacotes_neuradesk')
+
+
+def _pacote_atual():
+    """Retorna (caminho, nome, tamanho, data) do pacote mais recente, ou None."""
+    if not os.path.isdir(PACOTES_DIR):
+        return None
+    arquivos = [f for f in os.listdir(PACOTES_DIR) if f.endswith('.tar.gz')]
+    if not arquivos:
+        return None
+    arquivos.sort(key=lambda f: os.path.getmtime(os.path.join(PACOTES_DIR, f)), reverse=True)
+    caminho = os.path.join(PACOTES_DIR, arquivos[0])
+    return {
+        'caminho': caminho,
+        'nome': arquivos[0],
+        'tamanho_kb': round(os.path.getsize(caminho) / 1024),
+        'gerado_em': datetime.fromtimestamp(os.path.getmtime(caminho)),
+    }
+
+
+@app.route('/admin/instalador-neuradesk')
+@login_required
+@super_admin_required
+def instalador_neuradesk():
+    return render_template('instalador_neuradesk.html', pacote=_pacote_atual())
+
+
+@app.route('/admin/instalador-neuradesk/gerar', methods=['POST'])
+@login_required
+@super_admin_required
+def instalador_neuradesk_gerar():
+    os.makedirs(PACOTES_DIR, exist_ok=True)
+    nome = f"neuradesk-instalador-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    caminho = os.path.join(PACOTES_DIR, nome)
+    try:
+        subprocess.run(
+            ['git', '-c', f'safe.directory={NEURADESK_REPO_DIR}',
+             'archive', '--format=tar.gz', f'--output={caminho}', 'HEAD'],
+            cwd=NEURADESK_REPO_DIR, check=True, capture_output=True, text=True, timeout=60,
+        )
+        flash(f'Pacote gerado: {nome}', 'success')
+    except subprocess.CalledProcessError as e:
+        flash(f'Erro ao gerar pacote: {e.stderr}', 'danger')
+    except Exception as e:
+        flash(f'Erro ao gerar pacote: {e}', 'danger')
+    return redirect(url_for('instalador_neuradesk'))
+
+
+@app.route('/admin/instalador-neuradesk/baixar')
+@login_required
+@super_admin_required
+def instalador_neuradesk_baixar():
+    pacote = _pacote_atual()
+    if not pacote:
+        flash('Nenhum pacote gerado ainda.', 'warning')
+        return redirect(url_for('instalador_neuradesk'))
+    return send_file(pacote['caminho'], as_attachment=True, download_name=pacote['nome'], mimetype='application/gzip')
 
 
 @app.route('/admin/licencas/<int:id>/bloquear', methods=['POST'])
