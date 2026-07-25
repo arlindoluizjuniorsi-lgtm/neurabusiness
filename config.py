@@ -35,6 +35,12 @@ class Config:
     PG_USER     = _env('NB_PG_USER',     'nbuser')
     PG_PASS     = _env_obrigatoria('NB_PG_PASS')
 
+    # Integração Mercado Pago (renovação automática de licenças NeuraDesk).
+    # Opcional: enquanto não configurado, o webhook fica inerte (503).
+    MP_ACCESS_TOKEN   = _env('MP_ACCESS_TOKEN', '')
+    MP_WEBHOOK_SECRET = _env('MP_WEBHOOK_SECRET', '')
+    MP_DIAS_RENOVACAO = int(_env('MP_DIAS_RENOVACAO', '30') or 30)
+
     @classmethod
     def get_db_uri(cls):
         if cls.DB_TYPE == 'postgresql':

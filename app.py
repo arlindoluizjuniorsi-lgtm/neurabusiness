@@ -8,6 +8,7 @@ from sqlalchemy import func, or_
 import os, json, uuid, base64
 
 from config import Config
+import mp_integracao
 from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CatalogoServico, MaterialInfra, Cliente, Proposta,
                     ItemProposta, OrdemServico, ProjetoAnexo, Contrato, OsAssinatura,
@@ -1659,21 +1660,130 @@ def reativar_licenca_neuradesk(id):
     return redirect(url_for('detalhe_licenca_neuradesk', id=id))
 
 
+def _renovar_licenca(lic, dias=30):
+    """Estende o vencimento da licença por `dias` a partir de hoje (ou do
+    vencimento atual, se ainda não venceu) e marca como ativa. Usado tanto
+    pela renovação manual (botão no admin) quanto pelo webhook do Mercado
+    Pago quando um pagamento é aprovado."""
+    base = lic.data_vencimento if (lic.data_vencimento and lic.data_vencimento > datetime.now()) else datetime.now()
+    lic.data_ultimo_pagamento = datetime.now()
+    lic.data_vencimento = base + timedelta(days=dias)
+    if lic.status not in ('bloqueada', 'cancelada'):
+        lic.status = 'ativa'
+
+
 @app.route('/admin/licencas/<int:id>/renovar', methods=['POST'])
 @login_required
 @super_admin_required
 def renovar_licenca_neuradesk(id):
-    """Marca o pagamento do mês como confirmado manualmente (uso enquanto
-    a integração automática com o Mercado Pago não está pronta)."""
+    """Marca o pagamento do mês como confirmado manualmente (uso normal
+    enquanto a licença não estiver vinculada a uma assinatura do Mercado
+    Pago, ou como fallback se o webhook falhar por algum motivo)."""
     lic = LicencaNeuraDesk.query.get_or_404(id)
-    base = lic.data_vencimento if (lic.data_vencimento and lic.data_vencimento > datetime.now()) else datetime.now()
-    lic.data_ultimo_pagamento = datetime.now()
-    lic.data_vencimento = base + timedelta(days=30)
-    if lic.status not in ('bloqueada', 'cancelada'):
-        lic.status = 'ativa'
+    _renovar_licenca(lic, dias=30)
     db.session.commit()
     flash(f'Renovação registrada. Novo vencimento: {lic.data_vencimento.strftime("%d/%m/%Y")}', 'success')
     return redirect(url_for('detalhe_licenca_neuradesk', id=id))
+
+
+@app.route('/admin/licencas/<int:id>/vincular-mp', methods=['POST'])
+@login_required
+@super_admin_required
+def vincular_mp_licenca_neuradesk(id):
+    """Associa manualmente o ID de uma assinatura (preapproval) do
+    Mercado Pago, criada direto no painel do MP, a esta licença -- é
+    assim que o webhook sabe pra qual licença aplicar a renovação
+    automática quando o pagamento cair."""
+    lic = LicencaNeuraDesk.query.get_or_404(id)
+    preapproval_id = request.form.get('mp_preapproval_id', '').strip()
+    lic.mp_preapproval_id = preapproval_id or None
+    db.session.commit()
+    flash('Vínculo com Mercado Pago atualizado.', 'success')
+    return redirect(url_for('detalhe_licenca_neuradesk', id=id))
+
+
+@app.route('/webhook/mercadopago', methods=['POST', 'GET'])
+def webhook_mercadopago():
+    """Recebe as notificações do Mercado Pago (pagamento aprovado de uma
+    assinatura, mudança de status de preapproval) e renova a licença
+    correspondente automaticamente.
+
+    Vínculo licença <-> Mercado Pago: o external_reference do pagamento
+    (ou da assinatura/preapproval) precisa ser a CHAVE da licença
+    (ex: NRDK-XXXX-XXXX-XXXX-XXXX) -- defina isso ao criar a assinatura
+    no Mercado Pago.
+
+    Sempre responde 200 pro MP (exceto quando a assinatura da notificação
+    não confere, ou a integração não está configurada) -- se devolvermos
+    erro por um bug nosso, o MP fica reenviando a mesma notificação sem
+    parar. Erros de processamento são só logados, pra revisão manual."""
+    if not Config.MP_ACCESS_TOKEN or not Config.MP_WEBHOOK_SECRET:
+        return jsonify({'ok': False, 'erro': 'Mercado Pago não configurado nesta instalação'}), 503
+
+    if not mp_integracao.validar_assinatura(request.headers, request.args, Config.MP_WEBHOOK_SECRET):
+        print('[MP-WEBHOOK] assinatura inválida -- notificação recusada')
+        return jsonify({'ok': False, 'erro': 'assinatura inválida'}), 401
+
+    body = request.get_json(silent=True) or {}
+    tipo = request.args.get('type') or body.get('type') or request.args.get('topic') or ''
+    data_id = request.args.get('data.id') or request.args.get('id') or (body.get('data') or {}).get('id')
+
+    if not data_id:
+        return jsonify({'ok': True}), 200
+
+    try:
+        if tipo == 'payment':
+            _mp_processar_pagamento(data_id)
+        elif tipo in ('preapproval', 'subscription_preapproval'):
+            _mp_processar_preapproval(data_id)
+    except Exception as e:
+        print(f'[MP-WEBHOOK] erro processando {tipo} {data_id}: {e}')
+
+    return jsonify({'ok': True}), 200
+
+
+def _mp_processar_pagamento(payment_id):
+    pagamento = mp_integracao.buscar_pagamento(payment_id, Config.MP_ACCESS_TOKEN)
+    if not pagamento:
+        print(f'[MP-WEBHOOK] não consegui buscar o pagamento {payment_id} na API do MP')
+        return
+
+    chave = (pagamento.get('external_reference') or '').strip().upper()
+    status = pagamento.get('status')
+    lic = LicencaNeuraDesk.query.filter_by(chave=chave).first()
+    if not lic:
+        print(f'[MP-WEBHOOK] pagamento {payment_id} aprovado mas referencia licença desconhecida: {chave!r}')
+        return
+
+    lic.mp_status = status
+
+    if status == 'approved':
+        if lic.mp_ultimo_pagamento_id == str(payment_id):
+            # notificação duplicada do mesmo pagamento -- MP reenvia
+            # quando não recebe 200 a tempo. Não renova de novo.
+            db.session.commit()
+            return
+        _renovar_licenca(lic, dias=Config.MP_DIAS_RENOVACAO)
+        lic.mp_ultimo_pagamento_id = str(payment_id)
+
+    db.session.commit()
+
+
+def _mp_processar_preapproval(preapproval_id):
+    preapproval = mp_integracao.buscar_preapproval(preapproval_id, Config.MP_ACCESS_TOKEN)
+    if not preapproval:
+        print(f'[MP-WEBHOOK] não consegui buscar o preapproval {preapproval_id} na API do MP')
+        return
+
+    chave = (preapproval.get('external_reference') or '').strip().upper()
+    lic = LicencaNeuraDesk.query.filter_by(chave=chave).first()
+    if not lic:
+        print(f'[MP-WEBHOOK] preapproval {preapproval_id} referencia licença desconhecida: {chave!r}')
+        return
+
+    lic.mp_preapproval_id = str(preapproval_id)
+    lic.mp_status = preapproval.get('status')
+    db.session.commit()
 
 
 @app.route('/api/licencas/ativar', methods=['POST'])

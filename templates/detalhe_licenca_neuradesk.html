@@ -108,6 +108,35 @@
       </div>
     </div>
 
+    <div class="card mt-3">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3"><i class="fas fa-sync me-1"></i>Mercado Pago</h6>
+        <div class="mb-2">
+          <label class="form-label mb-1" style="font-size:.8rem;">Status da assinatura</label>
+          <div style="font-size:.85rem;">{{ lic.mp_status or '—' }}</div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label mb-1" style="font-size:.8rem;">Último pagamento processado</label>
+          <div style="font-size:.85rem;">
+            {{ lic.mp_ultimo_pagamento_id or '—' }}
+            {% if lic.data_ultimo_pagamento %}({{ lic.data_ultimo_pagamento.strftime('%d/%m/%Y') }}){% endif %}
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('vincular_mp_licenca_neuradesk', id=lic.id) }}">
+          <label class="form-label mb-1" style="font-size:.8rem;">ID da assinatura (preapproval)</label>
+          <div class="d-flex gap-2">
+            <input type="text" name="mp_preapproval_id" class="form-control form-control-sm"
+                   value="{{ lic.mp_preapproval_id or '' }}" placeholder="Criado no painel do MP">
+            <button type="submit" class="btn btn-sm btn-nb">Salvar</button>
+          </div>
+          <small class="text-muted d-block mt-1">
+            Ao criar a assinatura no Mercado Pago, use <code>{{ lic.chave }}</code> como
+            external_reference -- é assim que o webhook liga o pagamento a esta licença.
+          </small>
+        </form>
+      </div>
+    </div>
+
     {% if lic.empresa_nb %}
     <div class="card mt-3">
       <div class="card-body p-4">
