@@ -2,6 +2,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import secrets
+import json
 
 db = SQLAlchemy()
 
@@ -320,6 +321,73 @@ class LicencaNeuraDesk(db.Model):
     def gerar_chave():
         grupos = [secrets.token_hex(2).upper() for _ in range(4)]
         return 'NRDK-' + '-'.join(grupos)
+
+
+class ContratoNeuraDesk(db.Model):
+    """Contrato de licenciamento de uso do NeuraDesk vendido a um cliente.
+    Independente do Contrato/Proposta usado no negocio de propostas
+    comerciais (Creative) -- esse aqui e especifico do licenciamento de
+    software, com seu proprio texto e ciclo de assinatura. Uma linha por
+    licenca (1:1 com LicencaNeuraDesk)."""
+    __tablename__ = 'contratos_neuradesk'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    licenca_id = db.Column(db.Integer, db.ForeignKey('licencas_neuradesk.id'), nullable=False, unique=True)
+
+    numero           = db.Column(db.String(30), unique=True, nullable=False)
+    token_assinatura = db.Column(db.String(64), unique=True, nullable=False)
+
+    # Dados do contratante -- preenchidos pelo admin ao cadastrar, o
+    # cliente so confere e assina (nao redigita nada).
+    empresa_razao_social = db.Column(db.String(200))
+    empresa_endereco     = db.Column(db.Text)
+    representante_nome   = db.Column(db.String(150))
+    representante_cpf    = db.Column(db.String(20))
+
+    # Condicoes comerciais "congeladas" no momento da geracao -- mesmo
+    # que o plano padrao mude depois, o que foi assinado fica registrado
+    # aqui do jeito que foi combinado com esse cliente.
+    valor_base              = db.Column(db.Float, default=0)
+    usuarios_inclusos       = db.Column(db.Integer, default=5)
+    valor_usuario_adicional = db.Column(db.Float, default=0)
+    modulos_json            = db.Column(db.Text)  # [{"chave":"oracle","nome":"NeuraDBA","valor":150.0}, ...]
+    dia_vencimento          = db.Column(db.Integer, default=10)
+    cidade_foro             = db.Column(db.String(100))
+    prazo_aviso_previo_dias = db.Column(db.Integer, default=30)
+
+    # pendente -> assinado_cliente -> concluido (so 'concluido' e valido
+    # como contrato executado -- ver Cláusula sobre assinatura dupla)
+    status = db.Column(db.String(20), default='pendente')
+
+    assinatura_nome  = db.Column(db.String(150))
+    assinatura_cpf   = db.Column(db.String(20))
+    assinatura_ip    = db.Column(db.String(45))
+    assinatura_hash  = db.Column(db.String(64))
+    assinado_em      = db.Column(db.DateTime)
+
+    confirmado_por  = db.Column(db.String(150))
+    confirmado_ip   = db.Column(db.String(45))
+    confirmado_hash = db.Column(db.String(64))
+    confirmado_em   = db.Column(db.DateTime)
+
+    criado_em = db.Column(db.DateTime, default=datetime.now)
+
+    licenca = db.relationship('LicencaNeuraDesk', backref=db.backref('contrato', uselist=False))
+
+    def get_modulos(self):
+        if not self.modulos_json:
+            return []
+        try:
+            return json.loads(self.modulos_json)
+        except Exception:
+            return []
+
+    def set_modulos(self, lista):
+        self.modulos_json = json.dumps(lista, ensure_ascii=False)
+
+    @staticmethod
+    def gerar_numero():
+        return f"NDK-CT-{datetime.now().strftime('%Y%m')}-{secrets.token_hex(2).upper()}"
 
 
 def _fernet_integracoes():

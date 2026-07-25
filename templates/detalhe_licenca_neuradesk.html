@@ -110,6 +110,64 @@
 
     <div class="card mt-3">
       <div class="card-body p-4">
+        <h6 class="fw-bold mb-3"><i class="fas fa-file-signature me-1"></i>Contrato de Licenciamento</h6>
+        {% if lic.contrato %}
+        {% set ct = lic.contrato %}
+        <div class="mb-2">
+          <label class="form-label mb-1" style="font-size:.8rem;">Número</label>
+          <div style="font-size:.85rem;"><code>{{ ct.numero }}</code></div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label mb-1" style="font-size:.8rem;">Status</label>
+          <div>
+            {% if ct.status == 'pendente' %}<span class="status-badge s-rascunho">Aguardando assinatura do cliente</span>
+            {% elif ct.status == 'assinado_cliente' %}<span class="status-badge s-recusada">Cliente assinou — aguardando você confirmar</span>
+            {% else %}<span class="status-badge s-aprovada">Concluído (assinado pelas duas partes)</span>
+            {% endif %}
+          </div>
+        </div>
+        {% if ct.status != 'pendente' %}
+        <div class="mb-2" style="font-size:.82rem;">
+          Cliente: <b>{{ ct.assinatura_nome }}</b> ({{ ct.assinatura_cpf }})<br>
+          Assinado em {{ ct.assinado_em.strftime('%d/%m/%Y %H:%M') if ct.assinado_em else '—' }}
+        </div>
+        {% endif %}
+        {% if ct.status == 'concluido' %}
+        <div class="mb-2" style="font-size:.82rem;">
+          Confirmado por: <b>{{ ct.confirmado_por }}</b><br>
+          Em {{ ct.confirmado_em.strftime('%d/%m/%Y %H:%M') if ct.confirmado_em else '—' }}
+        </div>
+        {% endif %}
+
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" readonly
+                 value="{{ request.url_root.rstrip('/') }}{{ url_for('contrato_neuradesk_publico', token=ct.token_assinatura) }}"
+                 id="linkContratoND" onclick="this.select()">
+          <button class="btn btn-sm btn-nb" onclick="navigator.clipboard.writeText(document.getElementById('linkContratoND').value)" title="Copiar link">
+            <i class="fas fa-copy"></i>
+          </button>
+        </div>
+
+        {% if ct.status == 'assinado_cliente' %}
+        <form method="POST" action="{{ url_for('contrato_neuradesk_confirmar', id=ct.id) }}"
+              onsubmit="return confirm('Confirmar a assinatura da NeuraWorks neste contrato? Depois disso ele conta como executado pelas duas partes.')">
+          <button type="submit" class="btn btn-sm btn-accent w-100 mb-2">
+            <i class="fas fa-stamp me-1"></i>Confirmar assinatura da NeuraWorks
+          </button>
+        </form>
+        {% endif %}
+
+        <a href="{{ url_for('contrato_neuradesk_pdf_admin', id=ct.id) }}" class="btn btn-sm btn-outline-secondary w-100">
+          <i class="fas fa-file-pdf me-1"></i>Baixar PDF
+        </a>
+        {% else %}
+        <p class="text-muted" style="font-size:.85rem;">Nenhum contrato vinculado a esta licença.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body p-4">
         <h6 class="fw-bold mb-3"><i class="fas fa-sync me-1"></i>Mercado Pago</h6>
         <div class="mb-2">
           <label class="form-label mb-1" style="font-size:.8rem;">Status da assinatura</label>

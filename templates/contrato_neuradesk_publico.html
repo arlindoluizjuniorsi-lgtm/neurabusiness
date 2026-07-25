@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contrato NeuraDesk {{ contrato.numero }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{font-family:'Inter',sans-serif;}
+body{background:#f4f5f7;color:#1b1f27;min-height:100vh;}
+.header-bar{background:linear-gradient(135deg,#14161b,#201610);padding:20px 0;border-bottom:2px solid #EA640F;}
+.cp{max-width:860px;margin:0 auto;padding:0 20px;}
+.contrato-body{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:36px;margin:24px 0;box-shadow:0 2px 12px rgba(0,0,0,.06);}
+.contrato-body h2{font-family:'Space Grotesk',sans-serif;font-size:1.2rem;font-weight:800;color:#1b1f27;text-align:center;margin-bottom:4px;}
+.contrato-body .sub{text-align:center;color:#5b6472;font-size:.85rem;margin-bottom:20px;}
+.contrato-body h3{font-size:.86rem;font-weight:700;color:#EA640F;margin-top:20px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px;}
+.contrato-body p,.contrato-body li{font-size:.88rem;color:#334155;line-height:1.7;}
+.contrato-body table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.84rem;}
+.contrato-body table th{background:#fdf1e8;color:#9a3b0a;padding:7px 10px;text-align:left;font-weight:700;}
+.contrato-body table td{padding:7px 10px;border-bottom:1px solid #f1f5f9;}
+.partes{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;}
+.partes .p-role{font-size:.7rem;font-weight:700;color:#EA640F;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+.partes .p-box{background:#fafbfc;border:1px solid #eef0f3;border-radius:10px;padding:14px;font-size:.82rem;line-height:1.5;}
+.sign-box{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:2px solid #10B981;border-radius:14px;padding:24px;margin-top:20px;}
+.sign-box.pending-approval{background:linear-gradient(135deg,#fff7ed,#fdf1e8);border-color:#EA640F;}
+.btn-sign{background:linear-gradient(135deg,#10B981,#059669);color:#fff;border:none;border-radius:10px;font-weight:800;font-size:.95rem;padding:13px 32px;cursor:pointer;transition:all .3s;font-family:'Space Grotesk',sans-serif;}
+.btn-sign:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(16,185,129,.35);}
+.alert{border:none;border-radius:10px;font-size:.85rem;margin-bottom:14px;padding:10px 14px;}
+.alert-success{background:rgba(16,185,129,.12);color:#065f46;border:1px solid rgba(16,185,129,.2);}
+.alert-warning{background:rgba(234,100,15,.1);color:#9a3b0a;border:1px solid rgba(234,100,15,.2);}
+.footer-bar{text-align:center;padding:16px 0;font-size:.7rem;color:#94a3b8;margin-top:20px;}
+</style>
+</head>
+<body>
+<div class="header-bar">
+  <div class="cp d-flex align-items-center justify-content-between">
+    <div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;color:#EA640F;font-size:.95rem">NeuraDesk</div>
+      <div style="font-size:.64rem;color:rgba(255,255,255,.4)">Contrato de Licenciamento</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:.72rem;color:rgba(255,255,255,.4)">CONTRATO</div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:800;color:#EA640F">{{ contrato.numero }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="cp">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat,msg in messages %}
+    <div class="alert alert-{{ cat }}" style="margin-top:16px"><i class="fas fa-check-circle me-2"></i>{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="contrato-body">
+    <h2>Contrato de Licenciamento de Uso de Software<br>e Prestação de Serviços — NeuraDesk</h2>
+    <div class="sub">Contrato nº {{ contrato.numero }}</div>
+
+    <div class="partes">
+      <div>
+        <div class="p-role">Contratante</div>
+        <div class="p-box">
+          <b>{{ contrato.empresa_razao_social }}</b><br>
+          CNPJ: {{ licenca.empresa_cnpj or '—' }}<br>
+          {{ contrato.empresa_endereco or '—' }}<br>
+          Repr.: {{ contrato.representante_nome or '—' }} — CPF: {{ contrato.representante_cpf or '—' }}
+        </div>
+      </div>
+      <div>
+        <div class="p-role">Contratada</div>
+        <div class="p-box">
+          NeuraWorks — dados completos no PDF do contrato.
+        </div>
+      </div>
+    </div>
+
+    <h3>Cláusula 1ª — Do Objeto</h3>
+    <p>O presente contrato tem por objeto o licenciamento, por parte da CONTRATADA, do uso do sistema <b>NeuraDesk</b>
+      à CONTRATANTE, em caráter não exclusivo e intransferível, além da prestação dos serviços de hospedagem,
+      manutenção e suporte técnico descritos neste instrumento. A licença não inclui a cessão do código-fonte,
+      permanecendo o software de titularidade da CONTRATADA (Cláusula 8ª).</p>
+
+    <h3>Cláusula 2ª — Da Hospedagem</h3>
+    <p>O sistema será instalado em servidor dedicado exclusivamente à CONTRATANTE, isolado de qualquer outra
+      instalação, com banco de dados, credenciais e arquivos próprios, incluindo certificado HTTPS válido.</p>
+
+    <h3>Cláusula 3ª — Dos Módulos Contratados</h3>
+    <table>
+      <tr><th>Módulo</th><th>Valor mensal</th></tr>
+      <tr><td>Núcleo (chamados, equipamentos, insumos, manutenções, wiki)</td><td>Incluso no plano base</td></tr>
+      {% for m in contrato.get_modulos() %}
+      <tr><td>{{ m.nome }}</td><td>R$ {{ '%.2f'|format(m.valor)|replace('.', ',') }}/mês</td></tr>
+      {% endfor %}
+    </table>
+
+    <h3>Cláusula 4ª — Do Prazo e da Vigência</h3>
+    <p>Prazo indeterminado, com renovação automática mensal mediante o pagamento tempestivo da mensalidade.</p>
+
+    <h3>Cláusula 5ª — Do Preço e da Forma de Pagamento</h3>
+    {% set total_modulos = contrato.get_modulos()|sum(attribute='valor') %}
+    <p>Valor mensal do plano base: <b>R$ {{ '%.2f'|format(contrato.valor_base or 0)|replace('.', ',') }}</b>,
+      referente a até <b>{{ contrato.usuarios_inclusos }} usuários</b>, acrescido de
+      <b>R$ {{ '%.2f'|format(total_modulos)|replace('.', ',') }}</b> em módulos opcionais, totalizando
+      <b>R$ {{ '%.2f'|format((contrato.valor_base or 0) + total_modulos)|replace('.', ',') }}/mês</b>.
+      Usuário adicional: R$ {{ '%.2f'|format(contrato.valor_usuario_adicional or 0)|replace('.', ',') }}/mês.
+      Cobrança recorrente via Mercado Pago, vencimento todo dia {{ contrato.dia_vencimento }}. Reajuste anual pelo IPCA.</p>
+
+    <h3>Cláusula 6ª — Da Inadimplência e Suspensão de Acesso</h3>
+    <p>Não pagamento na data de vencimento: 10 dias de carência com acesso mantido e aviso visível. Expirada a
+      carência: acesso suspenso para todos, exceto o administrador da CONTRATANTE, até a regularização.</p>
+
+    <h3>Cláusula 7ª — Das Obrigações da Contratada</h3>
+    <p>Manter o sistema em funcionamento, realizar backup diário automatizado (retenção mínima de 14 dias), aplicar
+      atualizações de segurança, prestar suporte técnico e manter credenciais de infraestrutura cifradas em repouso.</p>
+
+    <h3>Cláusula 8ª — Da Propriedade Intelectual</h3>
+    <p>O software, código-fonte, marca e documentação permanecem de propriedade exclusiva da CONTRATADA. Os dados
+      operacionais inseridos pela CONTRATANTE permanecem de sua propriedade.</p>
+
+    <h3>Cláusula 9ª — Da Proteção de Dados Pessoais (LGPD)</h3>
+    <p>A CONTRATANTE figura como controladora dos dados pessoais tratados no sistema, e a CONTRATADA como operadora,
+      tratando-os exclusivamente conforme as instruções da controladora e para a finalidade deste contrato.</p>
+
+    <h3>Cláusula 10ª — Da Confidencialidade</h3>
+    <p>As partes obrigam-se a manter sigilo sobre informações técnicas, comerciais ou operacionais da outra parte.</p>
+
+    <h3>Cláusula 11ª — Da Limitação de Responsabilidade</h3>
+    <p>A responsabilidade da CONTRATADA fica limitada ao valor pago pela CONTRATANTE nos 6 meses anteriores ao
+      evento, não respondendo por lucros cessantes, danos indiretos ou perda de dados por uso inadequado.</p>
+
+    <h3>Cláusula 12ª — Da Rescisão</h3>
+    <p>Aviso prévio de {{ contrato.prazo_aviso_previo_dias }} dias, por escrito, por qualquer das partes.</p>
+
+    <h3>Cláusula 13ª — Do Foro</h3>
+    <p>Fica eleito o foro da comarca de {{ contrato.cidade_foro or '[a definir]' }}.</p>
+
+    <p style="margin-top:20px;font-size:.78rem;color:#94a3b8;">
+      O texto completo e definitivo, com os dados de assinatura das duas partes, fica disponível no PDF do
+      contrato assim que a CONTRATADA confirmar a assinatura.
+    </p>
+  </div>
+
+  <!-- ASSINATURA -->
+  {% if contrato.status == 'pendente' %}
+  <div class="sign-box">
+    <div style="font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:800;color:#065f46;margin-bottom:8px">
+      <i class="fas fa-signature me-2"></i>Assinar este Contrato
+    </div>
+    <p style="font-size:.85rem;color:#134e4a;margin-bottom:16px">
+      Ao assinar, você confirma que leu e concorda com todos os termos acima, em nome de
+      <b>{{ contrato.empresa_razao_social }}</b>. Sua assinatura será registrada com nome, CPF, data, hora e IP.
+    </p>
+    <form method="POST">
+      <div class="row g-2 mb-2">
+        <div class="col-md-7">
+          <label style="font-weight:700;font-size:.82rem;color:#134e4a;display:block;margin-bottom:6px">Nome completo *</label>
+          <input type="text" name="nome_assinatura" class="form-control" placeholder="Seu nome completo" required style="border:1.5px solid #10B981">
+        </div>
+        <div class="col-md-5">
+          <label style="font-weight:700;font-size:.82rem;color:#134e4a;display:block;margin-bottom:6px">CPF *</label>
+          <input type="text" name="cpf_assinatura" class="form-control" placeholder="000.000.000-00" required style="border:1.5px solid #10B981">
+        </div>
+      </div>
+      <button type="submit" class="btn-sign mt-2"><i class="fas fa-check-circle me-2"></i>Assinar Contrato</button>
+      <p style="font-size:.7rem;color:#6b7280;margin-top:8px"><i class="fas fa-lock me-1"></i>Assinatura registrada digitalmente com data, hora e IP</p>
+    </form>
+  </div>
+  {% elif contrato.status == 'assinado_cliente' %}
+  <div class="sign-box pending-approval">
+    <i class="fas fa-hourglass-half fa-2x" style="color:#EA640F;margin-bottom:10px"></i>
+    <div style="font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:800;color:#9a3b0a">Assinatura registrada — aguardando confirmação</div>
+    <p style="font-size:.85rem;color:#7a4a0a;margin-top:6px">
+      Assinado por: <b>{{ contrato.assinatura_nome }}</b> em {{ contrato.assinado_em.strftime('%d/%m/%Y %H:%M') if contrato.assinado_em else '' }}.<br>
+      O contrato passa a valer assim que a NeuraWorks confirmar o recebimento. O PDF final fica disponível nesta mesma página após isso.
+    </p>
+  </div>
+  {% else %}
+  <div class="sign-box">
+    <i class="fas fa-check-circle fa-2x" style="color:#10B981;margin-bottom:10px"></i>
+    <div style="font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:800;color:#065f46">Contrato concluído</div>
+    <p style="font-size:.85rem;color:#134e4a;margin-top:6px">
+      Assinado por <b>{{ contrato.assinatura_nome }}</b> em {{ contrato.assinado_em.strftime('%d/%m/%Y %H:%M') if contrato.assinado_em else '' }},
+      confirmado pela NeuraWorks em {{ contrato.confirmado_em.strftime('%d/%m/%Y %H:%M') if contrato.confirmado_em else '' }}.
+    </p>
+    <a href="{{ url_for('contrato_neuradesk_download_publico', token=contrato.token_assinatura) }}" class="btn-sign" style="text-decoration:none;display:inline-block;margin-top:8px;">
+      <i class="fas fa-file-pdf me-2"></i>Baixar PDF assinado
+    </a>
+  </div>
+  {% endif %}
+
+  <div class="footer-bar">NeuraWorks • Documento gerado por NeuraBusiness</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

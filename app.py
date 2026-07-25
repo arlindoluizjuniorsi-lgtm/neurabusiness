@@ -12,7 +12,7 @@ import mp_integracao
 from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CatalogoServico, MaterialInfra, Cliente, Proposta,
                     ItemProposta, OrdemServico, ProjetoAnexo, Contrato, OsAssinatura,
-                    LicencaNeuraDesk, Integracao)
+                    LicencaNeuraDesk, Integracao, ContratoNeuraDesk)
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -1622,8 +1622,42 @@ def nova_licenca_neuradesk():
             lic.empresa_id_nb = int(empresa_id_nb)
 
         db.session.add(lic)
+        db.session.flush()  # garante lic.id antes de criar o contrato vinculado
+
+        modulos = []
+        for chave_mod, nome_mod, campo_valor in [
+            ('oracle',     'NeuraDBA — Monitoramento Oracle',         'valor_oracle'),
+            ('wmi',        'Servidores — Monitoramento Windows',      'valor_wmi'),
+            ('pfsense',    'Rede Avançada — pfSense',                 'valor_pfsense'),
+            ('hostinger',  'Check Hostinger — DNS Dinâmico',          'valor_hostinger'),
+        ]:
+            if request.form.get(f'modulo_{chave_mod}') == 'on':
+                modulos.append({
+                    'chave': chave_mod,
+                    'nome': nome_mod,
+                    'valor': float(request.form.get(campo_valor, 0) or 0),
+                })
+
+        contrato = ContratoNeuraDesk(
+            licenca_id=lic.id,
+            numero=ContratoNeuraDesk.gerar_numero(),
+            token_assinatura=uuid.uuid4().hex,
+            empresa_razao_social=request.form['empresa_nome'],
+            empresa_endereco=request.form.get('empresa_endereco'),
+            representante_nome=request.form.get('representante_nome'),
+            representante_cpf=request.form.get('representante_cpf'),
+            valor_base=lic.valor_mensal,
+            usuarios_inclusos=lic.max_usuarios,
+            valor_usuario_adicional=float(request.form.get('valor_usuario_adicional', 0) or 0),
+            dia_vencimento=int(request.form.get('dia_vencimento', 10) or 10),
+            cidade_foro=request.form.get('cidade_foro'),
+            prazo_aviso_previo_dias=int(request.form.get('prazo_aviso_previo_dias', 30) or 30),
+            status='pendente',
+        )
+        contrato.set_modulos(modulos)
+        db.session.add(contrato)
         db.session.commit()
-        flash(f'Licença gerada com sucesso: {chave}', 'success')
+        flash(f'Licença e contrato gerados com sucesso: {chave}', 'success')
         return redirect(url_for('detalhe_licenca_neuradesk', id=lic.id))
 
     empresas = Empresa.query.filter_by(ativa=True).order_by(Empresa.fantasia).all()
@@ -1636,6 +1670,83 @@ def nova_licenca_neuradesk():
 def detalhe_licenca_neuradesk(id):
     lic = LicencaNeuraDesk.query.get_or_404(id)
     return render_template('detalhe_licenca_neuradesk.html', lic=lic)
+
+
+# ─── CONTRATO NEURADESK ─────────────────────────────────────────────────────────
+
+@app.route('/contrato-neuradesk/assinar/<token>', methods=['GET', 'POST'])
+def contrato_neuradesk_publico(token):
+    """Página pública (sem login) onde o cliente confere os dados já
+    preenchidos pela CONTRATADA e assina digitalmente (nome + CPF)."""
+    ct = ContratoNeuraDesk.query.filter_by(token_assinatura=token).first_or_404()
+
+    if request.method == 'POST' and ct.status == 'pendente':
+        nome = request.form.get('nome_assinatura', '').strip()
+        cpf = request.form.get('cpf_assinatura', '').strip()
+        if nome and cpf:
+            import contrato_neuradesk_generator as gen
+            ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr or '')
+            ts = datetime.now().isoformat()
+            ct.assinatura_nome = nome
+            ct.assinatura_cpf = cpf
+            ct.assinatura_ip = ip
+            ct.assinatura_hash = gen.calcular_hash(nome, cpf, ip, ts, ct.numero)
+            ct.assinado_em = datetime.now()
+            ct.status = 'assinado_cliente'
+            db.session.commit()
+            flash('Contrato assinado com sucesso! Guarde o número do hash como comprovante.', 'success')
+        else:
+            flash('Preencha nome e CPF para assinar.', 'warning')
+
+    return render_template('contrato_neuradesk_publico.html', contrato=ct, licenca=ct.licenca)
+
+
+@app.route('/contrato-neuradesk/download/<token>')
+def contrato_neuradesk_download_publico(token):
+    ct = ContratoNeuraDesk.query.filter_by(token_assinatura=token).first_or_404()
+    if ct.status != 'concluido':
+        abort(403)
+    import contrato_neuradesk_generator as gen
+    buf = gen.gerar_contrato_neuradesk_pdf(ct, ct.licenca)
+    return send_file(buf, mimetype='application/pdf', as_attachment=True,
+                      download_name=f'contrato_{ct.numero}.pdf')
+
+
+@app.route('/admin/contratos-neuradesk/<int:id>/pdf')
+@login_required
+@super_admin_required
+def contrato_neuradesk_pdf_admin(id):
+    ct = ContratoNeuraDesk.query.get_or_404(id)
+    import contrato_neuradesk_generator as gen
+    buf = gen.gerar_contrato_neuradesk_pdf(ct, ct.licenca)
+    return send_file(buf, mimetype='application/pdf', as_attachment=True,
+                      download_name=f'contrato_{ct.numero}.pdf')
+
+
+@app.route('/admin/contratos-neuradesk/<int:id>/confirmar', methods=['POST'])
+@login_required
+@super_admin_required
+def contrato_neuradesk_confirmar(id):
+    """Contra-assinatura da CONTRATADA -- só depois disso o contrato
+    conta como executado por ambas as partes (Cláusula sobre assinatura
+    dupla, decisão de 25/07/2026)."""
+    ct = ContratoNeuraDesk.query.get_or_404(id)
+    if ct.status != 'assinado_cliente':
+        flash('O cliente ainda não assinou este contrato.', 'warning')
+        return redirect(url_for('detalhe_licenca_neuradesk', id=ct.licenca_id))
+
+    import contrato_neuradesk_generator as gen
+    ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr or '')
+    ts = datetime.now().isoformat()
+    quem = get_current_user()
+    ct.confirmado_por = quem.nome if quem else 'Administrador'
+    ct.confirmado_ip = ip
+    ct.confirmado_hash = gen.calcular_hash(ct.confirmado_por, ip, ts, ct.numero)
+    ct.confirmado_em = datetime.now()
+    ct.status = 'concluido'
+    db.session.commit()
+    flash('Contrato confirmado! Já conta como executado por ambas as partes.', 'success')
+    return redirect(url_for('detalhe_licenca_neuradesk', id=ct.licenca_id))
 
 
 @app.route('/admin/licencas/<int:id>/bloquear', methods=['POST'])

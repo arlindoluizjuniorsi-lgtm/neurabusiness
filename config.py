@@ -45,6 +45,15 @@ class Config:
     # (tela /admin/integracoes) -- ex: token do Mercado Pago.
     INTEGRACOES_FERNET_KEY = _env('INTEGRACOES_FERNET_KEY', '')
 
+    # Dados da CONTRATADA nos contratos de licenciamento do NeuraDesk
+    # (não são segredo -- vão impressos no PDF do contrato -- mas ficam
+    # no .env em vez de hardcoded no código-fonte).
+    CONTRATADA_RAZAO_SOCIAL = _env('CONTRATADA_RAZAO_SOCIAL', '[preencher CONTRATADA_RAZAO_SOCIAL no .env]')
+    CONTRATADA_CNPJ         = _env('CONTRATADA_CNPJ', '[preencher CONTRATADA_CNPJ no .env]')
+    CONTRATADA_ENDERECO     = _env('CONTRATADA_ENDERECO', '[preencher CONTRATADA_ENDERECO no .env]')
+    CONTRATADA_REPRESENTANTE_NOME = _env('CONTRATADA_REPRESENTANTE_NOME', '[preencher CONTRATADA_REPRESENTANTE_NOME no .env]')
+    CONTRATADA_REPRESENTANTE_CPF  = _env('CONTRATADA_REPRESENTANTE_CPF', '[preencher CONTRATADA_REPRESENTANTE_CPF no .env]')
+
     @classmethod
     def get_db_uri(cls):
         if cls.DB_TYPE == 'postgresql':
