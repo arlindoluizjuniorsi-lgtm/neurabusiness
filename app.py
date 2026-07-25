@@ -942,12 +942,11 @@ def _gerar_link_pagamento_mp(p):
 def _gerar_link_pagamento_infinitypay(p):
     """Mesma ideia da preferência do MP, mas via link de pagamento da
     InfinitePay. Também nunca levanta exceção -- fica inerte enquanto
-    INFINITYPAY_HANDLE/INFINITYPAY_API_KEY não estiverem configurados em
-    /admin/integracoes."""
+    INFINITYPAY_HANDLE não estiver configurado em /admin/integracoes.
+    O Checkout Integrado da InfinitePay não usa API key/token."""
     try:
-        handle  = Integracao.obter('INFINITYPAY_HANDLE', '')
-        api_key = Integracao.obter('INFINITYPAY_API_KEY', '')
-        if not handle or not api_key:
+        handle = Integracao.obter('INFINITYPAY_HANDLE', '')
+        if not handle:
             return
         itens = [{'titulo': i.descricao, 'quantidade': i.quantidade, 'valor_unitario': i.preco_unitario}
                   for i in p.itens]
@@ -959,7 +958,7 @@ def _gerar_link_pagamento_infinitypay(p):
             return
         redirect_url = url_for('proposta_publica', token=p.token_publico, _external=True)
         link, erro = infinitypay_integracao.criar_link_pagamento(
-            handle, api_key, itens,
+            handle, itens,
             order_nsu=p.numero,
             redirect_url=redirect_url,
         )
@@ -2237,7 +2236,7 @@ def admin_integracoes():
     Pago) sem precisar editar .env no servidor. Valores ficam cifrados
     no banco -- o formulário nunca mostra o valor salvo de volta, só se
     já tem algo configurado ou não."""
-    campos = ['MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'INFINITYPAY_HANDLE', 'INFINITYPAY_API_KEY']
+    campos = ['MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'INFINITYPAY_HANDLE']
 
     if request.method == 'POST':
         for chave in campos:

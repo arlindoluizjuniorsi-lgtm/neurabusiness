@@ -3,33 +3,22 @@ Integrado) que aceitam Pix e cartão (parcelado) na mesma tela, sem exigir
 tokenização de cartão no nosso servidor.
 
 Como configurar:
-  1. Crie uma conta InfinitePay e pegue seu "handle" (tag) e a API key
-     do checkout integrado -- painel InfinitePay > Integrações > Checkout.
-  2. Configure na tela /admin/integracoes (INFINITYPAY_HANDLE e
-     INFINITYPAY_API_KEY) -- fica cifrado no banco, igual ao Mercado Pago.
+  1. Pegue seu "handle" (InfiniteTag, sem o $ na frente) no app/site da
+     InfinitePay.
+  2. Configure na tela /admin/integracoes (INFINITYPAY_HANDLE) -- fica
+     cifrado no banco, igual ao Mercado Pago.
 
-Referência: https://ajuda.infinitepay.io (Checkout Integrado). Como não
-temos uma conta real pra testar em produção, esta integração não foi
-validada contra a API de verdade -- se o formato da resposta mudar,
-ajustar `_extrair_link` abaixo.
+Referência oficial: https://www.infinitepay.io/checkout-documentacao
+O Checkout Integrado NÃO exige API key/token -- a requisição em POST /links
+leva só handle + items (e campos opcionais como order_nsu, redirect_url,
+webhook_url).
 """
 import requests
 
 INFINITYPAY_API_BASE = 'https://api.checkout.infinitepay.io'
 
 
-def _extrair_link(dados):
-    """A doc pública não deixa 100% claro o nome do campo de resposta --
-    tenta as chaves mais prováveis antes de desistir."""
-    if not isinstance(dados, dict):
-        return None
-    for chave in ('url', 'link', 'payment_url', 'checkout_url', 'payment_link'):
-        if dados.get(chave):
-            return dados[chave]
-    return None
-
-
-def criar_link_pagamento(handle, api_key, itens, order_nsu, redirect_url,
+def criar_link_pagamento(handle, itens, order_nsu, redirect_url,
                           webhook_url=None, timeout=20):
     """Cria um link de pagamento (Pix + cartão) via Checkout Integrado da
     InfinitePay. `itens` é uma lista de dicts {titulo, quantidade,
@@ -37,8 +26,7 @@ def criar_link_pagamento(handle, api_key, itens, order_nsu, redirect_url,
     Retorna (url_pagamento, None) em caso de sucesso, ou (None, erro)."""
     body = {
         'handle': handle,
-        'redirect_url': redirect_url,
-        'order_nsu': order_nsu,
+        'order_nsu': str(order_nsu),
         'items': [
             {
                 'quantity': int(i.get('quantidade', 1) or 1),
@@ -48,16 +36,15 @@ def criar_link_pagamento(handle, api_key, itens, order_nsu, redirect_url,
             for i in itens
         ],
     }
+    if redirect_url:
+        body['redirect_url'] = redirect_url
     if webhook_url:
         body['webhook_url'] = webhook_url
 
     try:
         r = requests.post(
             f'{INFINITYPAY_API_BASE}/links',
-            headers={
-                'Authorization': f'Bearer {api_key}',
-                'Content-Type': 'application/json',
-            },
+            headers={'Content-Type': 'application/json'},
             json=body,
             timeout=timeout,
         )
@@ -68,7 +55,7 @@ def criar_link_pagamento(handle, api_key, itens, order_nsu, redirect_url,
     if r.status_code not in (200, 201):
         return None, dados
 
-    link = _extrair_link(dados)
+    link = dados.get('url')
     if not link:
         return None, {'message': 'resposta da InfinitePay sem link reconhecível', 'raw': dados}
     return link, None

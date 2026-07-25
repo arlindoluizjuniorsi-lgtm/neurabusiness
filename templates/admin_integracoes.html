@@ -60,26 +60,19 @@
         <h6 class="fw-bold mb-1">InfinitePay</h6>
         <p class="text-muted" style="font-size:.85rem;">
           Usado pra gerar o link de pagamento (Pix + cartão) mostrado ao cliente
-          assim que ele assina uma proposta comercial. Pegue o handle e a API key
-          no painel InfinitePay &gt; Integrações &gt; Checkout.
+          assim que ele assina uma proposta comercial. O Checkout Integrado da
+          InfinitePay não exige API key -- só a sua InfiniteTag (handle), sem o
+          <code>$</code> na frente, que aparece no canto superior esquerdo do app.
         </p>
 
         <form method="POST">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
-            <label class="form-label mb-1">Handle (tag)</label>
+            <label class="form-label mb-1">Handle (InfiniteTag)</label>
             <input type="text" name="INFINITYPAY_HANDLE" class="form-control"
-                   placeholder="{{ 'já configurado — deixe em branco pra manter' if status.INFINITYPAY_HANDLE else '$seuhandle' }}">
+                   placeholder="{{ 'já configurado — deixe em branco pra manter' if status.INFINITYPAY_HANDLE else 'seuhandle (sem o $)' }}">
             <small class="text-muted">
               {% if status.INFINITYPAY_HANDLE %}<i class="fas fa-check-circle text-success"></i> configurado{% else %}<i class="fas fa-circle text-muted"></i> não configurado{% endif %}
-            </small>
-          </div>
-          <div class="mb-3">
-            <label class="form-label mb-1">API Key</label>
-            <input type="password" name="INFINITYPAY_API_KEY" class="form-control" autocomplete="new-password"
-                   placeholder="{{ 'já configurado — deixe em branco pra manter' if status.INFINITYPAY_API_KEY else 'Cole a API key do checkout integrado' }}">
-            <small class="text-muted">
-              {% if status.INFINITYPAY_API_KEY %}<i class="fas fa-check-circle text-success"></i> configurado{% else %}<i class="fas fa-circle text-muted"></i> não configurado{% endif %}
             </small>
           </div>
           <button type="submit" class="btn btn-accent"><i class="fas fa-save me-1"></i>Salvar</button>
