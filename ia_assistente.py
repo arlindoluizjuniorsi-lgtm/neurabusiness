@@ -22,6 +22,7 @@ existe um.
 import urllib.request
 import urllib.error
 import json
+import base64
 import difflib
 from datetime import timedelta
 
@@ -350,6 +351,89 @@ def remover_item_proposta(empresa_id, numero, nome_item):
         db.session.delete(alvo)
         db.session.commit()
         return f"✅ Removido *{nome_removido}* da proposta {numero}."
+
+
+# ═══════════════════════ CADASTRO DE PRODUTO POR FOTO (visão do Gemini) ═══════════════════════
+
+def interpretar_produto_imagem(imagem_bytes, mime_type, legenda=None, produtos_existentes=None):
+    """Manda uma foto (propaganda/etiqueta/embalagem de produto) pro Gemini
+    e pede pra extrair os dados de cadastro. Retorna um dict:
+      {"encontrado": true, "nome":..., "preco_venda": numero, "preco_custo": numero ou null,
+       "categoria": ... ou null, "descricao": ... ou null, "estoque": numero ou null}
+      ou
+      {"encontrado": false, "motivo": "..."}
+    Retorna None em caso de erro de rede/API."""
+    lista_produtos = '\n'.join(f'- {p}' for p in (produtos_existentes or [])[:200])
+    prompt = f"""Você é o assistente de um profissional de instalação e manutenção de CFTV e
+infraestrutura. A pessoa te mandou uma FOTO (propaganda, etiqueta, embalagem ou nota de um
+produto) pedindo pra cadastrar esse produto no estoque do sistema.
+
+Extraia da imagem:
+1. Nome do produto (claro e objetivo, sem o texto todo da propaganda)
+2. Preço de venda (se a imagem mostrar mais de um preço -- ex: "de X por Y" -- use o preço
+   final/promocional Y; se não tiver certeza de qual é o preço de venda, marque encontrado=false)
+3. Categoria (ex: câmera, cabo, conector, fonte, sensor etc), se der pra inferir
+4. Descrição curta com as especificações visíveis (resolução, modelo, voltagem etc)
+
+Se a legenda da mensagem mencionar quantidade/estoque ou algum ajuste de preço, considere isso
+também.
+
+{"Legenda enviada junto com a foto: " + legenda if legenda else "Nenhuma legenda foi enviada."}
+
+PRODUTOS JÁ CADASTRADOS (contexto, evite sugerir nome idêntico a um já existente sem avisar):
+{lista_produtos}
+
+Se a imagem não mostrar claramente um produto com preço identificável, retorne
+encontrado=false e explique o motivo em "motivo".
+
+Responda APENAS com um JSON no formato exato abaixo, sem texto adicional:
+{{
+  "encontrado": true ou false,
+  "motivo": "só se encontrado==false, senão null",
+  "nome": "nome do produto ou null",
+  "preco_venda": numero ou null,
+  "preco_custo": numero ou null,
+  "categoria": "categoria ou null",
+  "descricao": "descrição curta ou null",
+  "estoque": numero ou null
+}}"""
+
+    parts = [{"text": prompt}, {"inline_data": {
+        "mime_type": mime_type,
+        "data": base64.b64encode(imagem_bytes).decode('utf-8'),
+    }}]
+    body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
+    }
+    req = urllib.request.Request(
+        GEMINI_URL,
+        data=json.dumps(body).encode('utf-8'),
+        headers={'Content-Type': 'application/json', 'X-goog-api-key': GEMINI_API_KEY},
+    )
+
+    ultimo_erro = None
+    for _tentativa in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read())
+            texto_resp = data['candidates'][0]['content']['parts'][0]['text']
+            return json.loads(texto_resp)
+        except urllib.error.HTTPError as e:
+            corpo = e.read().decode('utf-8', errors='ignore')
+            ultimo_erro = f"HTTP {e.code}: {corpo[:300]}"
+            if e.code == 503:
+                import time
+                time.sleep(2)
+                continue
+            print(f"[ERRO Gemini imagem produto] {ultimo_erro}")
+            return None
+        except Exception as e:
+            print(f"[ERRO Gemini imagem produto] {e}")
+            return None
+
+    print(f"[ERRO Gemini imagem produto] Falhou após 3 tentativas: {ultimo_erro}")
+    return None
 
 
 FUNMAP = {

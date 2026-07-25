@@ -9,7 +9,7 @@ from models import Empresa, Cliente, Servico, Produto, Proposta, ItemProposta, E
 import uuid, io, difflib, asyncio
 from datetime import datetime, timedelta
 from ia_unificada import interpretar_mensagem
-from ia_assistente import executar_comando
+from ia_assistente import executar_comando, interpretar_produto_imagem, cadastrar_produto
 
 (MENU,CLIENTE,NC_NOME,NC_TEL,SERVICO,PRODUTO,QTD,PRECO,MAIS,
  PERGUNTA_ETAPAS,ETAPA_TITULO,ETAPA_DIAS,VALIDADE,PAGAMENTO,CONFIRMAR,
@@ -75,12 +75,13 @@ async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
         c.user_data['cliente']=None
         c.user_data['tentativas_cliente']=0
         await u.message.reply_text(
-            "🎤🤖 *Manda um áudio ou uma mensagem de texto.*\n\n"
+            "🎤🤖 *Manda um áudio, uma mensagem de texto ou uma foto.*\n\n"
             "Pode ser um pedido de proposta — _\"Proposta pra Câmara de Mataraca, câmera VIP 1220 "
             "quantidade 6, serviço de instalação de CFTV, pagamento pix, validade 15 dias\"_ — "
-            "uma pergunta qualquer (cálculo, dúvida sobre seus serviços), ou um comando de gestão, "
+            "uma pergunta qualquer (cálculo, dúvida sobre seus serviços), um comando de gestão, "
             "tipo _\"mostra minhas propostas\"_, _\"quais clientes eu tenho\"_, "
-            "_\"cadastra o produto Câmera XPTO por 350 reais\"_ ou _\"muda o telefone do fulano\"_.",
+            "_\"cadastra o produto Câmera XPTO por 350 reais\"_ ou _\"muda o telefone do fulano\"_ "
+            "— ou manda a *foto de uma propaganda/etiqueta de produto* que eu já cadastro no estoque.",
             parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
         return IA_AGUARDA
     await u.message.reply_text("Cancelado.",reply_markup=ReplyKeyboardRemove())
@@ -303,10 +304,45 @@ async def cancelar(u:Update,c:ContextTypes.DEFAULT_TYPE):
 
 # ══════════════════════ FLUXO UNIFICADO POR ÁUDIO/TEXTO (IA) ══════════════════════
 async def processar_mensagem(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=True):
-    """Baixa/le a mensagem (audio ou texto), manda pra IA classificar como
-    proposta ou pergunta solta, e age de acordo: responde na hora se for
+    """Baixa/le a mensagem (audio, texto ou foto), manda pra IA classificar
+    como proposta ou pergunta solta, e age de acordo: responde na hora se for
     pergunta, ou faz o match de cliente/itens e decide o proximo passo
-    se for proposta."""
+    se for proposta. Foto de produto e tratada a parte (cadastro direto)."""
+    estado_atual = IA_AGUARDA if primeiro else IA_CORRECAO
+
+    if u.message.photo:
+        await u.message.reply_text("🖼️ Analisando a imagem...")
+        try:
+            foto = u.message.photo[-1]  # maior resolução
+            tg_file = await c.bot.get_file(foto.file_id)
+            img_bytes = bytes(await tg_file.download_as_bytearray())
+            _, _, produtos_opts = carregar_catalogo()
+            resultado_img = await asyncio.to_thread(
+                interpretar_produto_imagem, img_bytes, 'image/jpeg',
+                u.message.caption, [p['nome'] for p in produtos_opts])
+            if not resultado_img:
+                await u.message.reply_text("❌ Não consegui analisar essa imagem agora. Tente de novo.")
+                return estado_atual
+            if not resultado_img.get('encontrado'):
+                await u.message.reply_text(
+                    "🤔 " + (resultado_img.get('motivo') or "Não identifiquei um produto com preço claro nessa imagem."))
+                return estado_atual
+            if not resultado_img.get('nome') or resultado_img.get('preco_venda') is None:
+                await u.message.reply_text("🤔 Identifiquei a imagem, mas faltou nome ou preço pra cadastrar. Pode me dizer por texto?")
+                return estado_atual
+            emp = get_emp()
+            msg_cadastro = await asyncio.to_thread(
+                cadastrar_produto, emp.id, resultado_img['nome'], resultado_img['preco_venda'],
+                resultado_img.get('preco_custo'), resultado_img.get('categoria'),
+                resultado_img.get('descricao'), resultado_img.get('estoque'))
+            detalhes = f"\n\n📋 _Identificado na imagem:_ {resultado_img.get('descricao') or '-'}"
+            if resultado_img.get('categoria'):
+                detalhes += f"\n🏷️ Categoria: {resultado_img['categoria']}"
+            await u.message.reply_text(msg_cadastro + detalhes, parse_mode='Markdown')
+        except Exception as e:
+            await u.message.reply_text(f"❌ Erro processando a imagem: {e}")
+        return estado_atual
+
     texto_msg = None
     audio_bytes = None
     mime_type = None
@@ -328,8 +364,6 @@ async def processar_mensagem(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=Tru
         [x['nome'] for x in servicos_opts],
         [x['nome'] for x in produtos_opts]
     )
-
-    estado_atual = IA_AGUARDA if primeiro else IA_CORRECAO
 
     if not resultado:
         await u.message.reply_text(
@@ -420,7 +454,8 @@ async def ia_aguarda(u:Update, c:ContextTypes.DEFAULT_TYPE):
     txt = (u.message.text or '').strip().lower().rstrip('.!?') if u.message.text else ''
     if txt == 'manual':
         return await listar_clientes(u, c)
-    await u.message.reply_text("🎧 Processando áudio..." if (u.message.voice or u.message.audio) else "🤔 Processando...")
+    if not u.message.photo:
+        await u.message.reply_text("🎧 Processando áudio..." if (u.message.voice or u.message.audio) else "🤔 Processando...")
     try:
         return await processar_mensagem(u, c, primeiro=True)
     except Exception as e:
@@ -439,7 +474,8 @@ async def ia_correcao(u:Update, c:ContextTypes.DEFAULT_TYPE):
         await u.message.reply_text(f"📱 WhatsApp do cliente *{c.user_data['cliente_falado_novo']}*:", parse_mode='Markdown')
         return IA_TEL
 
-    await u.message.reply_text("🎧 Processando áudio..." if (u.message.voice or u.message.audio) else "🤔 Processando...")
+    if not u.message.photo:
+        await u.message.reply_text("🎧 Processando áudio..." if (u.message.voice or u.message.audio) else "🤔 Processando...")
     try:
         return await processar_mensagem(u, c, primeiro=False)
     except Exception as e:
@@ -531,8 +567,8 @@ def main():
             VALIDADE:[MessageHandler(filters.TEXT&~filters.COMMAND,receber_validade)],
             PAGAMENTO:[MessageHandler(filters.TEXT&~filters.COMMAND,receber_pagamento)],
             CONFIRMAR:[MessageHandler(filters.TEXT&~filters.COMMAND,confirmar)],
-            IA_AGUARDA:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT,ia_aguarda)],
-            IA_CORRECAO:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT,ia_correcao)],
+            IA_AGUARDA:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT|filters.PHOTO,ia_aguarda)],
+            IA_CORRECAO:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT|filters.PHOTO,ia_correcao)],
             IA_CONFIRMAR:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_confirmar)],
             IA_TEL:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_tel)],
         },
