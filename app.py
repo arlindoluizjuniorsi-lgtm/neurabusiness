@@ -994,7 +994,9 @@ def aprovar_proposta_publico(id, token):
     p.assinatura_hash = h
     db.session.commit()
 
-    # Gera contrato automaticamente com assinatura do cliente ja registrada
+    # Gera contrato automaticamente com assinatura do cliente ja registrada,
+    # e assina pela empresa na hora tambem -- nao existe mais uma etapa
+    # manual de "aguardando assinatura da empresa" nesse fluxo publico.
     if not p.contrato:
         try:
             emp   = Empresa.query.get(p.empresa_id)
@@ -1018,13 +1020,21 @@ def aprovar_proposta_publico(id, token):
                 assinatura_ip=ip, assinatura_hash=h_ct)
             db.session.add(ct)
             db.session.commit()
-        except Exception:
-            pass
+            _assinar_contrato_empresa(ct, emp, ip=ip)
+        except Exception as e:
+            logger.error(f'[CONTRATO] erro gerando/assinando contrato automatico da proposta {p.numero}: {e}')
 
     _gerar_link_pagamento_mp(p)
     _gerar_link_pagamento_infinitypay(p)
 
-    flash('Proposta aprovada e assinada! Aguardando assinatura da empresa.','success')
+    # Encaminha direto pro link de pagamento assim que ele existir --
+    # prioriza Mercado Pago (integracao mais testada) e cai pro InfinitePay
+    # se so ele estiver configurado.
+    destino_pagamento = p.mp_init_point or p.infinitypay_link
+    if destino_pagamento:
+        return redirect(destino_pagamento)
+
+    flash('Proposta aprovada e assinada!','success')
     return redirect(url_for('proposta_publica', token=token))
 
 # ─── ORDENS DE SERVIÇO ─────────────────────────────────────────────────────────
@@ -1385,18 +1395,15 @@ def ver_contrato(id):
     link = f"{request.host_url.rstrip('/')}/contrato/assinar/{ct.token_assinatura}"
     return render_template('ver_contrato.html', contrato=ct, link_assinatura=link)
 
-@app.route('/contratos/<int:id>/assinar-empresa', methods=['POST'])
-@login_required
-@empresa_required
-def assinar_contrato_empresa(id):
+def _assinar_contrato_empresa(ct, emp, ip=None):
+    """Aplica a assinatura da empresa num contrato (contratante já assinou)
+    e dispara o PDF assinado pro Telegram. Usado tanto pelo botão manual
+    quanto pela assinatura automática logo após o cliente assinar a
+    proposta -- nesse caso `ip` vem do próprio request do cliente, já que
+    não existe uma ação manual separada do lado da empresa."""
     import hashlib
-    ct = Contrato.query.filter_by(id=id, empresa_id=eid()).first_or_404()
-    if ct.status == 'assinado':
-        flash('Contrato ja esta totalmente assinado.', 'info')
-        return redirect(url_for('ver_contrato', id=id))
-    ip  = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr or '')
-    ts  = datetime.now().isoformat()
-    emp = Empresa.query.get(eid())
+    ip = ip or request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr or '')
+    ts = datetime.now().isoformat()
     nome_emp = emp.fantasia if emp else 'EMPRESA'
     raw = f"{nome_emp}|{ip}|{ts}|{ct.numero}"
     h   = hashlib.sha256(raw.encode()).hexdigest()
@@ -1430,8 +1437,19 @@ def assinar_contrato_empresa(id):
             caption=f"Contrato {ct.numero} — {cliente_nome}"
         )
     except Exception as e:
-        print(f"[ERRO notificacao Telegram] {e}")
+        logger.warning(f'[CONTRATO] falha ao notificar Telegram do contrato {ct.numero}: {e}')
 
+
+@app.route('/contratos/<int:id>/assinar-empresa', methods=['POST'])
+@login_required
+@empresa_required
+def assinar_contrato_empresa(id):
+    ct = Contrato.query.filter_by(id=id, empresa_id=eid()).first_or_404()
+    if ct.status == 'assinado':
+        flash('Contrato ja esta totalmente assinado.', 'info')
+        return redirect(url_for('ver_contrato', id=id))
+    emp = Empresa.query.get(eid())
+    _assinar_contrato_empresa(ct, emp)
     flash(f'Contrato {ct.numero} assinado! PDF liberado para o cliente.', 'success')
     return redirect(url_for('ver_contrato', id=id))
 
