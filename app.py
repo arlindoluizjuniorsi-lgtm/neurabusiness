@@ -5,14 +5,16 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime, date, timedelta
 from sqlalchemy import func, or_
-import os, json, uuid, base64, subprocess
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import os, json, uuid, base64, subprocess, smtplib
 
 from config import Config
 import mp_integracao
 from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CatalogoServico, MaterialInfra, Cliente, Proposta,
                     ItemProposta, OrdemServico, ProjetoAnexo, Contrato, OsAssinatura,
-                    LicencaNeuraDesk, Integracao, ContratoNeuraDesk)
+                    LicencaNeuraDesk, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk)
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -1646,6 +1648,7 @@ def nova_licenca_neuradesk():
             empresa_endereco=request.form.get('empresa_endereco'),
             representante_nome=request.form.get('representante_nome'),
             representante_cpf=request.form.get('representante_cpf'),
+            representante_email=request.form.get('representante_email'),
             valor_base=lic.valor_mensal,
             usuarios_inclusos=lic.max_usuarios,
             valor_usuario_adicional=float(request.form.get('valor_usuario_adicional', 0) or 0),
@@ -1694,6 +1697,7 @@ def contrato_neuradesk_publico(token):
             ct.assinado_em = datetime.now()
             ct.status = 'assinado_cliente'
             db.session.commit()
+            _enviar_email_cobranca(ct)
             flash('Contrato assinado com sucesso! Guarde o número do hash como comprovante.', 'success')
         else:
             flash('Preencha nome e CPF para assinar.', 'warning')
@@ -1721,6 +1725,244 @@ def contrato_neuradesk_pdf_admin(id):
     buf = gen.gerar_contrato_neuradesk_pdf(ct, ct.licenca)
     return send_file(buf, mimetype='application/pdf', as_attachment=True,
                       download_name=f'contrato_{ct.numero}.pdf')
+
+
+def _enviar_email_cobranca(contrato):
+    """Manda pro cliente, assim que ele assina o contrato de licenciamento,
+    o link da página de cobrança (boleto/Pix/assinatura automática).
+    Silencia erros -- se o SMTP não estiver configurado ou falhar, isso
+    não pode travar o fluxo de assinatura do contrato."""
+    if not Config.MAIL_SERVER or not Config.MAIL_USER or not contrato.representante_email:
+        print('[MAIL] envio de cobrança ignorado (SMTP não configurado ou cliente sem e-mail)')
+        return
+    try:
+        link = url_for('cobranca_publica', token=contrato.token_assinatura, _external=True)
+        assunto = f'Contrato {contrato.numero} assinado — próximos passos do pagamento'
+        corpo = f"""
+Olá, {contrato.representante_nome or contrato.assinatura_nome or ''}!
+
+Recebemos a assinatura do contrato de licenciamento do NeuraDesk nº {contrato.numero},
+referente à empresa {contrato.empresa_razao_social}.
+
+Valor mensal contratado: R$ {contrato.valor_total_mensal():.2f}
+
+Acesse o link abaixo para conferir os detalhes do contrato e gerar o pagamento
+(boleto, Pix ou assinatura automática recorrente):
+
+  {link}
+
+Qualquer dúvida, fale com a NeuraWorks.
+        """.strip()
+
+        msg = MIMEMultipart()
+        msg['From'] = Config.MAIL_FROM or Config.MAIL_USER
+        msg['To'] = contrato.representante_email
+        msg['Subject'] = assunto
+        msg.attach(MIMEText(corpo, 'plain', 'utf-8'))
+
+        with smtplib.SMTP(Config.MAIL_SERVER, Config.MAIL_PORT) as server:
+            server.starttls()
+            server.login(Config.MAIL_USER, Config.MAIL_PASSWORD)
+            server.send_message(msg)
+    except Exception as e:
+        print(f'[MAIL] erro ao enviar e-mail de cobrança: {e}')
+
+
+# ─── COBRANÇA NEURADESK (pública) ──────────────────────────────────────────────
+# Página enviada por e-mail ao cliente assim que ele assina o contrato de
+# licenciamento (ver _enviar_email_cobranca, chamada em
+# contrato_neuradesk_publico). Nela o cliente pode gerar boleto ou Pix
+# avulsos, ou iniciar a assinatura automática recorrente do Mercado Pago.
+
+@app.route('/cobranca/<token>')
+def cobranca_publica(token):
+    ct = ContratoNeuraDesk.query.filter_by(token_assinatura=token).first_or_404()
+    lic = ct.licenca
+    pagamentos = (PagamentoNeuraDesk.query.filter_by(licenca_id=lic.id)
+                  .order_by(PagamentoNeuraDesk.criado_em.desc()).limit(10).all())
+    mp = _mp_config()
+    return render_template('cobranca_publica.html', contrato=ct, licenca=lic,
+                           pagamentos=pagamentos, mp_configurado=bool(mp['access_token']))
+
+
+@app.route('/cobranca/<token>/gerar-boleto', methods=['POST'])
+def cobranca_gerar_boleto(token):
+    ct = ContratoNeuraDesk.query.filter_by(token_assinatura=token).first_or_404()
+    lic = ct.licenca
+    mp = _mp_config()
+    if not mp['access_token']:
+        flash('Mercado Pago não configurado nesta instalação.', 'danger')
+        return redirect(url_for('cobranca_publica', token=token))
+
+    cpf_cnpj = ct.representante_cpf or ct.assinatura_cpf
+    if not cpf_cnpj:
+        flash('Não há CPF do responsável cadastrado para gerar o boleto. Entre em contato com o suporte.', 'danger')
+        return redirect(url_for('cobranca_publica', token=token))
+
+    # Boleto registrado exige endereço completo do pagador -- o formulário
+    # da página de cobrança pede isso na hora, e a gente salva no contrato
+    # pra não pedir de novo da próxima vez.
+    ct.endereco_cep    = request.form.get('endereco_cep', ct.endereco_cep or '').strip()
+    ct.endereco_rua    = request.form.get('endereco_rua', ct.endereco_rua or '').strip()
+    ct.endereco_numero = request.form.get('endereco_numero', ct.endereco_numero or '').strip()
+    ct.endereco_bairro = request.form.get('endereco_bairro', ct.endereco_bairro or '').strip()
+    ct.endereco_cidade = request.form.get('endereco_cidade', ct.endereco_cidade or '').strip()
+    ct.endereco_uf     = request.form.get('endereco_uf', ct.endereco_uf or '').strip().upper()
+    db.session.commit()
+
+    if not all([ct.endereco_cep, ct.endereco_rua, ct.endereco_numero, ct.endereco_bairro, ct.endereco_cidade, ct.endereco_uf]):
+        flash('Preencha o endereço completo (CEP, rua, número, bairro, cidade e UF) para gerar o boleto — é exigido pelo Mercado Pago.', 'warning')
+        return redirect(url_for('cobranca_publica', token=token))
+
+    endereco = {
+        'zip_code': ''.join(c for c in ct.endereco_cep if c.isdigit()),
+        'street_name': ct.endereco_rua,
+        'street_number': ct.endereco_numero,
+        'neighborhood': ct.endereco_bairro,
+        'city': ct.endereco_cidade,
+        'federal_unit': ct.endereco_uf,
+    }
+
+    dados, erro = mp_integracao.criar_pagamento_boleto(
+        mp['access_token'],
+        valor=ct.valor_total_mensal(),
+        descricao=f'Licença NeuraDesk — {lic.empresa_nome} — {ct.numero}',
+        external_reference=lic.chave,
+        email=ct.representante_email or f'{lic.chave.lower()}@neurabusiness.local',
+        nome=ct.representante_nome or ct.assinatura_nome or '',
+        cpf_cnpj=cpf_cnpj,
+        endereco=endereco,
+    )
+    if erro:
+        print(f'[COBRANCA] erro gerando boleto pra licença {lic.chave}: {erro}')
+        flash('Não consegui gerar o boleto agora. Tente novamente em instantes.', 'danger')
+        return redirect(url_for('cobranca_publica', token=token))
+
+    pag = PagamentoNeuraDesk(
+        licenca_id=lic.id,
+        tipo='boleto',
+        mp_payment_id=str(dados.get('id')),
+        status=dados.get('status') or 'pending',
+        valor=dados.get('transaction_amount') or ct.valor_total_mensal(),
+        linha_digitavel=(dados.get('barcode') or {}).get('content'),
+        boleto_url=(dados.get('transaction_details') or {}).get('external_resource_url'),
+    )
+    db.session.add(pag)
+    db.session.commit()
+    flash('Boleto gerado com sucesso.', 'success')
+    return redirect(url_for('cobranca_publica', token=token))
+
+
+@app.route('/cobranca/<token>/gerar-pix', methods=['POST'])
+def cobranca_gerar_pix(token):
+    ct = ContratoNeuraDesk.query.filter_by(token_assinatura=token).first_or_404()
+    lic = ct.licenca
+    mp = _mp_config()
+    if not mp['access_token']:
+        flash('Mercado Pago não configurado nesta instalação.', 'danger')
+        return redirect(url_for('cobranca_publica', token=token))
+
+    dados, erro = mp_integracao.criar_pagamento_pix(
+        mp['access_token'],
+        valor=ct.valor_total_mensal(),
+        descricao=f'Licença NeuraDesk — {lic.empresa_nome} — {ct.numero}',
+        external_reference=lic.chave,
+        email=ct.representante_email or f'{lic.chave.lower()}@neurabusiness.local',
+        nome=ct.representante_nome or ct.assinatura_nome or '',
+        cpf_cnpj=ct.representante_cpf or ct.assinatura_cpf or '',
+    )
+    if erro:
+        print(f'[COBRANCA] erro gerando pix pra licença {lic.chave}: {erro}')
+        flash('Não consegui gerar o Pix agora. Tente novamente em instantes.', 'danger')
+        return redirect(url_for('cobranca_publica', token=token))
+
+    poi = dados.get('point_of_interaction') or {}
+    tdata = poi.get('transaction_data') or {}
+    pag = PagamentoNeuraDesk(
+        licenca_id=lic.id,
+        tipo='pix',
+        mp_payment_id=str(dados.get('id')),
+        status=dados.get('status') or 'pending',
+        valor=dados.get('transaction_amount') or ct.valor_total_mensal(),
+        pix_qr_base64=tdata.get('qr_code_base64'),
+        pix_copia_cola=tdata.get('qr_code'),
+    )
+    db.session.add(pag)
+    db.session.commit()
+    flash('Pix gerado com sucesso.', 'success')
+    return redirect(url_for('cobranca_publica', token=token))
+
+
+@app.route('/cobranca/<token>/assinatura-automatica', methods=['POST'])
+def cobranca_assinatura_automatica(token):
+    """Cria a assinatura recorrente (preapproval) no Mercado Pago e
+    redireciona o cliente pro checkout hospedado do MP, onde ele cadastra
+    o cartão e autoriza a cobrança automática mensal."""
+    ct = ContratoNeuraDesk.query.filter_by(token_assinatura=token).first_or_404()
+    lic = ct.licenca
+    mp = _mp_config()
+    if not mp['access_token']:
+        flash('Mercado Pago não configurado nesta instalação.', 'danger')
+        return redirect(url_for('cobranca_publica', token=token))
+
+    if not ct.representante_email:
+        flash('Não há e-mail do responsável cadastrado para criar a assinatura automática. Entre em contato com o suporte.', 'danger')
+        return redirect(url_for('cobranca_publica', token=token))
+
+    dados, erro = mp_integracao.criar_preapproval(
+        mp['access_token'],
+        valor=ct.valor_total_mensal(),
+        descricao=f'Licença NeuraDesk — {lic.empresa_nome} — {ct.numero}',
+        external_reference=lic.chave,
+        payer_email=ct.representante_email,
+        back_url=url_for('cobranca_publica', token=token, _external=True),
+    )
+    if erro:
+        print(f'[COBRANCA] erro criando preapproval pra licença {lic.chave}: {erro}')
+        flash('Não consegui iniciar a assinatura automática agora. Tente novamente em instantes.', 'danger')
+        return redirect(url_for('cobranca_publica', token=token))
+
+    lic.mp_preapproval_id = str(dados.get('id'))
+    lic.mp_status = dados.get('status')
+    db.session.commit()
+
+    init_point = dados.get('init_point')
+    if not init_point:
+        flash('Assinatura criada, mas não recebi o link de checkout do Mercado Pago.', 'warning')
+        return redirect(url_for('cobranca_publica', token=token))
+    return redirect(init_point)
+
+
+@app.route('/cobranca/<token>/status')
+def cobranca_status(token):
+    """Endpoint leve pra polling via AJAX na página de cobrança -- confere
+    se algum boleto/pix pendente já foi aprovado, sem precisar recarregar
+    a página nem esperar o webhook do MP (que pode demorar alguns
+    segundos pra chegar)."""
+    ct = ContratoNeuraDesk.query.filter_by(token_assinatura=token).first_or_404()
+    mp = _mp_config()
+    pendentes = PagamentoNeuraDesk.query.filter_by(licenca_id=ct.licenca_id, status='pending').all()
+    if mp['access_token']:
+        for p in pendentes:
+            dados = mp_integracao.buscar_pagamento(p.mp_payment_id, mp['access_token'])
+            if not dados:
+                continue
+            novo_status = dados.get('status')
+            if novo_status == p.status:
+                continue
+            if novo_status == 'approved':
+                p.pago_em = datetime.now()
+                _renovar_licenca(ct.licenca, dias=mp['dias_renovacao'])
+            p.status = novo_status
+        db.session.commit()
+
+    todos = (PagamentoNeuraDesk.query.filter_by(licenca_id=ct.licenca_id)
+             .order_by(PagamentoNeuraDesk.criado_em.desc()).limit(10).all())
+    return jsonify({
+        'status_licenca': ct.licenca.status,
+        'vencimento': ct.licenca.data_vencimento.isoformat() if ct.licenca.data_vencimento else None,
+        'pagamentos': [{'id': p.id, 'tipo': p.tipo, 'status': p.status} for p in todos],
+    })
 
 
 @app.route('/admin/contratos-neuradesk/<int:id>/confirmar', methods=['POST'])
@@ -1972,6 +2214,14 @@ def _mp_processar_pagamento(payment_id, mp):
         return
 
     lic.mp_status = status
+
+    # Se esse pagamento veio da página de cobrança (boleto/Pix avulso),
+    # sincroniza o status na tabela de cobranças também.
+    pag = PagamentoNeuraDesk.query.filter_by(mp_payment_id=str(payment_id)).first()
+    if pag:
+        pag.status = status
+        if status == 'approved' and not pag.pago_em:
+            pag.pago_em = datetime.now()
 
     if status == 'approved':
         if lic.mp_ultimo_pagamento_id == str(payment_id):

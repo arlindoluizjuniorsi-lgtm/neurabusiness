@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cobrança — Licença NeuraDesk {{ licenca.chave }}</title>
+<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
+<link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{font-family:'Inter',sans-serif;}
+body{background:#f4f5f7;color:#1b1f27;min-height:100vh;}
+.header-bar{background:linear-gradient(135deg,#14161b,#201610);padding:20px 0;border-bottom:2px solid #EA640F;}
+.cp{max-width:860px;margin:0 auto;padding:0 20px;}
+.contrato-body{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:36px;margin:24px 0;box-shadow:0 2px 12px rgba(0,0,0,.06);}
+.contrato-body h2{font-family:'Space Grotesk',sans-serif;font-size:1.2rem;font-weight:800;color:#1b1f27;text-align:center;margin-bottom:4px;}
+.contrato-body .sub{text-align:center;color:#5b6472;font-size:.85rem;margin-bottom:20px;}
+.contrato-body h3{font-size:.86rem;font-weight:700;color:#EA640F;margin-top:20px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px;}
+.contrato-body p,.contrato-body li{font-size:.88rem;color:#334155;line-height:1.7;}
+.contrato-body table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.84rem;}
+.contrato-body table th{background:#fdf1e8;color:#9a3b0a;padding:7px 10px;text-align:left;font-weight:700;}
+.contrato-body table td{padding:7px 10px;border-bottom:1px solid #f1f5f9;}
+.partes{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;}
+.partes .p-role{font-size:.7rem;font-weight:700;color:#EA640F;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+.partes .p-box{background:#fafbfc;border:1px solid #eef0f3;border-radius:10px;padding:14px;font-size:.82rem;line-height:1.5;}
+.sign-box{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:2px solid #10B981;border-radius:14px;padding:24px;margin-top:20px;}
+.sign-box.pending-approval{background:linear-gradient(135deg,#fff7ed,#fdf1e8);border-color:#EA640F;}
+.btn-sign{background:linear-gradient(135deg,#10B981,#059669);color:#fff;border:none;border-radius:10px;font-weight:800;font-size:.95rem;padding:13px 32px;cursor:pointer;transition:all .3s;font-family:'Space Grotesk',sans-serif;}
+.btn-sign:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(16,185,129,.35);}
+.btn-outline-cobranca{background:#fff;color:#EA640F;border:2px solid #EA640F;border-radius:10px;font-weight:800;font-size:.9rem;padding:11px 26px;cursor:pointer;transition:all .3s;font-family:'Space Grotesk',sans-serif;}
+.btn-outline-cobranca:hover{background:#fdf1e8;}
+.alert{border:none;border-radius:10px;font-size:.85rem;margin-bottom:14px;padding:10px 14px;}
+.alert-success{background:rgba(16,185,129,.12);color:#065f46;border:1px solid rgba(16,185,129,.2);}
+.alert-warning{background:rgba(234,100,15,.1);color:#9a3b0a;border:1px solid rgba(234,100,15,.2);}
+.alert-danger{background:rgba(220,38,38,.1);color:#991b1b;border:1px solid rgba(220,38,38,.2);}
+.footer-bar{text-align:center;padding:16px 0;font-size:.7rem;color:#94a3b8;margin-top:20px;}
+.acao-card{background:#fafbfc;border:1px solid #eef0f3;border-radius:12px;padding:20px;text-align:center;height:100%;}
+.acao-card i{font-size:1.6rem;color:#EA640F;margin-bottom:10px;}
+.acao-card h4{font-family:'Space Grotesk',sans-serif;font-size:.95rem;font-weight:800;color:#1b1f27;margin-bottom:6px;}
+.acao-card p{font-size:.78rem;color:#64748b;margin-bottom:14px;}
+.badge-status{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.3px;}
+.badge-approved{background:rgba(16,185,129,.15);color:#059669;}
+.badge-pending{background:rgba(234,100,15,.15);color:#9a3b0a;}
+.badge-other{background:rgba(100,116,139,.15);color:#475569;}
+.pix-box{background:#fff;border:2px dashed #EA640F;border-radius:12px;padding:18px;margin-top:14px;text-align:center;}
+.copia-cola{word-break:break-all;font-size:.72rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-top:10px;color:#475569;}
+</style>
+</head>
+<body>
+<div class="header-bar">
+  <div class="cp d-flex align-items-center justify-content-between">
+    <div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;color:#EA640F;font-size:.95rem">NeuraDesk</div>
+      <div style="font-size:.64rem;color:rgba(255,255,255,.4)">Central de Cobrança</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:.72rem;color:rgba(255,255,255,.4)">LICENÇA</div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:800;color:#EA640F">{{ licenca.chave }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="cp">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat,msg in messages %}
+    <div class="alert alert-{{ cat }}" style="margin-top:16px"><i class="fas fa-info-circle me-2"></i>{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="contrato-body">
+    <h2>Cobrança da Licença NeuraDesk</h2>
+    <div class="sub">Contrato nº {{ contrato.numero }}</div>
+
+    <div class="partes">
+      <div>
+        <div class="p-role">Cliente</div>
+        <div class="p-box">
+          <b>{{ contrato.empresa_razao_social }}</b><br>
+          CNPJ: {{ licenca.empresa_cnpj or '—' }}<br>
+          Repr.: {{ contrato.representante_nome or contrato.assinatura_nome or '—' }}<br>
+          {% if contrato.representante_email %}{{ contrato.representante_email }}{% endif %}
+        </div>
+      </div>
+      <div>
+        <div class="p-role">Situação da licença</div>
+        <div class="p-box">
+          Status: <b>{{ licenca.status|capitalize }}</b><br>
+          Vencimento: <b>{{ licenca.data_vencimento.strftime('%d/%m/%Y') if licenca.data_vencimento else '—' }}</b><br>
+          Valor mensal: <b>R$ {{ '%.2f'|format(contrato.valor_total_mensal())|replace('.', ',') }}</b>
+        </div>
+      </div>
+    </div>
+
+    <h3>Detalhamento do valor mensal</h3>
+    <table>
+      <tr><th>Item</th><th>Valor</th></tr>
+      <tr><td>Plano base (até {{ contrato.usuarios_inclusos }} usuários)</td><td>R$ {{ '%.2f'|format(contrato.valor_base or 0)|replace('.', ',') }}</td></tr>
+      {% for m in contrato.get_modulos() %}
+      <tr><td>{{ m.nome }}</td><td>R$ {{ '%.2f'|format(m.valor)|replace('.', ',') }}</td></tr>
+      {% endfor %}
+      <tr><td><b>Total mensal</b></td><td><b>R$ {{ '%.2f'|format(contrato.valor_total_mensal())|replace('.', ',') }}</b></td></tr>
+    </table>
+    <p style="font-size:.78rem;color:#94a3b8">Vencimento contratual: todo dia {{ contrato.dia_vencimento }}. Usuário adicional: R$ {{ '%.2f'|format(contrato.valor_usuario_adicional or 0)|replace('.', ',') }}/mês.</p>
+  </div>
+
+  {% if not mp_configurado %}
+  <div class="sign-box pending-approval">
+    <i class="fas fa-triangle-exclamation" style="color:#EA640F;margin-bottom:6px"></i>
+    <div style="font-weight:800;color:#9a3b0a">Cobrança online indisponível no momento</div>
+    <p style="font-size:.82rem;color:#7a4a0a;margin-top:4px">Entre em contato com o suporte para efetuar o pagamento.</p>
+  </div>
+  {% else %}
+  <div class="contrato-body">
+    <h3 style="margin-top:0">Formas de pagamento</h3>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <div class="acao-card text-start">
+          <div class="text-center"><i class="fas fa-barcode"></i>
+          <h4>Boleto</h4>
+          <p>Vence em alguns dias úteis, sem cadastro de cartão.</p></div>
+          <form method="POST" action="{{ url_for('cobranca_gerar_boleto', token=contrato.token_assinatura) }}">
+            <p style="font-size:.72rem;color:#94a3b8;margin-bottom:6px">Endereço do responsável (exigido para emissão do boleto):</p>
+            <div class="row g-1 mb-1">
+              <div class="col-6"><input type="text" name="endereco_cep" class="form-control form-control-sm" placeholder="CEP" value="{{ contrato.endereco_cep or '' }}" required></div>
+              <div class="col-6"><input type="text" name="endereco_uf" class="form-control form-control-sm" placeholder="UF" maxlength="2" value="{{ contrato.endereco_uf or '' }}" required></div>
+            </div>
+            <input type="text" name="endereco_rua" class="form-control form-control-sm mb-1" placeholder="Rua" value="{{ contrato.endereco_rua or '' }}" required>
+            <div class="row g-1 mb-1">
+              <div class="col-4"><input type="text" name="endereco_numero" class="form-control form-control-sm" placeholder="Nº" value="{{ contrato.endereco_numero or '' }}" required></div>
+              <div class="col-8"><input type="text" name="endereco_bairro" class="form-control form-control-sm" placeholder="Bairro" value="{{ contrato.endereco_bairro or '' }}" required></div>
+            </div>
+            <input type="text" name="endereco_cidade" class="form-control form-control-sm mb-2" placeholder="Cidade" value="{{ contrato.endereco_cidade or '' }}" required>
+            <button type="submit" class="btn-outline-cobranca w-100">Gerar boleto</button>
+          </form>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="acao-card">
+          <i class="fas fa-qrcode"></i>
+          <h4>Pix</h4>
+          <p>Aprovação em poucos minutos, com QR Code.</p>
+          <form method="POST" action="{{ url_for('cobranca_gerar_pix', token=contrato.token_assinatura) }}">
+            <button type="submit" class="btn-outline-cobranca w-100">Gerar Pix</button>
+          </form>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="acao-card">
+          <i class="fas fa-rotate"></i>
+          <h4>Assinatura automática</h4>
+          <p>Cadastre um cartão e nunca mais se preocupe com o vencimento.</p>
+          <form method="POST" action="{{ url_for('cobranca_assinatura_automatica', token=contrato.token_assinatura) }}">
+            <button type="submit" class="btn-outline-cobranca w-100">Ativar cobrança automática</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {% set ultimo_boleto = (pagamentos|selectattr('tipo','equalto','boleto')|list|first) %}
+    {% set ultimo_pix = (pagamentos|selectattr('tipo','equalto','pix')|list|first) %}
+
+    {% if ultimo_boleto and ultimo_boleto.status == 'pending' %}
+    <div class="pix-box">
+      <div style="font-weight:800;color:#9a3b0a"><i class="fas fa-barcode me-2"></i>Boleto gerado</div>
+      {% if ultimo_boleto.boleto_url %}
+      <a href="{{ ultimo_boleto.boleto_url }}" target="_blank" class="btn-sign" style="text-decoration:none;display:inline-block;margin-top:10px;">
+        <i class="fas fa-file-pdf me-2"></i>Abrir boleto (PDF)
+      </a>
+      {% endif %}
+      {% if ultimo_boleto.linha_digitavel %}
+      <div class="copia-cola">{{ ultimo_boleto.linha_digitavel }}</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if ultimo_pix and ultimo_pix.status == 'pending' %}
+    <div class="pix-box">
+      <div style="font-weight:800;color:#9a3b0a"><i class="fas fa-qrcode me-2"></i>Pix gerado</div>
+      {% if ultimo_pix.pix_qr_base64 %}
+      <img src="data:image/png;base64,{{ ultimo_pix.pix_qr_base64 }}" alt="QR Code Pix" style="width:220px;height:220px;margin-top:10px">
+      {% endif %}
+      {% if ultimo_pix.pix_copia_cola %}
+      <p style="font-size:.75rem;color:#7a4a0a;margin-top:8px;margin-bottom:0">Pix copia e cola:</p>
+      <div class="copia-cola" id="pix-copia-cola">{{ ultimo_pix.pix_copia_cola }}</div>
+      <button type="button" class="btn-outline-cobranca mt-2" onclick="copiarPix()"><i class="fas fa-copy me-1"></i>Copiar código</button>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if pagamentos %}
+  <div class="contrato-body">
+    <h3 style="margin-top:0">Histórico de cobranças</h3>
+    <table>
+      <tr><th>Data</th><th>Tipo</th><th>Valor</th><th>Status</th></tr>
+      {% for p in pagamentos %}
+      <tr>
+        <td>{{ p.criado_em.strftime('%d/%m/%Y %H:%M') if p.criado_em else '—' }}</td>
+        <td>{{ p.tipo|capitalize }}</td>
+        <td>R$ {{ '%.2f'|format(p.valor or 0)|replace('.', ',') }}</td>
+        <td>
+          {% if p.status == 'approved' %}<span class="badge-status badge-approved">Aprovado</span>
+          {% elif p.status == 'pending' %}<span class="badge-status badge-pending">Pendente</span>
+          {% else %}<span class="badge-status badge-other">{{ p.status }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="footer-bar">NeuraWorks • Documento gerado por NeuraBusiness</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function copiarPix(){
+  var el = document.getElementById('pix-copia-cola');
+  navigator.clipboard.writeText(el.textContent.trim());
+}
+</script>
+</body>
+</html>

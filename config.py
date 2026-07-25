@@ -45,6 +45,16 @@ class Config:
     # (tela /admin/integracoes) -- ex: token do Mercado Pago.
     INTEGRACOES_FERNET_KEY = _env('INTEGRACOES_FERNET_KEY', '')
 
+    # SMTP pra envio de e-mails automáticos (ex: link de cobrança ao
+    # cliente após assinar o contrato de licenciamento). Opcional --
+    # enquanto MAIL_SERVER não estiver definido, o envio é ignorado
+    # silenciosamente (só loga no console).
+    MAIL_SERVER   = _env('MAIL_SERVER', '')
+    MAIL_PORT     = int(_env('MAIL_PORT', '587') or 587)
+    MAIL_USER     = _env('MAIL_USER', '')
+    MAIL_PASSWORD = _env('MAIL_PASSWORD', '')
+    MAIL_FROM     = _env('MAIL_FROM', '')
+
     # Dados da CONTRATADA nos contratos de licenciamento do NeuraDesk
     # (não são segredo -- vão impressos no PDF do contrato -- mas ficam
     # no .env em vez de hardcoded no código-fonte).

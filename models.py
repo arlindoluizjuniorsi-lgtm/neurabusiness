@@ -343,6 +343,17 @@ class ContratoNeuraDesk(db.Model):
     empresa_endereco     = db.Column(db.Text)
     representante_nome   = db.Column(db.String(150))
     representante_cpf    = db.Column(db.String(20))
+    representante_email  = db.Column(db.String(150))
+
+    # Endereço estruturado do responsável -- exigido pela API do Mercado
+    # Pago pra emitir boleto registrado (payer.address). O empresa_endereco
+    # acima é só texto livre pro contrato em si, não serve pra API.
+    endereco_cep       = db.Column(db.String(10))
+    endereco_rua       = db.Column(db.String(150))
+    endereco_numero    = db.Column(db.String(20))
+    endereco_bairro    = db.Column(db.String(100))
+    endereco_cidade    = db.Column(db.String(100))
+    endereco_uf        = db.Column(db.String(2))
 
     # Condicoes comerciais "congeladas" no momento da geracao -- mesmo
     # que o plano padrao mude depois, o que foi assinado fica registrado
@@ -385,9 +396,39 @@ class ContratoNeuraDesk(db.Model):
     def set_modulos(self, lista):
         self.modulos_json = json.dumps(lista, ensure_ascii=False)
 
+    def valor_total_mensal(self):
+        return (self.valor_base or 0) + sum(m.get('valor', 0) for m in self.get_modulos())
+
     @staticmethod
     def gerar_numero():
         return f"NDK-CT-{datetime.now().strftime('%Y%m')}-{secrets.token_hex(2).upper()}"
+
+
+class PagamentoNeuraDesk(db.Model):
+    """Cobranças avulsas (boleto/Pix) geradas pela página pública de
+    cobrança, uma por tentativa. Não confundir com a assinatura recorrente
+    (mp_preapproval_id em LicencaNeuraDesk) -- isso aqui é o mecanismo
+    manual, o cliente clica e gera quando quiser pagar daquele jeito."""
+    __tablename__ = 'pagamentos_neuradesk'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    licenca_id = db.Column(db.Integer, db.ForeignKey('licencas_neuradesk.id'), nullable=False)
+
+    tipo          = db.Column(db.String(10), nullable=False)  # boleto, pix
+    mp_payment_id = db.Column(db.String(50))
+    status        = db.Column(db.String(20), default='pending')  # pending, approved, cancelled, expired, rejected
+    valor         = db.Column(db.Float, default=0)
+
+    linha_digitavel = db.Column(db.String(80))
+    boleto_url      = db.Column(db.String(500))
+    pix_qr_base64   = db.Column(db.Text)
+    pix_copia_cola  = db.Column(db.Text)
+
+    criado_em = db.Column(db.DateTime, default=datetime.now)
+    expira_em = db.Column(db.DateTime)
+    pago_em   = db.Column(db.DateTime)
+
+    licenca = db.relationship('LicencaNeuraDesk', backref='pagamentos')
 
 
 def _fernet_integracoes():

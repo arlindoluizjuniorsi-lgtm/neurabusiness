@@ -18,6 +18,7 @@ notificações não autenticadas.
 """
 import hmac
 import hashlib
+import uuid
 import requests
 
 MP_API_BASE = 'https://api.mercadopago.com'
@@ -70,3 +71,127 @@ def buscar_preapproval(preapproval_id, access_token, timeout=15):
     if r.status_code != 200:
         return None
     return r.json()
+
+
+def _payer_nome(nome_completo):
+    """MP exige first_name/last_name separados -- o cadastro do
+    NeuraBusiness só tem o nome completo do representante, então
+    quebramos na primeira palavra."""
+    partes = (nome_completo or '').strip().split(' ', 1)
+    first = partes[0] if partes else ''
+    last = partes[1] if len(partes) > 1 else first
+    return first, last
+
+
+def _payer_identification(cpf_ou_cnpj):
+    doc = ''.join(c for c in (cpf_ou_cnpj or '') if c.isdigit())
+    tipo = 'CNPJ' if len(doc) > 11 else 'CPF'
+    return {'type': tipo, 'number': doc}
+
+
+def criar_pagamento_boleto(access_token, valor, descricao, external_reference,
+                            email, nome, cpf_cnpj, endereco=None, timeout=20):
+    """Gera um boleto (bolbradesco) via API de Pagamentos do MP. Retorna o
+    JSON completo da resposta (contém transaction_details.external_resource_url
+    com o link do PDF do boleto e barcode.content com a linha digitável).
+
+    `endereco` é obrigatório pra boleto registrado -- dict com
+    zip_code/street_name/street_number/neighborhood/city/federal_unit."""
+    first, last = _payer_nome(nome)
+    payer = {
+        'email': email,
+        'first_name': first,
+        'last_name': last,
+        'identification': _payer_identification(cpf_cnpj),
+    }
+    if endereco:
+        payer['address'] = endereco
+    body = {
+        'transaction_amount': round(float(valor), 2),
+        'description': descricao,
+        'payment_method_id': 'bolbradesco',
+        'external_reference': external_reference,
+        'payer': payer,
+    }
+    r = requests.post(
+        f'{MP_API_BASE}/v1/payments',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+            'X-Idempotency-Key': str(uuid.uuid4()),
+        },
+        json=body,
+        timeout=timeout,
+    )
+    dados = r.json() if r.content else {}
+    if r.status_code not in (200, 201):
+        return None, dados
+    return dados, None
+
+
+def criar_pagamento_pix(access_token, valor, descricao, external_reference,
+                         email, nome, cpf_cnpj, timeout=20):
+    """Gera uma cobrança Pix via API de Pagamentos do MP. Retorna o JSON
+    completo (contém point_of_interaction.transaction_data.qr_code_base64
+    e .qr_code, o "copia e cola")."""
+    first, last = _payer_nome(nome)
+    body = {
+        'transaction_amount': round(float(valor), 2),
+        'description': descricao,
+        'payment_method_id': 'pix',
+        'external_reference': external_reference,
+        'payer': {
+            'email': email,
+            'first_name': first,
+            'last_name': last,
+            'identification': _payer_identification(cpf_cnpj),
+        },
+    }
+    r = requests.post(
+        f'{MP_API_BASE}/v1/payments',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+            'X-Idempotency-Key': str(uuid.uuid4()),
+        },
+        json=body,
+        timeout=timeout,
+    )
+    dados = r.json() if r.content else {}
+    if r.status_code not in (200, 201):
+        return None, dados
+    return dados, None
+
+
+def criar_preapproval(access_token, valor, descricao, external_reference,
+                       payer_email, back_url, frequencia=1, timeout=20):
+    """Cria uma assinatura recorrente (preapproval) ad-hoc -- sem plano
+    pré-cadastrado -- e retorna o JSON com 'init_point', a URL do checkout
+    hospedado pelo MP onde o cliente informa o cartão e autoriza a
+    cobrança automática mensal."""
+    body = {
+        'reason': descricao,
+        'external_reference': external_reference,
+        'payer_email': payer_email,
+        'back_url': back_url,
+        'status': 'pending',
+        'auto_recurring': {
+            'frequency': frequencia,
+            'frequency_type': 'months',
+            'transaction_amount': round(float(valor), 2),
+            'currency_id': 'BRL',
+        },
+    }
+    r = requests.post(
+        f'{MP_API_BASE}/preapproval',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+        },
+        json=body,
+        timeout=timeout,
+    )
+    dados = r.json() if r.content else {}
+    if r.status_code not in (200, 201):
+        return None, dados
+    return dados, None
