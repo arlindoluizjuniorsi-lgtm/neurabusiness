@@ -7,12 +7,11 @@ from app import app, db
 from models import Empresa, Cliente, Servico, Produto, Proposta, ItemProposta, EtapaProposta
 import uuid, io, difflib, asyncio
 from datetime import datetime, timedelta
-from ia_audio import interpretar_audio_proposta
-from ia_chat import responder_pergunta
+from ia_unificada import interpretar_mensagem
 
 (MENU,CLIENTE,NC_NOME,NC_TEL,SERVICO,PRODUTO,QTD,PRECO,MAIS,
  PERGUNTA_ETAPAS,ETAPA_TITULO,ETAPA_DIAS,VALIDADE,PAGAMENTO,CONFIRMAR,
- IA_AGUARDA,IA_CORRECAO,IA_CONFIRMAR,IA_TEL,IA_CADASTRAR_CLIENTE,CHAT_IA)=range(21)
+ IA_AGUARDA,IA_CORRECAO,IA_CONFIRMAR,IA_TEL,IA_CADASTRAR_CLIENTE)=range(20)
 
 def get_emp():
     with app.app_context():
@@ -61,7 +60,7 @@ async def start(u:Update,c:ContextTypes.DEFAULT_TYPE):
     await u.message.reply_text(
         f"👋 Olá *{u.effective_user.first_name}*!\n\nComo deseja criar a proposta?",
         parse_mode='Markdown',
-        reply_markup=kb(["📋 Nova Proposta Manual","🎤 Nova Proposta IA","🤖 Perguntar algo (IA)","❌ Cancelar"],1))
+        reply_markup=kb(["📋 Nova Proposta Manual","🎤 Falar com a IA","❌ Cancelar"],1))
     return MENU
 
 async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
@@ -69,56 +68,19 @@ async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
     if "Manual" in txt:
         c.user_data['itens']=[];c.user_data['etapas']=[]
         return await listar_clientes(u,c)
-    if "Perguntar" in txt:
-        return await chat_ia_start(u,c)
     if "IA" in txt:
         c.user_data['itens']=[];c.user_data['etapas']=[]
         c.user_data['cliente']=None
         c.user_data['tentativas_cliente']=0
         await u.message.reply_text(
-            "🎤 *Manda um áudio explicando a proposta.*\n\n"
-            "Exemplo: _\"Proposta pra Câmara de Mataraca, câmera VIP 1220 quantidade 6, "
-            "serviço de instalação de CFTV, pagamento pix, validade 15 dias\"_",
+            "🎤🤖 *Manda um áudio ou uma mensagem de texto.*\n\n"
+            "Pode ser um pedido de proposta — _\"Proposta pra Câmara de Mataraca, câmera VIP 1220 "
+            "quantidade 6, serviço de instalação de CFTV, pagamento pix, validade 15 dias\"_ — "
+            "ou uma pergunta qualquer, tipo um cálculo ou dúvida sobre seus serviços.",
             parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
         return IA_AGUARDA
     await u.message.reply_text("Cancelado.",reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
-
-# ══════════════════════ CHAT LIVRE COM IA (Gemini) ══════════════════════
-async def chat_ia_start(u:Update,c:ContextTypes.DEFAULT_TYPE):
-    await u.message.reply_text(
-        "🤖 *Pergunte o que quiser* — cálculos, dúvidas sobre seus serviços/produtos, etc.\n"
-        "Pode mandar texto ou áudio. Digite *voltar* para sair.",
-        parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-    return CHAT_IA
-
-async def chat_ia(u:Update,c:ContextTypes.DEFAULT_TYPE):
-    if u.message.text:
-        txt = u.message.text.strip().lower().rstrip('.!?')
-        if txt in ('voltar','sair','menu'):
-            return await start(u,c)
-
-    pergunta_texto=None;audio_bytes=None;mime_type=None
-    if u.message.voice or u.message.audio:
-        voice = u.message.voice or u.message.audio
-        tg_file = await c.bot.get_file(voice.file_id)
-        audio_bytes = bytes(await tg_file.download_as_bytearray())
-        mime_type = 'audio/ogg'
-        await u.message.reply_text("🎧 Pensando...")
-    else:
-        pergunta_texto = u.message.text
-        await u.message.reply_text("🤔 Pensando...")
-
-    _, servicos_opts, produtos_opts = carregar_catalogo()
-    contexto = "Serviços:\n"+"\n".join(f"- {s['nome']} ({fmt(s['preco'])})" for s in servicos_opts)
-    contexto += "\n\nProdutos:\n"+"\n".join(f"- {p['nome']} ({fmt(p['preco'])})" for p in produtos_opts)
-
-    resposta = await asyncio.to_thread(responder_pergunta, pergunta_texto, audio_bytes, mime_type, contexto)
-    if not resposta:
-        await u.message.reply_text("❌ Não consegui responder agora. Tente de novo, ou digite *voltar*.", parse_mode='Markdown')
-    else:
-        await u.message.reply_text(resposta)
-    return CHAT_IA
 
 # ══════════════════════ FLUXO MANUAL (clientes/servicos/produtos) ══════════════════════
 async def listar_clientes(u:Update,c:ContextTypes.DEFAULT_TYPE):
@@ -335,30 +297,47 @@ async def confirmar(u:Update,c:ContextTypes.DEFAULT_TYPE):
 async def cancelar(u:Update,c:ContextTypes.DEFAULT_TYPE):
     c.user_data.clear();await u.message.reply_text("❌ Cancelado.",reply_markup=ReplyKeyboardRemove());return ConversationHandler.END
 
-# ══════════════════════ FLUXO POR ÁUDIO (IA) ══════════════════════
-async def processar_audio(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=True):
-    """Baixa e interpreta o audio, faz o match, e decide o proximo passo."""
-    voice = u.message.voice or u.message.audio
-    tg_file = await c.bot.get_file(voice.file_id)
-    audio_bytes = await tg_file.download_as_bytearray()
+# ══════════════════════ FLUXO UNIFICADO POR ÁUDIO/TEXTO (IA) ══════════════════════
+async def processar_mensagem(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=True):
+    """Baixa/le a mensagem (audio ou texto), manda pra IA classificar como
+    proposta ou pergunta solta, e age de acordo: responde na hora se for
+    pergunta, ou faz o match de cliente/itens e decide o proximo passo
+    se for proposta."""
+    texto_msg = None
+    audio_bytes = None
+    mime_type = None
+    if u.message.voice or u.message.audio:
+        voice = u.message.voice or u.message.audio
+        tg_file = await c.bot.get_file(voice.file_id)
+        audio_bytes = bytes(await tg_file.download_as_bytearray())
+        mime_type = 'audio/ogg'
+    else:
+        texto_msg = u.message.text
 
     clientes_opts, servicos_opts, produtos_opts = carregar_catalogo()
     todos_itens_opts = servicos_opts + produtos_opts
 
     resultado = await asyncio.to_thread(
-        interpretar_audio_proposta,
-        bytes(audio_bytes), 'audio/ogg',
+        interpretar_mensagem,
+        texto_msg, audio_bytes, mime_type,
         [x['nome'] for x in clientes_opts],
         [x['nome'] for x in servicos_opts],
         [x['nome'] for x in produtos_opts]
     )
 
+    estado_atual = IA_AGUARDA if primeiro else IA_CORRECAO
+
     if not resultado:
         await u.message.reply_text(
-            "❌ Não consegui interpretar o áudio. Grave novamente, com calma e um pouco mais alto.",
+            "❌ Não consegui interpretar isso. Tente de novo, com calma.",
             parse_mode='Markdown')
-        return IA_AGUARDA if primeiro else IA_CORRECAO
+        return estado_atual
 
+    if resultado.get('tipo') == 'pergunta':
+        await u.message.reply_text(resultado.get('resposta') or "Não entendi a pergunta, pode repetir?")
+        return estado_atual
+
+    # ── tipo == proposta ──
     # ── CLIENTE ──
     if not c.user_data.get('cliente'):
         cliente_falado = resultado.get('cliente', '') or ''
@@ -416,7 +395,7 @@ async def processar_audio(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=True):
         for nome in itens_nao_encontrados:
             msg += f"  • {nome}\n"
 
-    msg += "\n🎙️ *Grave um novo áudio* corrigindo ou completando as informações que faltam."
+    msg += "\n🎙️ *Grave um novo áudio ou mande uma mensagem* corrigindo ou completando as informações que faltam."
     if not cliente_ok and c.user_data.get('tentativas_cliente', 0) >= 2:
         msg += "\n\nOu digite *cadastrar* para criar o cliente com o nome que você falou."
     msg += "\nOu digite *manual* para continuar preenchendo na mão."
@@ -425,26 +404,18 @@ async def processar_audio(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=True):
     return IA_CORRECAO
 
 async def ia_aguarda(u:Update, c:ContextTypes.DEFAULT_TYPE):
-    if not (u.message.voice or u.message.audio):
-        await u.message.reply_text("🎤 Preciso que você *grave um áudio*. Digite *manual* para preencher na mão.", parse_mode='Markdown')
-        return IA_AGUARDA
-    await u.message.reply_text("🎧 Processando áudio...")
+    txt = (u.message.text or '').strip().lower().rstrip('.!?') if u.message.text else ''
+    if txt == 'manual':
+        return await listar_clientes(u, c)
+    await u.message.reply_text("🎧 Processando áudio..." if (u.message.voice or u.message.audio) else "🤔 Processando...")
     try:
-        return await processar_audio(u, c, primeiro=True)
+        return await processar_mensagem(u, c, primeiro=True)
     except Exception as e:
-        await u.message.reply_text(f"❌ Erro ao processar áudio: {e}\n\nTente gravar novamente ou digite *manual*.", parse_mode='Markdown')
+        await u.message.reply_text(f"❌ Erro ao processar: {e}\n\nTente novamente ou digite *manual*.", parse_mode='Markdown')
         return IA_AGUARDA
 
 async def ia_correcao(u:Update, c:ContextTypes.DEFAULT_TYPE):
-    if u.message.voice or u.message.audio:
-        await u.message.reply_text("🎧 Processando novo áudio...")
-        try:
-            return await processar_audio(u, c, primeiro=False)
-        except Exception as e:
-            await u.message.reply_text(f"❌ Erro ao processar áudio: {e}\n\nTente novamente ou digite *manual*.", parse_mode='Markdown')
-            return IA_CORRECAO
-
-    txt = (u.message.text or '').strip().lower().rstrip('.!?')
+    txt = (u.message.text or '').strip().lower().rstrip('.!?') if u.message.text else ''
     if 'manual' in txt:
         # Se ja tem cliente, pula pra servicos; senao lista clientes
         if c.user_data.get('cliente'):
@@ -455,8 +426,12 @@ async def ia_correcao(u:Update, c:ContextTypes.DEFAULT_TYPE):
         await u.message.reply_text(f"📱 WhatsApp do cliente *{c.user_data['cliente_falado_novo']}*:", parse_mode='Markdown')
         return IA_TEL
 
-    await u.message.reply_text("🎤 Grave um novo áudio, ou digite *manual* / *cadastrar*.", parse_mode='Markdown')
-    return IA_CORRECAO
+    await u.message.reply_text("🎧 Processando áudio..." if (u.message.voice or u.message.audio) else "🤔 Processando...")
+    try:
+        return await processar_mensagem(u, c, primeiro=False)
+    except Exception as e:
+        await u.message.reply_text(f"❌ Erro ao processar: {e}\n\nTente novamente ou digite *manual*.", parse_mode='Markdown')
+        return IA_CORRECAO
 
 async def ia_tel(u:Update, c:ContextTypes.DEFAULT_TYPE):
     with app.app_context():
@@ -547,7 +522,6 @@ def main():
             IA_CORRECAO:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT,ia_correcao)],
             IA_CONFIRMAR:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_confirmar)],
             IA_TEL:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_tel)],
-            CHAT_IA:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT,chat_ia)],
         },
         fallbacks=[CommandHandler('cancelar',cancelar)],allow_reentry=True)
     app_bot.add_handler(conv)
