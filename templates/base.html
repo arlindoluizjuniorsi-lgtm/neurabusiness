@@ -120,6 +120,7 @@ body{background:var(--nb-bg);color:var(--nb-text);padding-top:58px;min-height:10
           {% endif %}
           {% if current_user and current_user.is_super_admin %}
           <li><a class="dropdown-item" href="{{ url_for('listar_licencas_neuradesk') }}"><i class="fas fa-key me-2" style="color:#f97316"></i>Licenças NeuraDesk</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin_integracoes') }}"><i class="fas fa-plug me-2" style="color:#f97316"></i>Integrações</a></li>
           {% endif %}
           {% if session.is_admin %}
           <li><hr class="dropdown-divider" style="border-color:var(--nb-border)"></li>

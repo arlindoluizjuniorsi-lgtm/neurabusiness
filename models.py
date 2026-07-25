@@ -320,3 +320,48 @@ class LicencaNeuraDesk(db.Model):
     def gerar_chave():
         grupos = [secrets.token_hex(2).upper() for _ in range(4)]
         return 'NRDK-' + '-'.join(grupos)
+
+
+def _fernet_integracoes():
+    """Instância Fernet usada para cifrar/decifrar valores de integrações
+    (tokens de API etc) em repouso. A chave vem só do .env -- nunca do
+    código. O NeuraBusiness não usa python-dotenv (config.py lê o .env
+    direto do arquivo), então usamos a mesma função aqui."""
+    from cryptography.fernet import Fernet
+    from config import Config
+    chave = Config.INTEGRACOES_FERNET_KEY
+    if not chave:
+        raise RuntimeError(
+            "INTEGRACOES_FERNET_KEY não definida. Gere uma com: "
+            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\" "
+            "e defina no .env antes de salvar integrações pela tela de admin."
+        )
+    return Fernet(chave.encode())
+
+
+class Integracao(db.Model):
+    """Configurações de integração com serviços externos (Mercado Pago,
+    etc), editáveis pelo admin sem precisar mexer no servidor. Valor
+    fica cifrado em repouso (Fernet) -- nunca em texto puro no banco."""
+    __tablename__ = 'integracoes'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    chave         = db.Column(db.String(50), unique=True, nullable=False)
+    valor_cifrado = db.Column(db.Text)
+    atualizado_em = db.Column(db.DateTime, default=datetime.now)
+
+    def set_valor(self, valor_plano):
+        self.valor_cifrado = _fernet_integracoes().encrypt(valor_plano.encode()).decode() if valor_plano else None
+        self.atualizado_em = datetime.now()
+
+    def get_valor(self):
+        if not self.valor_cifrado:
+            return ''
+        return _fernet_integracoes().decrypt(self.valor_cifrado.encode()).decode()
+
+    @staticmethod
+    def obter(chave, default=''):
+        reg = Integracao.query.filter_by(chave=chave).first()
+        if not reg:
+            return default
+        return reg.get_valor() or default

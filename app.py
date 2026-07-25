@@ -12,7 +12,7 @@ import mp_integracao
 from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CatalogoServico, MaterialInfra, Cliente, Proposta,
                     ItemProposta, OrdemServico, ProjetoAnexo, Contrato, OsAssinatura,
-                    LicencaNeuraDesk)
+                    LicencaNeuraDesk, Integracao)
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -1702,6 +1702,48 @@ def vincular_mp_licenca_neuradesk(id):
     return redirect(url_for('detalhe_licenca_neuradesk', id=id))
 
 
+@app.route('/admin/integracoes', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def admin_integracoes():
+    """Tela pra configurar tokens de integrações externas (hoje: Mercado
+    Pago) sem precisar editar .env no servidor. Valores ficam cifrados
+    no banco -- o formulário nunca mostra o valor salvo de volta, só se
+    já tem algo configurado ou não."""
+    campos = ['MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET']
+
+    if request.method == 'POST':
+        for chave in campos:
+            valor = request.form.get(chave, '').strip()
+            if not valor:
+                continue  # em branco = mantem o que ja estava salvo
+            reg = Integracao.query.filter_by(chave=chave).first()
+            if not reg:
+                reg = Integracao(chave=chave)
+                db.session.add(reg)
+            reg.set_valor(valor)
+        db.session.commit()
+        flash('Integrações atualizadas.', 'success')
+        return redirect(url_for('admin_integracoes'))
+
+    status = {}
+    for chave in campos:
+        reg = Integracao.query.filter_by(chave=chave).first()
+        status[chave] = bool(reg and reg.valor_cifrado)
+    return render_template('admin_integracoes.html', status=status)
+
+
+def _mp_config():
+    """Config do Mercado Pago: primeiro tenta a tela de admin
+    (/admin/integracoes, guardada cifrada no banco), senão cai pro .env
+    -- assim dá pra configurar sem precisar de acesso ao servidor."""
+    return {
+        'access_token':   Integracao.obter('MP_ACCESS_TOKEN', Config.MP_ACCESS_TOKEN),
+        'webhook_secret': Integracao.obter('MP_WEBHOOK_SECRET', Config.MP_WEBHOOK_SECRET),
+        'dias_renovacao': Config.MP_DIAS_RENOVACAO,
+    }
+
+
 @app.route('/webhook/mercadopago', methods=['POST', 'GET'])
 def webhook_mercadopago():
     """Recebe as notificações do Mercado Pago (pagamento aprovado de uma
@@ -1717,10 +1759,11 @@ def webhook_mercadopago():
     não confere, ou a integração não está configurada) -- se devolvermos
     erro por um bug nosso, o MP fica reenviando a mesma notificação sem
     parar. Erros de processamento são só logados, pra revisão manual."""
-    if not Config.MP_ACCESS_TOKEN or not Config.MP_WEBHOOK_SECRET:
+    mp = _mp_config()
+    if not mp['access_token'] or not mp['webhook_secret']:
         return jsonify({'ok': False, 'erro': 'Mercado Pago não configurado nesta instalação'}), 503
 
-    if not mp_integracao.validar_assinatura(request.headers, request.args, Config.MP_WEBHOOK_SECRET):
+    if not mp_integracao.validar_assinatura(request.headers, request.args, mp['webhook_secret']):
         print('[MP-WEBHOOK] assinatura inválida -- notificação recusada')
         return jsonify({'ok': False, 'erro': 'assinatura inválida'}), 401
 
@@ -1733,17 +1776,17 @@ def webhook_mercadopago():
 
     try:
         if tipo == 'payment':
-            _mp_processar_pagamento(data_id)
+            _mp_processar_pagamento(data_id, mp)
         elif tipo in ('preapproval', 'subscription_preapproval'):
-            _mp_processar_preapproval(data_id)
+            _mp_processar_preapproval(data_id, mp)
     except Exception as e:
         print(f'[MP-WEBHOOK] erro processando {tipo} {data_id}: {e}')
 
     return jsonify({'ok': True}), 200
 
 
-def _mp_processar_pagamento(payment_id):
-    pagamento = mp_integracao.buscar_pagamento(payment_id, Config.MP_ACCESS_TOKEN)
+def _mp_processar_pagamento(payment_id, mp):
+    pagamento = mp_integracao.buscar_pagamento(payment_id, mp['access_token'])
     if not pagamento:
         print(f'[MP-WEBHOOK] não consegui buscar o pagamento {payment_id} na API do MP')
         return
@@ -1763,14 +1806,14 @@ def _mp_processar_pagamento(payment_id):
             # quando não recebe 200 a tempo. Não renova de novo.
             db.session.commit()
             return
-        _renovar_licenca(lic, dias=Config.MP_DIAS_RENOVACAO)
+        _renovar_licenca(lic, dias=mp['dias_renovacao'])
         lic.mp_ultimo_pagamento_id = str(payment_id)
 
     db.session.commit()
 
 
-def _mp_processar_preapproval(preapproval_id):
-    preapproval = mp_integracao.buscar_preapproval(preapproval_id, Config.MP_ACCESS_TOKEN)
+def _mp_processar_preapproval(preapproval_id, mp):
+    preapproval = mp_integracao.buscar_preapproval(preapproval_id, mp['access_token'])
     if not preapproval:
         print(f'[MP-WEBHOOK] não consegui buscar o preapproval {preapproval_id} na API do MP')
         return

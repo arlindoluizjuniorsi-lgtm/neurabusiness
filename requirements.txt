@@ -8,3 +8,4 @@ waitress
 python-dotenv
 pillow
 requests
+cryptography

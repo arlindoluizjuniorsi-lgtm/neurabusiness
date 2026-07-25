@@ -41,6 +41,10 @@ class Config:
     MP_WEBHOOK_SECRET = _env('MP_WEBHOOK_SECRET', '')
     MP_DIAS_RENOVACAO = int(_env('MP_DIAS_RENOVACAO', '30') or 30)
 
+    # Chave usada pra cifrar tokens de integrações guardados no banco
+    # (tela /admin/integracoes) -- ex: token do Mercado Pago.
+    INTEGRACOES_FERNET_KEY = _env('INTEGRACOES_FERNET_KEY', '')
+
     @classmethod
     def get_db_uri(cls):
         if cls.DB_TYPE == 'postgresql':

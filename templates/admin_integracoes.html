@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Integrações — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fas fa-plug me-2" style="color:var(--nb-accent)"></i>Integrações</h1>
+  <p>Tokens de serviços externos, guardados cifrados no banco.</p>
+</div>
+
+<div class="row">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-1">Mercado Pago</h6>
+        <p class="text-muted" style="font-size:.85rem;">
+          Usado pra renovar automaticamente as licenças do NeuraDesk quando o
+          pagamento de uma assinatura é aprovado. Depois de salvar, cadastre a
+          URL de notificação no painel do Mercado Pago:
+          <code>https://SEU_DOMINIO/webhook/mercadopago</code>
+        </p>
+
+        <form method="POST">
+          <div class="mb-3">
+            <label class="form-label mb-1">Access Token</label>
+            <input type="password" name="MP_ACCESS_TOKEN" class="form-control" autocomplete="new-password"
+                   placeholder="{{ 'já configurado — deixe em branco pra manter' if status.MP_ACCESS_TOKEN else 'Cole o Access Token da aplicação' }}">
+            <small class="text-muted">
+              {% if status.MP_ACCESS_TOKEN %}<i class="fas fa-check-circle text-success"></i> configurado{% else %}<i class="fas fa-circle text-muted"></i> não configurado{% endif %}
+            </small>
+          </div>
+          <div class="mb-3">
+            <label class="form-label mb-1">Webhook Secret</label>
+            <input type="password" name="MP_WEBHOOK_SECRET" class="form-control" autocomplete="new-password"
+                   placeholder="{{ 'já configurado — deixe em branco pra manter' if status.MP_WEBHOOK_SECRET else 'Chave secreta do webhook (painel MP)' }}">
+            <small class="text-muted">
+              {% if status.MP_WEBHOOK_SECRET %}<i class="fas fa-check-circle text-success"></i> configurado{% else %}<i class="fas fa-circle text-muted"></i> não configurado{% endif %}
+            </small>
+          </div>
+          <button type="submit" class="btn btn-accent"><i class="fas fa-save me-1"></i>Salvar</button>
+        </form>
+
+        {% if status.MP_ACCESS_TOKEN and status.MP_WEBHOOK_SECRET %}
+        <hr>
+        <p class="text-success mb-0" style="font-size:.85rem;">
+          <i class="fas fa-check-circle me-1"></i>Webhook ativo -- recomendado testar com o
+          botão "Simular notificação" do painel do Mercado Pago antes de confiar em produção.
+        </p>
+        {% else %}
+        <hr>
+        <p class="text-muted mb-0" style="font-size:.85rem;">
+          <i class="fas fa-info-circle me-1"></i>Faltando os dois valores acima, o webhook
+          fica inativo (responde 503) -- nenhuma notificação é aceita.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
