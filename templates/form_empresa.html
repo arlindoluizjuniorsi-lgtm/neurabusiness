@@ -6,6 +6,7 @@
   <p><a href="{{ url_for('listar_empresas') }}" style="color:var(--nb-muted)">Empresas</a> › {% if empresa %}{{ empresa.fantasia }}{% else %}Nova{% endif %}</p>
 </div>
 <form method="POST" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <div class="row g-4">
   <div class="col-12 col-lg-8">
     <div class="card mb-4">

@@ -27,6 +27,18 @@ class Config:
     SECRET_KEY         = _env_obrigatoria('FLASK_SECRET')
     UPLOAD_FOLDER      = os.path.join(BASE_DIR, 'static', 'uploads')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
+    # Nunca deixar true em producao -- liga o debugger interativo do
+    # Werkzeug (RCE) e vaza stack trace/variaveis de ambiente em qualquer
+    # erro nao tratado pra qualquer visitante.
+    DEBUG = _env('FLASK_DEBUG', 'false').strip().lower() == 'true'
+
+    # Bot do Telegram (CreativeNeura) -- usado pelo creative_bot.py (fluxo
+    # interativo) e pelo telegram_notify.py (avisos de contrato assinado).
+    TELEGRAM_BOT_TOKEN     = _env('TELEGRAM_BOT_TOKEN', '')
+    TELEGRAM_NOTIFY_CHAT_ID = _env('TELEGRAM_NOTIFY_CHAT_ID', '')
+
+    # Google Gemini -- usado pra interpretar audio/texto no bot do Telegram.
+    GEMINI_API_KEY = _env('GEMINI_API_KEY', '')
 
     DB_TYPE     = _env('NB_DB_TYPE',     'postgresql')
     PG_HOST     = _env('NB_PG_HOST',     'localhost')

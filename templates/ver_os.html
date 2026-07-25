@@ -12,6 +12,7 @@
     </a>
     {% if os_obj.status == 'aberta' %}
     <form method="POST" action="{{ url_for('mudar_status_os', id=os_obj.id, novo_status='em_andamento') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-nb"><i class="fas fa-play me-1"></i>Iniciar</button>
     </form>
     {% endif %}
@@ -22,10 +23,12 @@
     {% endif %}
     {% if os_obj.status not in ['cancelada','concluida'] %}
     <form method="POST" action="{{ url_for('mudar_status_os', id=os_obj.id, novo_status='cancelada') }}" onsubmit="return confirm('Cancelar esta OS?')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:8px"><i class="fas fa-times me-1"></i>Cancelar</button>
     </form>
     {% endif %}
     <form method="POST" action="{{ url_for('excluir_os', id=os_obj.id) }}" onsubmit="return confirm('Excluir esta OS permanentemente?')" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:8px">
         <i class="fas fa-trash me-1"></i>Excluir
       </button>
@@ -139,6 +142,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST" action="{{ url_for('mudar_status_os', id=os_obj.id, novo_status='concluida') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-body">
           <label class="form-label">Solução Aplicada</label>
           <textarea name="solucao" class="form-control" rows="4" placeholder="Descreva o que foi feito para resolver o problema...">{{ os_obj.solucao or '' }}</textarea>

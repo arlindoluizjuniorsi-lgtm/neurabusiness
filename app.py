@@ -2,15 +2,21 @@
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, session, jsonify, send_file, abort)
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 from functools import wraps
 from datetime import datetime, date, timedelta
 from sqlalchemy import func, or_
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-import os, json, uuid, base64, subprocess, smtplib
+from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+import os, json, uuid, base64, subprocess, smtplib, logging
+from logging.handlers import RotatingFileHandler
 
 from config import Config
 import mp_integracao
+import infinitypay_integracao
 from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CatalogoServico, MaterialInfra, Cliente, Proposta,
                     ItemProposta, OrdemServico, ProjetoAnexo, Contrato, OsAssinatura,
@@ -18,13 +24,38 @@ from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
+# nginx é o único proxy na frente da app (Cloudflare -> nginx -> app), por
+# isso confia num único hop de X-Forwarded-*. Sem isso, request.is_secure
+# e url_for(_external=True) sempre acham que a conexão é HTTP, mesmo com
+# o site inteiro servido em HTTPS pelo Cloudflare.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config['SECRET_KEY']              = Config.SECRET_KEY
 app.config['UPLOAD_FOLDER']           = Config.UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH']      = Config.MAX_CONTENT_LENGTH
 app.config['SQLALCHEMY_DATABASE_URI'] = Config.get_db_uri()
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE']   = not Config.DEBUG
 
 db.init_app(app)
+csrf = CSRFProtect(app)
+limiter = Limiter(get_remote_address, app=app, storage_uri='memory://', default_limits=[])
+
+# ─── LOGGING ────────────────────────────────────────────────────────────────────
+# Print() continua valendo pra mensagens soltas de debug, mas os caminhos
+# criticos (pagamentos, webhooks, email) usam esse logger -- vai pro mesmo
+# arquivo de sempre (stdout, redirecionado pelo systemd) e também pra um
+# arquivo próprio com rotação, pra não crescer pra sempre.
+os.makedirs(os.path.join(os.path.dirname(__file__), 'logs'), exist_ok=True)
+logger = logging.getLogger('neurabusiness')
+logger.setLevel(logging.INFO)
+_handler = RotatingFileHandler(
+    os.path.join(os.path.dirname(__file__), 'logs', 'neurabusiness.log'),
+    maxBytes=5*1024*1024, backupCount=5, encoding='utf-8')
+_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+logger.addHandler(_handler)
+logger.addHandler(logging.StreamHandler())
 
 ALLOWED_IMG    = {'png','jpg','jpeg','gif','webp'}
 ALLOWED_ANEXOS = {'png','jpg','jpeg','pdf','gif','webp'}
@@ -184,6 +215,7 @@ def login():
                            usuario_nome='', usuario_id=None, empresas=[])
 
 @app.route('/login/step1', methods=['POST'])
+@limiter.limit('10 per minute')
 def login_step1():
     usuario_str = request.form.get('usuario','').strip()
     senha       = request.form.get('senha','')
@@ -212,6 +244,7 @@ def login_step1():
                            usuario_nome=u.nome, usuario_id=u.id, empresas=empresas)
 
 @app.route('/login/step2', methods=['POST'])
+@limiter.limit('10 per minute')
 def login_step2():
     uid    = request.form.get('usuario_id','').strip()
     emp_id = request.form.get('empresa_id','').strip()
@@ -870,6 +903,76 @@ def proposta_premium_pub(token):
                            itens=p.itens, total=total_itens+custo_extra,
                            total_itens=total_itens, anexos=p.anexos, logo_b64=logo_b64)
 
+def _gerar_link_pagamento_mp(p):
+    """Cria uma Preferência de Checkout Pro (Pix+cartão+boleto no mesmo
+    link) pra proposta recém-assinada, e salva o link direto nela. Nunca
+    levanta exceção -- se o MP falhar ou não estiver configurado, a
+    aprovação da proposta segue normalmente, só sem o link de pagamento."""
+    try:
+        mp = _mp_config()
+        if not mp['access_token']:
+            return
+        itens = [{'titulo': i.descricao, 'quantidade': i.quantidade, 'valor_unitario': i.preco_unitario}
+                  for i in p.itens]
+        custo_extra = (p.custo_locomocao or 0) + (p.custo_alimentacao or 0) + (p.custo_outros or 0)
+        if custo_extra:
+            itens.append({'titulo': 'Custos adicionais (locomoção/alimentação/outros)',
+                           'quantidade': 1, 'valor_unitario': custo_extra})
+        if not itens:
+            return
+        back_url = url_for('proposta_publica', token=p.token_publico, _external=True)
+        dados, erro = mp_integracao.criar_preferencia_pagamento(
+            mp['access_token'], itens,
+            external_reference=p.numero,
+            payer_email=p.cliente.email if p.cliente else None,
+            payer_nome=p.cliente.nome if p.cliente else None,
+            back_url_sucesso=back_url,
+        )
+        if erro:
+            logger.error(f'[PAGAMENTO] erro gerando preferência MP pra proposta {p.numero}: {erro}')
+            return
+        p.mp_preference_id = dados.get('id')
+        p.mp_init_point = dados.get('init_point')
+        p.link_pagamento_gerado_em = datetime.now()
+        db.session.commit()
+    except Exception as e:
+        logger.error(f'[PAGAMENTO] erro inesperado gerando link de pagamento pra proposta {p.numero}: {e}')
+
+
+def _gerar_link_pagamento_infinitypay(p):
+    """Mesma ideia da preferência do MP, mas via link de pagamento da
+    InfinitePay. Também nunca levanta exceção -- fica inerte enquanto
+    INFINITYPAY_HANDLE/INFINITYPAY_API_KEY não estiverem configurados em
+    /admin/integracoes."""
+    try:
+        handle  = Integracao.obter('INFINITYPAY_HANDLE', '')
+        api_key = Integracao.obter('INFINITYPAY_API_KEY', '')
+        if not handle or not api_key:
+            return
+        itens = [{'titulo': i.descricao, 'quantidade': i.quantidade, 'valor_unitario': i.preco_unitario}
+                  for i in p.itens]
+        custo_extra = (p.custo_locomocao or 0) + (p.custo_alimentacao or 0) + (p.custo_outros or 0)
+        if custo_extra:
+            itens.append({'titulo': 'Custos adicionais (locomoção/alimentação/outros)',
+                           'quantidade': 1, 'valor_unitario': custo_extra})
+        if not itens:
+            return
+        redirect_url = url_for('proposta_publica', token=p.token_publico, _external=True)
+        link, erro = infinitypay_integracao.criar_link_pagamento(
+            handle, api_key, itens,
+            order_nsu=p.numero,
+            redirect_url=redirect_url,
+        )
+        if erro:
+            logger.error(f'[PAGAMENTO] erro gerando link InfinitePay pra proposta {p.numero}: {erro}')
+            return
+        p.infinitypay_link = link
+        p.link_pagamento_gerado_em = datetime.now()
+        db.session.commit()
+    except Exception as e:
+        logger.error(f'[PAGAMENTO] erro inesperado gerando link InfinitePay pra proposta {p.numero}: {e}')
+
+
 @app.route('/propostas/<int:id>/aprovar-publico/<token>', methods=['POST'])
 def aprovar_proposta_publico(id, token):
     p = Proposta.query.filter_by(id=id, token_publico=token).first_or_404()
@@ -918,6 +1021,9 @@ def aprovar_proposta_publico(id, token):
             db.session.commit()
         except Exception:
             pass
+
+    _gerar_link_pagamento_mp(p)
+    _gerar_link_pagamento_infinitypay(p)
 
     flash('Proposta aprovada e assinada! Aguardando assinatura da empresa.','success')
     return redirect(url_for('proposta_publica', token=token))
@@ -1129,6 +1235,7 @@ def calculadora():
     return render_template('calculadora.html')
 
 @app.route('/api/calc/mei', methods=['POST'])
+@csrf.exempt
 @login_required
 @empresa_required
 def api_calc_mei():
@@ -1143,6 +1250,7 @@ def api_calc_mei():
         valor_hora=float(d.get('valor_hora',0))))
 
 @app.route('/api/calc/desloc', methods=['POST'])
+@csrf.exempt
 @login_required
 @empresa_required
 def api_calc_desloc():
@@ -1156,6 +1264,7 @@ def api_calc_desloc():
         pedagios=float(d.get('pedagios',0))))
 
 @app.route('/api/calc/infra-rede', methods=['POST'])
+@csrf.exempt
 @login_required
 @empresa_required
 def api_calc_infra_rede():
@@ -1170,6 +1279,7 @@ def api_calc_infra_rede():
         dificuldade=d.get('dificuldade','normal')))
 
 @app.route('/api/calc/infra-cftv', methods=['POST'])
+@csrf.exempt
 @login_required
 @empresa_required
 def api_calc_infra_cftv():
@@ -1182,6 +1292,7 @@ def api_calc_infra_cftv():
         dificuldade=d.get('dificuldade','normal')))
 
 @app.route('/api/calc/cerca', methods=['POST'])
+@csrf.exempt
 @login_required
 @empresa_required
 def api_calc_cerca():
@@ -1417,6 +1528,7 @@ def os_publica(token):
 
 
 @app.route('/api/calc/preco', methods=['POST'])
+@csrf.exempt
 @login_required
 @empresa_required
 def api_calc_preco():
@@ -1765,7 +1877,7 @@ Qualquer dúvida, fale com a NeuraWorks.
             server.login(Config.MAIL_USER, Config.MAIL_PASSWORD)
             server.send_message(msg)
     except Exception as e:
-        print(f'[MAIL] erro ao enviar e-mail de cobrança: {e}')
+        logger.error(f'[MAIL] erro ao enviar e-mail de cobrança: {e}')
 
 
 # ─── COBRANÇA NEURADESK (pública) ──────────────────────────────────────────────
@@ -1834,7 +1946,7 @@ def cobranca_gerar_boleto(token):
         endereco=endereco,
     )
     if erro:
-        print(f'[COBRANCA] erro gerando boleto pra licença {lic.chave}: {erro}')
+        logger.error(f'[COBRANCA] erro gerando boleto pra licença {lic.chave}: {erro}')
         flash('Não consegui gerar o boleto agora. Tente novamente em instantes.', 'danger')
         return redirect(url_for('cobranca_publica', token=token))
 
@@ -1872,7 +1984,7 @@ def cobranca_gerar_pix(token):
         cpf_cnpj=ct.representante_cpf or ct.assinatura_cpf or '',
     )
     if erro:
-        print(f'[COBRANCA] erro gerando pix pra licença {lic.chave}: {erro}')
+        logger.error(f'[COBRANCA] erro gerando pix pra licença {lic.chave}: {erro}')
         flash('Não consegui gerar o Pix agora. Tente novamente em instantes.', 'danger')
         return redirect(url_for('cobranca_publica', token=token))
 
@@ -1918,7 +2030,7 @@ def cobranca_assinatura_automatica(token):
         back_url=url_for('cobranca_publica', token=token, _external=True),
     )
     if erro:
-        print(f'[COBRANCA] erro criando preapproval pra licença {lic.chave}: {erro}')
+        logger.error(f'[COBRANCA] erro criando preapproval pra licença {lic.chave}: {erro}')
         flash('Não consegui iniciar a assinatura automática agora. Tente novamente em instantes.', 'danger')
         return redirect(url_for('cobranca_publica', token=token))
 
@@ -2125,7 +2237,7 @@ def admin_integracoes():
     Pago) sem precisar editar .env no servidor. Valores ficam cifrados
     no banco -- o formulário nunca mostra o valor salvo de volta, só se
     já tem algo configurado ou não."""
-    campos = ['MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET']
+    campos = ['MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'INFINITYPAY_HANDLE', 'INFINITYPAY_API_KEY']
 
     if request.method == 'POST':
         for chave in campos:
@@ -2160,6 +2272,7 @@ def _mp_config():
 
 
 @app.route('/webhook/mercadopago', methods=['POST', 'GET'])
+@csrf.exempt
 def webhook_mercadopago():
     """Recebe as notificações do Mercado Pago (pagamento aprovado de uma
     assinatura, mudança de status de preapproval) e renova a licença
@@ -2179,7 +2292,7 @@ def webhook_mercadopago():
         return jsonify({'ok': False, 'erro': 'Mercado Pago não configurado nesta instalação'}), 503
 
     if not mp_integracao.validar_assinatura(request.headers, request.args, mp['webhook_secret']):
-        print('[MP-WEBHOOK] assinatura inválida -- notificação recusada')
+        logger.warning('[MP-WEBHOOK] assinatura inválida -- notificação recusada')
         return jsonify({'ok': False, 'erro': 'assinatura inválida'}), 401
 
     body = request.get_json(silent=True) or {}
@@ -2195,7 +2308,7 @@ def webhook_mercadopago():
         elif tipo in ('preapproval', 'subscription_preapproval'):
             _mp_processar_preapproval(data_id, mp)
     except Exception as e:
-        print(f'[MP-WEBHOOK] erro processando {tipo} {data_id}: {e}')
+        logger.error(f'[MP-WEBHOOK] erro processando {tipo} {data_id}: {e}')
 
     return jsonify({'ok': True}), 200
 
@@ -2203,14 +2316,14 @@ def webhook_mercadopago():
 def _mp_processar_pagamento(payment_id, mp):
     pagamento = mp_integracao.buscar_pagamento(payment_id, mp['access_token'])
     if not pagamento:
-        print(f'[MP-WEBHOOK] não consegui buscar o pagamento {payment_id} na API do MP')
+        logger.warning(f'[MP-WEBHOOK] não consegui buscar o pagamento {payment_id} na API do MP')
         return
 
     chave = (pagamento.get('external_reference') or '').strip().upper()
     status = pagamento.get('status')
     lic = LicencaNeuraDesk.query.filter_by(chave=chave).first()
     if not lic:
-        print(f'[MP-WEBHOOK] pagamento {payment_id} aprovado mas referencia licença desconhecida: {chave!r}')
+        logger.warning(f'[MP-WEBHOOK] pagamento {payment_id} aprovado mas referencia licença desconhecida: {chave!r}')
         return
 
     lic.mp_status = status
@@ -2238,13 +2351,13 @@ def _mp_processar_pagamento(payment_id, mp):
 def _mp_processar_preapproval(preapproval_id, mp):
     preapproval = mp_integracao.buscar_preapproval(preapproval_id, mp['access_token'])
     if not preapproval:
-        print(f'[MP-WEBHOOK] não consegui buscar o preapproval {preapproval_id} na API do MP')
+        logger.warning(f'[MP-WEBHOOK] não consegui buscar o preapproval {preapproval_id} na API do MP')
         return
 
     chave = (preapproval.get('external_reference') or '').strip().upper()
     lic = LicencaNeuraDesk.query.filter_by(chave=chave).first()
     if not lic:
-        print(f'[MP-WEBHOOK] preapproval {preapproval_id} referencia licença desconhecida: {chave!r}')
+        logger.warning(f'[MP-WEBHOOK] preapproval {preapproval_id} referencia licença desconhecida: {chave!r}')
         return
 
     lic.mp_preapproval_id = str(preapproval_id)
@@ -2253,6 +2366,7 @@ def _mp_processar_preapproval(preapproval_id, mp):
 
 
 @app.route('/api/licencas/ativar', methods=['POST'])
+@csrf.exempt
 def api_licenca_ativar():
     """Chamado pelo NeuraDesk do cliente na primeira ativação. Trava a
     licença no fingerprint desse servidor — se a mesma chave tentar
@@ -2296,6 +2410,7 @@ def api_licenca_ativar():
 
 
 @app.route('/api/licencas/verificar', methods=['POST'])
+@csrf.exempt
 def api_licenca_verificar():
     """Chamado uma vez por dia pelo NeuraDesk do cliente pra confirmar
     que a licença continua válida (e por quanto tempo, se estiver em
@@ -2343,6 +2458,17 @@ def api_licenca_verificar():
     })
 
 
+# ─── ERROS ─────────────────────────────────────────────────────────────────────
+@app.errorhandler(404)
+def erro_404(e):
+    return render_template('erro_404.html'), 404
+
+@app.errorhandler(500)
+def erro_500(e):
+    logger.error(f'Erro interno em {request.path}: {e}')
+    return render_template('erro_500.html'), 500
+
+
 # ─── INICIALIZAÇÃO ─────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     with app.app_context():
@@ -2350,4 +2476,4 @@ if __name__ == '__main__':
         print("[NeuraBusiness] Tabelas criadas/verificadas")
         seed_inicial()
     print("\n[>>] NeuraBusiness v3.0 — http://localhost:5000\n")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=Config.DEBUG, host='0.0.0.0', port=5000)

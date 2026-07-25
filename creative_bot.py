@@ -2,7 +2,8 @@ import sys
 sys.path.insert(0, '/opt/neurabusiness')
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, ContextTypes
-TOKEN = '***REMOVED_TELEGRAM_TOKEN***'
+from config import Config
+TOKEN = Config.TELEGRAM_BOT_TOKEN
 from app import app, db
 from models import Empresa, Cliente, Servico, Produto, Proposta, ItemProposta, EtapaProposta
 import uuid, io, difflib, asyncio

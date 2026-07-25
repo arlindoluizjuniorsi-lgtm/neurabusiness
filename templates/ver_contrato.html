@@ -121,6 +121,7 @@
       <div class="card-body">
         <p style="font-size:.9rem;color:var(--nb-muted);margin-bottom:16px">O cliente ja assinou. Clique abaixo para assinar como empresa e liberar o PDF para o cliente.</p>
         <form method="POST" action="{{ url_for('assinar_contrato_empresa', id=contrato.id) }}" onsubmit="return confirm('Confirmar assinatura digital no contrato {{ contrato.numero }}?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-nb" style="background:var(--nb-accent);color:#fff;font-size:1rem;padding:10px 28px">
             <i class="fas fa-pen-nib me-2"></i>Assinar como Empresa
           </button>

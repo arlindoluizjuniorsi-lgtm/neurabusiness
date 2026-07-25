@@ -195,3 +195,54 @@ def criar_preapproval(access_token, valor, descricao, external_reference,
     if r.status_code not in (200, 201):
         return None, dados
     return dados, None
+
+
+def criar_preferencia_pagamento(access_token, itens, external_reference, payer_email=None,
+                                 payer_nome=None, back_url_sucesso=None, notification_url=None,
+                                 timeout=20):
+    """Cria uma Preferência (Checkout Pro) -- link de pagamento hospedado
+    pelo MP que já oferece Pix, cartão (parcelado) e boleto na mesma tela,
+    sem precisar tokenizar cartão no nosso servidor. `itens` é uma lista
+    de dicts {titulo, quantidade, valor_unitario}. Retorna o JSON com
+    'id' e 'init_point' (URL do checkout)."""
+    body = {
+        'items': [
+            {
+                'title': i['titulo'][:250],
+                'quantity': int(i.get('quantidade', 1) or 1),
+                'unit_price': round(float(i['valor_unitario']), 2),
+                'currency_id': 'BRL',
+            }
+            for i in itens
+        ],
+        'external_reference': external_reference,
+    }
+    if payer_email or payer_nome:
+        body['payer'] = {}
+        if payer_email:
+            body['payer']['email'] = payer_email
+        if payer_nome:
+            body['payer']['name'] = payer_nome
+    if back_url_sucesso:
+        body['back_urls'] = {
+            'success': back_url_sucesso,
+            'pending': back_url_sucesso,
+            'failure': back_url_sucesso,
+        }
+        body['auto_return'] = 'approved'
+    if notification_url:
+        body['notification_url'] = notification_url
+
+    r = requests.post(
+        f'{MP_API_BASE}/checkout/preferences',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+        },
+        json=body,
+        timeout=timeout,
+    )
+    dados = r.json() if r.content else {}
+    if r.status_code not in (200, 201):
+        return None, dados
+    return dados, None

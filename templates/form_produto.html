@@ -6,6 +6,7 @@
   <p><a href="{{ url_for('listar_produtos') }}" style="color:var(--nb-muted)">Produtos</a> › {% if produto %}{{ produto.nome }}{% else %}Novo{% endif %}</p></div>
   {% if produto %}
   <form method="POST" action="{{ url_for('excluir_produto', id=produto.id) }}" onsubmit="return confirm('Remover?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:8px"><i class="fas fa-trash me-1"></i>Remover</button>
   </form>
   {% endif %}
@@ -29,6 +30,7 @@
       <button onclick="navigator.clipboard.writeText(document.getElementById('linkProd').textContent);this.innerHTML='<i class=\'fas fa-check\'></i>';setTimeout(()=>this.innerHTML='<i class=\'fas fa-copy\'></i>',2000)" class="btn btn-sm btn-nb"><i class="fas fa-copy"></i></button>
       {% endif %}
       <form method="POST" action="{{ url_for('gerar_link_produto', id=produto.id) }}" class="d-flex align-items-center gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <select name="validade_dias" class="form-select form-select-sm" style="width:120px">
           <option value="1">1 dia</option>
           <option value="3">3 dias</option>
@@ -44,6 +46,7 @@
 {% endif %}
 
 <form method="POST" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <div class="row g-4">
   <div class="col-12 col-lg-8">
     <div class="card mb-4">

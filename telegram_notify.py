@@ -7,8 +7,10 @@ import json
 import mimetypes
 import uuid
 
-TELEGRAM_TOKEN   = '***REMOVED_TELEGRAM_TOKEN***'
-TELEGRAM_CHAT_ID = '6295632432'  # Chat ID do Arlindo
+from config import Config
+
+TELEGRAM_TOKEN   = Config.TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID = Config.TELEGRAM_NOTIFY_CHAT_ID  # Chat ID do Arlindo
 
 
 def enviar_mensagem_telegram(texto):

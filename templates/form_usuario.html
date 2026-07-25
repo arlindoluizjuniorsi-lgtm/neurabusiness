@@ -6,6 +6,7 @@
   <p><a href="{{ url_for('listar_usuarios') }}" style="color:var(--nb-muted)">Usuários</a> › {% if usuario %}{{ usuario.nome }}{% else %}Novo{% endif %}</p>
 </div>
 <form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <div class="row g-4">
   <div class="col-12 col-lg-7">
     <div class="card">

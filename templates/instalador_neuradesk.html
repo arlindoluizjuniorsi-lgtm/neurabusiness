@@ -38,6 +38,7 @@
           com as últimas mudanças.
         </p>
         <form method="POST" action="{{ url_for('instalador_neuradesk_gerar') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-nb">
             <i class="fas fa-sync me-1"></i>Gerar novo pacote agora
           </button>

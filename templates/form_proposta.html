@@ -31,6 +31,7 @@
 </div>
 
 <form method="POST" id="fProp">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <div class="row g-4">
   <div class="col-12 col-xl-8">
 
@@ -331,6 +332,7 @@
             <div style="font-size:.7rem;color:var(--nb-muted)">{{ anx.descricao or anx.tipo or '' }}</div>
           </div>
           <form method="POST" action="{{ url_for('excluir_anexo_proposta', id=proposta.id, aid=anx.id) }}" onsubmit="return confirm('Remover?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" style="background:none;border:none;color:#ef4444;font-size:.85rem"><i class="fas fa-trash"></i></button>
           </form>
         </div>

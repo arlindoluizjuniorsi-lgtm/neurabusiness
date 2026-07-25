@@ -12,7 +12,9 @@ import json
 import base64
 import time
 
-GEMINI_API_KEY = '***REMOVED_GEMINI_API_KEY***'
+from config import Config
+
+GEMINI_API_KEY = Config.GEMINI_API_KEY
 GEMINI_MODEL   = 'gemini-3.5-flash'
 GEMINI_URL     = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
 

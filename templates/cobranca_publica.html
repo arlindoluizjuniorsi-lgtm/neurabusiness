@@ -121,6 +121,7 @@ body{background:#f4f5f7;color:#1b1f27;min-height:100vh;}
           <h4>Boleto</h4>
           <p>Vence em alguns dias úteis, sem cadastro de cartão.</p></div>
           <form method="POST" action="{{ url_for('cobranca_gerar_boleto', token=contrato.token_assinatura) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <p style="font-size:.72rem;color:#94a3b8;margin-bottom:6px">Endereço do responsável (exigido para emissão do boleto):</p>
             <div class="row g-1 mb-1">
               <div class="col-6"><input type="text" name="endereco_cep" class="form-control form-control-sm" placeholder="CEP" value="{{ contrato.endereco_cep or '' }}" required></div>
@@ -142,6 +143,7 @@ body{background:#f4f5f7;color:#1b1f27;min-height:100vh;}
           <h4>Pix</h4>
           <p>Aprovação em poucos minutos, com QR Code.</p>
           <form method="POST" action="{{ url_for('cobranca_gerar_pix', token=contrato.token_assinatura) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn-outline-cobranca w-100">Gerar Pix</button>
           </form>
         </div>
@@ -152,6 +154,7 @@ body{background:#f4f5f7;color:#1b1f27;min-height:100vh;}
           <h4>Assinatura automática</h4>
           <p>Cadastre um cartão e nunca mais se preocupe com o vencimento.</p>
           <form method="POST" action="{{ url_for('cobranca_assinatura_automatica', token=contrato.token_assinatura) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn-outline-cobranca w-100">Ativar cobrança automática</button>
           </form>
         </div>

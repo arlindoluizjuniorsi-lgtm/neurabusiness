@@ -97,6 +97,7 @@ body{background:linear-gradient(135deg,#080808 0%,#0a0a0a 50%,#111111 100%);min-
     <!-- STEP 1: USUÁRIO E SENHA -->
     <div class="panel {% if step==1 %}active{% endif %}" id="p1">
       <form method="POST" action="{{ url_for('login_step1') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div style="margin-bottom:16px">
           <span class="lbl">Usuário</span>
           <div class="iw"><i class="fas fa-user"></i>
@@ -128,6 +129,7 @@ body{background:linear-gradient(135deg,#080808 0%,#0a0a0a 50%,#111111 100%);min-
 
       <span class="lbl"><i class="fas fa-building me-1"></i>Suas empresas</span>
       <form method="POST" action="{{ url_for('login_step2') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="usuario_id" value="{{ usuario_id or '' }}">
         {% if empresas %}
         <div class="emp-grid">

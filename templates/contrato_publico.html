@@ -70,6 +70,7 @@ body{background:#f8fafc;color:#0f172a;min-height:100vh;}
       Sua assinatura será registrada com data, hora e nome.
     </p>
     <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
         <label style="font-weight:700;font-size:.82rem;color:#134e4a;display:block;margin-bottom:6px">Seu nome completo *</label>
         <input type="text" name="nome_assinatura" class="form-control" placeholder="Digite seu nome completo para assinar" required style="max-width:400px;border:1.5px solid #10B981">

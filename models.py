@@ -168,6 +168,13 @@ class Proposta(db.Model):
     assinatura_ip     = db.Column(db.String(45))
     assinatura_hash   = db.Column(db.String(128))
 
+    # Link de pagamento gerado automaticamente quando o cliente assina --
+    # mostrado na propria pagina de aprovacao (proposta_publica.html).
+    mp_preference_id      = db.Column(db.String(100))
+    mp_init_point         = db.Column(db.String(500))
+    infinitypay_link      = db.Column(db.String(500))
+    link_pagamento_gerado_em = db.Column(db.DateTime)
+
     itens   = db.relationship('ItemProposta', backref='proposta', lazy=True,
                   cascade='all, delete-orphan')
     anexos  = db.relationship('ProjetoAnexo', backref='proposta', lazy=True,
