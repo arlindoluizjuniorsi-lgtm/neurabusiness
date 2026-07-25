@@ -404,7 +404,27 @@ Responda APENAS com um JSON no formato exato abaixo, sem texto adicional:
     }}]
     body = {
         "contents": [{"parts": parts}],
-        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
+        "generationConfig": {
+            "temperature": 0.2,
+            "responseMimeType": "application/json",
+            # Forca o Gemini a devolver um OBJETO -- sem isso, ele as vezes
+            # devolve uma LISTA (ex: "produtos possiveis") e o .get() abaixo
+            # quebra com "'list' object has no attribute 'get'".
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "encontrado":   {"type": "BOOLEAN"},
+                    "motivo":       {"type": "STRING", "nullable": True},
+                    "nome":         {"type": "STRING", "nullable": True},
+                    "preco_venda":  {"type": "NUMBER", "nullable": True},
+                    "preco_custo":  {"type": "NUMBER", "nullable": True},
+                    "categoria":    {"type": "STRING", "nullable": True},
+                    "descricao":    {"type": "STRING", "nullable": True},
+                    "estoque":      {"type": "NUMBER", "nullable": True},
+                },
+                "required": ["encontrado"],
+            },
+        },
     }
     req = urllib.request.Request(
         GEMINI_URL,
@@ -418,7 +438,14 @@ Responda APENAS com um JSON no formato exato abaixo, sem texto adicional:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read())
             texto_resp = data['candidates'][0]['content']['parts'][0]['text']
-            return json.loads(texto_resp)
+            resultado = json.loads(texto_resp)
+            # Salvaguarda: mesmo com o schema acima, trata o caso de vir
+            # uma lista em vez de objeto (pega o primeiro item ou reporta
+            # nao encontrado, em vez de quebrar mais adiante com AttributeError).
+            if isinstance(resultado, list):
+                resultado = resultado[0] if resultado and isinstance(resultado[0], dict) else \
+                    {"encontrado": False, "motivo": "Não consegui identificar um único produto claro nessa imagem."}
+            return resultado
         except urllib.error.HTTPError as e:
             corpo = e.read().decode('utf-8', errors='ignore')
             ultimo_erro = f"HTTP {e.code}: {corpo[:300]}"

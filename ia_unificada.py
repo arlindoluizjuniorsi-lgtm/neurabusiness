@@ -132,7 +132,13 @@ Responda APENAS com um JSON no formato exato abaixo, sem texto adicional:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read())
             texto_resp = data['candidates'][0]['content']['parts'][0]['text']
-            return json.loads(texto_resp)
+            resultado = json.loads(texto_resp)
+            # Salvaguarda: o Gemini as vezes devolve uma LISTA em vez do
+            # objeto esperado mesmo com responseMimeType=application/json;
+            # sem isso o chamador quebra com "'list' object has no attribute 'get'".
+            if isinstance(resultado, list):
+                resultado = resultado[0] if resultado and isinstance(resultado[0], dict) else None
+            return resultado
         except urllib.error.HTTPError as e:
             corpo = e.read().decode('utf-8', errors='ignore')
             ultimo_erro = f"HTTP {e.code}: {corpo[:300]}"
