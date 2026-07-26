@@ -9,12 +9,12 @@ from models import Empresa, Cliente, Servico, Produto, Proposta, ItemProposta, E
 import uuid, io, difflib, asyncio
 from datetime import datetime, timedelta
 from ia_unificada import interpretar_mensagem
-from ia_assistente import executar_comando, interpretar_produto_imagem, cadastrar_produto
+from ia_assistente import executar_comando, interpretar_produto_imagem, cadastrar_produto, reenviar_proposta
 
 (MENU,CLIENTE,NC_NOME,NC_TEL,SERVICO,PRODUTO,QTD,PRECO,MAIS,
  PERGUNTA_ETAPAS,ETAPA_TITULO,ETAPA_DIAS,VALIDADE,PAGAMENTO,CONFIRMAR,
  IA_AGUARDA,IA_CORRECAO,IA_CONFIRMAR,IA_TEL,IA_CADASTRAR_CLIENTE,
- CAD_CLIENTE_NOME,CAD_CLIENTE_TEL)=range(22)
+ CAD_CLIENTE_NOME,CAD_CLIENTE_TEL,REENVIAR_PROPOSTA)=range(23)
 
 def get_emp():
     with app.app_context():
@@ -23,6 +23,8 @@ def get_emp():
 def kb(o,c=2):
     r=[o[i:i+c] for i in range(0,len(o),c)]
     return ReplyKeyboardMarkup(r,resize_keyboard=True,one_time_keyboard=True)
+
+MENU_PRINCIPAL=["📋 Nova Proposta Manual","🎤 Falar com a IA","👤 Cadastrar Cliente","🔁 Reenviar Proposta","❌ Cancelar"]
 
 def fmt(v):
     return f"R$ {v:,.2f}".replace(',','X').replace('.',',').replace('X','.')
@@ -63,7 +65,7 @@ async def start(u:Update,c:ContextTypes.DEFAULT_TYPE):
     await u.message.reply_text(
         f"👋 Olá *{u.effective_user.first_name}*!\n\nO que deseja fazer?",
         parse_mode='Markdown',
-        reply_markup=kb(["📋 Nova Proposta Manual","🎤 Falar com a IA","👤 Cadastrar Cliente","❌ Cancelar"],1))
+        reply_markup=kb(MENU_PRINCIPAL,1))
     return MENU
 
 async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
@@ -71,6 +73,8 @@ async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
     if "Cadastrar Cliente" in txt:
         await u.message.reply_text("👤 *Nome completo do cliente:*", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
         return CAD_CLIENTE_NOME
+    if "Reenviar" in txt:
+        return await listar_propostas_reenvio(u, c)
     if "Manual" in txt:
         c.user_data['itens']=[];c.user_data['etapas']=[]
         return await listar_clientes(u,c)
@@ -130,7 +134,46 @@ async def cad_cliente_tel(u:Update,c:ContextTypes.DEFAULT_TYPE):
         db.session.add(x);db.session.commit()
     msg=f"✅ *{c.user_data['cad_cliente_nome']}* cadastrado" + (f" ({telefone})" if telefone else "") + "!"
     await u.message.reply_text(msg,parse_mode='Markdown',
-        reply_markup=kb(["📋 Nova Proposta Manual","🎤 Falar com a IA","👤 Cadastrar Cliente","❌ Cancelar"],1))
+        reply_markup=kb(MENU_PRINCIPAL,1))
+    return MENU
+
+# ══════════════════════ REENVIO MANUAL DE PROPOSTA (sem passar pela IA) ══════════════════════
+async def listar_propostas_reenvio(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    with app.app_context():
+        emp=get_emp()
+        props=Proposta.query.filter_by(empresa_id=emp.id).order_by(Proposta.criado_em.desc()).limit(20).all()
+        lista=[{'numero':p.numero,'cliente':p.cliente.nome if p.cliente else '?','status':p.status} for p in props]
+    if not lista:
+        await u.message.reply_text("Nenhuma proposta cadastrada ainda.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    c.user_data['propostas_reenvio']=lista
+    msg="🔁 *Qual proposta reenviar?* (link + PDF atualizado)\n\n" + \
+        "".join(f"`{i:02d}` — {p['numero']} — {p['cliente']} — _{p['status']}_\n" for i,p in enumerate(lista,1))
+    await u.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    return REENVIAR_PROPOSTA
+
+async def escolher_proposta_reenvio(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    try:
+        num=int(u.message.text.strip())
+    except (ValueError, AttributeError):
+        await u.message.reply_text("Digite o número da proposta.")
+        return REENVIAR_PROPOSTA
+    lista=c.user_data.get('propostas_reenvio',[])
+    if num<1 or num>len(lista):
+        await u.message.reply_text("Número inválido.")
+        return REENVIAR_PROPOSTA
+    numero=lista[num-1]['numero']
+    await u.message.reply_text(f"🔄 Gerando o pacote atualizado da proposta {numero}...")
+    emp=get_emp()
+    rico=await asyncio.to_thread(reenviar_proposta, emp.id, numero)
+    if isinstance(rico, str):
+        await u.message.reply_text(f"❌ {rico}", reply_markup=kb(MENU_PRINCIPAL,1))
+        return MENU
+    await u.message.reply_text(rico['mensagem_cliente'])
+    pdf_io=io.BytesIO(rico['pdf_bytes']); pdf_io.name=rico['pdf_nome']
+    await u.message.reply_document(document=pdf_io, filename=pdf_io.name,
+        caption=f"📎 PDF da proposta {rico['numero']}")
+    await u.message.reply_text("✅ Pronto! O que mais deseja fazer?", reply_markup=kb(MENU_PRINCIPAL,1))
     return MENU
 
 async def listar_servicos(u:Update,c:ContextTypes.DEFAULT_TYPE):
@@ -322,7 +365,10 @@ async def confirmar(u:Update,c:ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def cancelar(u:Update,c:ContextTypes.DEFAULT_TYPE):
-    c.user_data.clear();await u.message.reply_text("❌ Cancelado.",reply_markup=ReplyKeyboardRemove());return ConversationHandler.END
+    c.user_data.clear()
+    await u.message.reply_text("❌ Cancelado. Digite /start (ou *oi*) pra começar de novo.",
+        parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
 
 # ══════════════════════ FLUXO UNIFICADO POR ÁUDIO/TEXTO (IA) ══════════════════════
 async def processar_mensagem(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=True):
@@ -595,32 +641,37 @@ def main():
     req = HTTPXRequest(connect_timeout=30, read_timeout=60, write_timeout=60, pool_timeout=60, connection_pool_size=50)
     req_polling = HTTPXRequest(connect_timeout=30, read_timeout=40, write_timeout=30, pool_timeout=30, connection_pool_size=10)
     app_bot=Application.builder().token(TOKEN).request(req).get_updates_request(req_polling).build()
+    # Digitar qualquer uma dessas palavras cancela na hora, nao importa em
+    # qual etapa da proposta a pessoa esteja -- evita ficar preso num loop
+    # pedindo uma informacao que a pessoa nao quer mais dar.
+    cancelar_h = MessageHandler(filters.Regex(r'(?i)^(cancelar|cancela|sair|encerrar|parar)$'), cancelar)
     conv=ConversationHandler(
         entry_points=[CommandHandler('start',start),MessageHandler(filters.Regex(r'(?i)^(oi|ola|menu)'),start)],
         states={
-            MENU:[MessageHandler(filters.TEXT&~filters.COMMAND,menu)],
-            CLIENTE:[MessageHandler(filters.TEXT&~filters.COMMAND,escolher_cliente)],
-            NC_NOME:[MessageHandler(filters.TEXT&~filters.COMMAND,nc_nome)],
-            NC_TEL:[MessageHandler(filters.TEXT&~filters.COMMAND,nc_tel)],
-            SERVICO:[MessageHandler(filters.TEXT&~filters.COMMAND,escolher_servico)],
-            PRODUTO:[MessageHandler(filters.TEXT&~filters.COMMAND,escolher_produto)],
-            QTD:[MessageHandler(filters.TEXT&~filters.COMMAND,receber_qtd)],
-            PRECO:[MessageHandler(filters.TEXT&~filters.COMMAND,receber_preco)],
-            MAIS:[MessageHandler(filters.TEXT&~filters.COMMAND,mais_itens)],
-            PERGUNTA_ETAPAS:[MessageHandler(filters.TEXT&~filters.COMMAND,resposta_pergunta_etapas)],
-            ETAPA_TITULO:[MessageHandler(filters.TEXT&~filters.COMMAND,receber_etapa_titulo)],
-            ETAPA_DIAS:[MessageHandler(filters.TEXT&~filters.COMMAND,receber_etapa_dias)],
-            VALIDADE:[MessageHandler(filters.TEXT&~filters.COMMAND,receber_validade)],
-            PAGAMENTO:[MessageHandler(filters.TEXT&~filters.COMMAND,receber_pagamento)],
-            CONFIRMAR:[MessageHandler(filters.TEXT&~filters.COMMAND,confirmar)],
-            IA_AGUARDA:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT|filters.PHOTO,ia_aguarda)],
-            IA_CORRECAO:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT|filters.PHOTO,ia_correcao)],
-            IA_CONFIRMAR:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_confirmar)],
-            IA_TEL:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_tel)],
-            CAD_CLIENTE_NOME:[MessageHandler(filters.TEXT&~filters.COMMAND,cad_cliente_nome)],
-            CAD_CLIENTE_TEL:[MessageHandler(filters.TEXT&~filters.COMMAND,cad_cliente_tel)],
+            MENU:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,menu)],
+            CLIENTE:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,escolher_cliente)],
+            NC_NOME:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,nc_nome)],
+            NC_TEL:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,nc_tel)],
+            SERVICO:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,escolher_servico)],
+            PRODUTO:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,escolher_produto)],
+            QTD:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,receber_qtd)],
+            PRECO:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,receber_preco)],
+            MAIS:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,mais_itens)],
+            PERGUNTA_ETAPAS:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,resposta_pergunta_etapas)],
+            ETAPA_TITULO:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,receber_etapa_titulo)],
+            ETAPA_DIAS:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,receber_etapa_dias)],
+            VALIDADE:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,receber_validade)],
+            PAGAMENTO:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,receber_pagamento)],
+            CONFIRMAR:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,confirmar)],
+            IA_AGUARDA:[cancelar_h,MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT|filters.PHOTO,ia_aguarda)],
+            IA_CORRECAO:[cancelar_h,MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT|filters.PHOTO,ia_correcao)],
+            IA_CONFIRMAR:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,ia_confirmar)],
+            IA_TEL:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,ia_tel)],
+            CAD_CLIENTE_NOME:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,cad_cliente_nome)],
+            CAD_CLIENTE_TEL:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,cad_cliente_tel)],
+            REENVIAR_PROPOSTA:[cancelar_h,MessageHandler(filters.TEXT&~filters.COMMAND,escolher_proposta_reenvio)],
         },
-        fallbacks=[CommandHandler('cancelar',cancelar)],allow_reentry=True)
+        fallbacks=[CommandHandler('cancelar',cancelar),cancelar_h],allow_reentry=True)
     app_bot.add_handler(conv)
     print("[OK] Bot rodando! t.me/CreativeNeura_bot")
     app_bot.run_polling(allowed_updates=Update.ALL_TYPES,drop_pending_updates=True)
