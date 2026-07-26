@@ -11,3 +11,5 @@ requests
 cryptography
 flask-wtf
 flask-limiter
+lxml
+signxml

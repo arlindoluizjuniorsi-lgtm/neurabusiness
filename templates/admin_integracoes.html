@@ -79,6 +79,53 @@
         </form>
       </div>
     </div>
+
+    <div class="card mt-3">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-1">NFS-e Nacional (Emissor Público)</h6>
+        <p class="text-muted" style="font-size:.85rem;">
+          Certificado digital e-CNPJ (arquivo <code>.pfx</code>, A1) usado pra assinar e
+          enviar a Declaração de Prestação de Serviço (DPS) ao Sistema Nacional NFS-e.
+          Exige mTLS -- sem um certificado válido, a emissão fica inativa (o botão
+          "Emitir Nota Fiscal" na proposta avisa isso claramente).
+        </p>
+
+        <form method="POST" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label mb-1">Certificado (.pfx)</label>
+            <input type="file" name="NFSE_CERTIFICADO_PFX" class="form-control" accept=".pfx,.p12">
+            <small class="text-muted">
+              {% if status.NFSE_CERTIFICADO_PFX_B64 %}<i class="fas fa-check-circle text-success"></i> configurado{% else %}<i class="fas fa-circle text-muted"></i> não configurado{% endif %}
+            </small>
+          </div>
+          <div class="mb-3">
+            <label class="form-label mb-1">Senha do certificado</label>
+            <input type="password" name="NFSE_CERTIFICADO_SENHA" class="form-control" autocomplete="new-password"
+                   placeholder="{{ 'já configurada — deixe em branco pra manter' if status.NFSE_CERTIFICADO_SENHA else 'Senha do arquivo .pfx' }}">
+            <small class="text-muted">
+              {% if status.NFSE_CERTIFICADO_SENHA %}<i class="fas fa-check-circle text-success"></i> configurada{% else %}<i class="fas fa-circle text-muted"></i> não configurada{% endif %}
+            </small>
+          </div>
+          <button type="submit" class="btn btn-accent"><i class="fas fa-save me-1"></i>Salvar</button>
+        </form>
+
+        {% if status.NFSE_CERTIFICADO_PFX_B64 and status.NFSE_CERTIFICADO_SENHA %}
+        <hr>
+        <p class="text-success mb-0" style="font-size:.85rem;">
+          <i class="fas fa-check-circle me-1"></i>Certificado configurado -- a emissão de
+          NFS-e pela proposta está liberada. Os demais dados fiscais (município, código de
+          tributação, regime) ficam em <a href="{{ url_for('editar_empresa', id=1) }}">Editar Empresa</a>.
+        </p>
+        {% else %}
+        <hr>
+        <p class="text-muted mb-0" style="font-size:.85rem;">
+          <i class="fas fa-info-circle me-1"></i>Sem certificado válido configurado, o botão
+          "Emitir Nota Fiscal" avisa e não tenta enviar nada.
+        </p>
+        {% endif %}
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

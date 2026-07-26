@@ -31,6 +31,62 @@
         </div>
       </div>
     </div>
+
+    <div class="card mb-4">
+      <div class="card-header"><i class="fas fa-file-invoice"></i>NFS-e Nacional (dados fiscais)</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:.82rem">
+          Usado pra emitir Nota Fiscal de Serviço direto de uma proposta aprovada. O
+          certificado digital fica em <a href="{{ url_for('admin_integracoes') }}">Integrações</a>.
+        </p>
+        <div class="row g-3">
+          <div class="col-md-4"><label class="form-label">Código do Município (IBGE)</label>
+            <input type="text" name="nfse_codigo_municipio" class="form-control" maxlength="7"
+                   value="{{ empresa.nfse_codigo_municipio if empresa else '' }}" placeholder="ex: 2508901">
+          </div>
+          <div class="col-md-4"><label class="form-label">Inscrição Municipal</label>
+            <input type="text" name="nfse_inscricao_municipal" class="form-control"
+                   value="{{ empresa.nfse_inscricao_municipal if empresa else '' }}" placeholder="deixe vazio se não tiver">
+          </div>
+          <div class="col-md-4"><label class="form-label">Regime Tributário</label>
+            <select name="nfse_regime_tributario" class="form-select">
+              {% set regime = empresa.nfse_regime_tributario if empresa else 'mei' %}
+              <option value="mei" {% if regime=='mei' %}selected{% endif %}>MEI</option>
+              <option value="simples_nacional" {% if regime=='simples_nacional' %}selected{% endif %}>Simples Nacional (ME/EPP)</option>
+              <option value="normal" {% if regime=='normal' %}selected{% endif %}>Normal (Lucro Presumido/Real)</option>
+            </select>
+          </div>
+          <div class="col-md-4"><label class="form-label">Código de Tributação Nacional</label>
+            <input type="text" name="nfse_codigo_tributacao_nacional" class="form-control" maxlength="6"
+                   value="{{ empresa.nfse_codigo_tributacao_nacional if empresa else '' }}" placeholder="ex: 010701">
+          </div>
+          <div class="col-md-4"><label class="form-label">Código NBS</label>
+            <input type="text" name="nfse_cnbs" class="form-control" maxlength="9"
+                   value="{{ empresa.nfse_cnbs if empresa else '' }}" placeholder="ex: 115013000">
+          </div>
+          <div class="col-md-4"><label class="form-label">Alíquota ISS (%)</label>
+            <input type="number" step="0.01" name="nfse_aliquota_iss" class="form-control"
+                   value="{{ empresa.nfse_aliquota_iss if empresa else 0 }}" placeholder="0 se MEI">
+          </div>
+          <div class="col-md-4"><label class="form-label">Série da DPS</label>
+            <input type="text" name="nfse_serie_dps" class="form-control" maxlength="5"
+                   value="{{ empresa.nfse_serie_dps if empresa else '1' }}">
+          </div>
+          <div class="col-md-4"><label class="form-label">Ambiente</label>
+            <select name="nfse_ambiente" class="form-select">
+              {% set amb = empresa.nfse_ambiente if empresa else 'homologacao' %}
+              <option value="homologacao" {% if amb=='homologacao' %}selected{% endif %}>Homologação (testes)</option>
+              <option value="producao" {% if amb=='producao' %}selected{% endif %}>Produção</option>
+            </select>
+          </div>
+          <div class="col-md-4"><label class="form-label">Último número de DPS emitido</label>
+            <input type="number" name="nfse_ultimo_numero_dps" class="form-control"
+                   value="{{ empresa.nfse_ultimo_numero_dps if empresa else 0 }}">
+            <small class="text-muted">Só mexa aqui se souber o que está fazendo -- controla a numeração da próxima nota.</small>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="col-12 col-lg-4">
     <div class="card mb-3">

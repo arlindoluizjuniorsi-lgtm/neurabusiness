@@ -23,6 +23,19 @@ class Empresa(db.Model):
     ativa        = db.Column(db.Boolean, default=True)
     criado_em    = db.Column(db.DateTime, default=datetime.now)
 
+    # Config fiscal pra emissao de NFS-e via Sistema Nacional NFS-e (Sefin
+    # Nacional/ADN) -- ver nfse_nacional.py. O certificado (.pfx) e a senha
+    # ficam cifrados em Integracao, nao aqui.
+    nfse_codigo_municipio          = db.Column(db.String(7))    # codigo IBGE do municipio do prestador
+    nfse_inscricao_municipal       = db.Column(db.String(30))
+    nfse_codigo_tributacao_nacional = db.Column(db.String(10))  # ex: 010701 (item 1.07.01 da lista LC116)
+    nfse_cnbs                      = db.Column(db.String(15))   # Nomenclatura Brasileira de Servicos
+    nfse_regime_tributario         = db.Column(db.String(20), default='mei')  # mei | simples_nacional | normal
+    nfse_aliquota_iss              = db.Column(db.Float, default=0)
+    nfse_ambiente                  = db.Column(db.String(20), default='homologacao')  # homologacao | producao
+    nfse_serie_dps                 = db.Column(db.String(5), default='1')
+    nfse_ultimo_numero_dps         = db.Column(db.Integer, default=0)
+
     usuarios  = db.relationship('Usuario', backref='empresa', lazy=True,
                     foreign_keys='Usuario.empresa_id')
     clientes  = db.relationship('Cliente', backref='empresa', lazy=True)
@@ -133,6 +146,12 @@ class Cliente(db.Model):
     observacoes = db.Column(db.Text)
     criado_em   = db.Column(db.DateTime, default=datetime.now)
 
+    # Codigo do municipio (IBGE, 7 digitos) do endereco do cliente -- usado
+    # na emissao de NFS-e (tomador do servico). Preenchido automaticamente
+    # (e cacheado aqui) via consulta a API publica do IBGE por cidade/estado
+    # na primeira emissao, ver nfse_nacional.buscar_codigo_municipio_ibge.
+    codigo_municipio_ibge = db.Column(db.String(7))
+
     propostas = db.relationship('Proposta', backref='cliente', lazy=True)
     os        = db.relationship('OrdemServico', backref='cliente', lazy=True)
 
@@ -185,6 +204,15 @@ class Proposta(db.Model):
     pagamento_percentual  = db.Column(db.Integer)
     mp_payment_id         = db.Column(db.String(50))
     pago_em               = db.Column(db.DateTime)
+
+    # Nota Fiscal de Servico Eletronica (NFS-e Nacional) emitida a partir
+    # desta proposta -- ver nfse_nacional.py.
+    nfse_chave_acesso = db.Column(db.String(60))
+    nfse_numero_dps   = db.Column(db.Integer)
+    nfse_serie_dps    = db.Column(db.String(5))
+    nfse_status       = db.Column(db.String(20), default='nao_emitida')  # nao_emitida | emitida | erro
+    nfse_emitido_em   = db.Column(db.DateTime)
+    nfse_erro         = db.Column(db.Text)
 
     itens   = db.relationship('ItemProposta', backref='proposta', lazy=True,
                   cascade='all, delete-orphan')

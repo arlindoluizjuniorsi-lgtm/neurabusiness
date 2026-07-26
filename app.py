@@ -350,6 +350,21 @@ def editar_empresa(id):
         emp.cidade       = request.form.get('cidade','')
         emp.estado       = request.form.get('estado','')
         emp.cep          = request.form.get('cep','')
+        emp.nfse_codigo_municipio           = request.form.get('nfse_codigo_municipio','').strip() or None
+        emp.nfse_inscricao_municipal        = request.form.get('nfse_inscricao_municipal','').strip() or None
+        emp.nfse_regime_tributario          = request.form.get('nfse_regime_tributario','mei')
+        emp.nfse_codigo_tributacao_nacional = request.form.get('nfse_codigo_tributacao_nacional','').strip() or None
+        emp.nfse_cnbs                       = request.form.get('nfse_cnbs','').strip() or None
+        emp.nfse_serie_dps                  = request.form.get('nfse_serie_dps','1').strip() or '1'
+        emp.nfse_ambiente                   = request.form.get('nfse_ambiente','homologacao')
+        try:
+            emp.nfse_aliquota_iss = float(request.form.get('nfse_aliquota_iss', 0) or 0)
+        except ValueError:
+            pass
+        try:
+            emp.nfse_ultimo_numero_dps = int(request.form.get('nfse_ultimo_numero_dps', 0) or 0)
+        except ValueError:
+            pass
         novo_logo = save_upload(request.files.get('logo'), 'empresas')
         if novo_logo: emp.logo = novo_logo
         db.session.commit()
@@ -836,6 +851,126 @@ def mudar_status_proposta(id, novo_status):
     db.session.commit()
     flash(f'Status alterado para {novo_status}.','success')
     return redirect(url_for('ver_proposta', id=id))
+
+@app.route('/propostas/<int:id>/emitir-nfse', methods=['GET', 'POST'])
+@login_required
+@empresa_required
+def emitir_nfse_proposta(id):
+    """Emite a NFS-e (Sistema Nacional NFS-e) referente aos itens de uma
+    proposta aprovada. GET mostra o formulário (só pede a observação --
+    todo o resto vem do cadastro da empresa/cliente/proposta). POST monta
+    a DPS, assina com o certificado configurado e envia pra Sefin
+    Nacional. Sempre notifica o resultado (sucesso ou erro) via Telegram."""
+    p = Proposta.query.filter_by(id=id, empresa_id=eid()).first_or_404()
+    if p.status != 'aprovada':
+        flash('Só é possível emitir nota fiscal de uma proposta aprovada.', 'warning')
+        return redirect(url_for('ver_proposta', id=id))
+
+    if request.method == 'GET':
+        return render_template('emitir_nfse.html', proposta=p)
+
+    observacao = request.form.get('observacao', '').strip()
+    pfx_bytes, senha = _certificado_nfse_configurado()
+    if not pfx_bytes:
+        flash('Certificado digital da NFS-e não configurado ainda. Configure em /admin/integracoes assim que tiver o certificado renovado.', 'danger')
+        return redirect(url_for('ver_proposta', id=id))
+
+    emp = Empresa.query.get(eid())
+    import nfse_nacional
+    xml_bytes, dps_id, erro = nfse_nacional.montar_dps_xml(
+        emp, p.cliente, p.itens, p.numero, p.titulo, observacao, ambiente=emp.nfse_ambiente
+    )
+    if erro:
+        flash(f'Não deu pra montar a nota: {erro}', 'danger')
+        return redirect(url_for('ver_proposta', id=id))
+
+    numero_dps_usado = (emp.nfse_ultimo_numero_dps or 0) + 1
+    try:
+        xml_assinado = nfse_nacional.assinar_dps_xml(xml_bytes, pfx_bytes, senha, dps_id)
+    except Exception as e:
+        p.nfse_status = 'erro'
+        p.nfse_erro = f'Erro ao assinar a DPS: {e}'
+        db.session.commit()
+        _notificar_nfse_erro(p, p.nfse_erro)
+        flash(f'Erro ao assinar a nota: {e}', 'danger')
+        return redirect(url_for('ver_proposta', id=id))
+
+    nfse_xml, erro_envio = nfse_nacional.emitir_nfse(xml_assinado, pfx_bytes, senha, ambiente=emp.nfse_ambiente)
+
+    # O número da DPS só é consumido (incrementado) se de fato chegou a ser
+    # enviado -- assim uma falha de assinatura/config não "queima" números.
+    emp.nfse_ultimo_numero_dps = numero_dps_usado
+    db.session.commit()
+
+    if erro_envio:
+        p.nfse_status = 'erro'
+        p.nfse_numero_dps = numero_dps_usado
+        p.nfse_serie_dps = emp.nfse_serie_dps
+        p.nfse_erro = str(erro_envio)
+        db.session.commit()
+        _notificar_nfse_erro(p, str(erro_envio))
+        flash(f'A Sefin Nacional recusou a nota: {erro_envio}', 'danger')
+        return redirect(url_for('ver_proposta', id=id))
+
+    try:
+        from lxml import etree
+        root = etree.fromstring(nfse_xml)
+        ns = {'n': 'http://www.sped.fazenda.gov.br/nfse'}
+        inf_nfse = root.find('.//n:infNFSe', ns)
+        id_nfse = inf_nfse.get('Id') if inf_nfse is not None else ''
+        chave_acesso = id_nfse[3:] if id_nfse.startswith('NFS') else id_nfse
+        n_nfse_el = inf_nfse.find('n:nNFSe', ns) if inf_nfse is not None else None
+        numero_nfse = n_nfse_el.text if n_nfse_el is not None else None
+    except Exception:
+        chave_acesso, numero_nfse = None, None
+
+    p.nfse_status = 'emitida'
+    p.nfse_chave_acesso = chave_acesso
+    p.nfse_numero_dps = numero_dps_usado
+    p.nfse_serie_dps = emp.nfse_serie_dps
+    p.nfse_emitido_em = datetime.now()
+    p.nfse_erro = None
+    db.session.commit()
+
+    _notificar_nfse_sucesso(p, nfse_xml, chave_acesso, numero_nfse)
+    flash(f'Nota fiscal emitida! Chave de acesso: {chave_acesso}', 'success')
+    return redirect(url_for('ver_proposta', id=id))
+
+
+def _notificar_nfse_sucesso(p, nfse_xml_bytes, chave_acesso, numero_nfse):
+    try:
+        from telegram_notify import enviar_mensagem_telegram, enviar_documento_telegram
+        cliente_nome = p.cliente.nome if p.cliente else '?'
+        enviar_mensagem_telegram(
+            f"🧾 *Nota fiscal emitida!*\n\n"
+            f"📄 Proposta: {p.numero}\n"
+            f"👤 Cliente: {cliente_nome}\n"
+            f"🔢 Número NFS-e: {numero_nfse or '?'}\n"
+            f"🔑 Chave de acesso:\n`{chave_acesso}`"
+        )
+        if nfse_xml_bytes:
+            enviar_documento_telegram(
+                nfse_xml_bytes,
+                f"NFSe_{p.numero.replace('-', '_')}.xml",
+                caption=f"XML da NFS-e — {p.numero}"
+            )
+    except Exception as e:
+        logger.warning(f'[NFSE] falha ao notificar Telegram da emissão da proposta {p.numero}: {e}')
+
+
+def _notificar_nfse_erro(p, motivo):
+    try:
+        from telegram_notify import enviar_mensagem_telegram
+        cliente_nome = p.cliente.nome if p.cliente else '?'
+        enviar_mensagem_telegram(
+            f"⚠️ *Erro ao emitir nota fiscal*\n\n"
+            f"📄 Proposta: {p.numero}\n"
+            f"👤 Cliente: {cliente_nome}\n"
+            f"❌ Motivo: {str(motivo)[:500]}"
+        )
+    except Exception as e:
+        logger.warning(f'[NFSE] falha ao notificar Telegram do erro da proposta {p.numero}: {e}')
+
 
 @app.route('/propostas/<int:id>/pdf')
 @login_required
@@ -2341,11 +2476,11 @@ def vincular_mp_licenca_neuradesk(id):
 @login_required
 @super_admin_required
 def admin_integracoes():
-    """Tela pra configurar tokens de integrações externas (hoje: Mercado
-    Pago) sem precisar editar .env no servidor. Valores ficam cifrados
-    no banco -- o formulário nunca mostra o valor salvo de volta, só se
-    já tem algo configurado ou não."""
-    campos = ['MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'INFINITYPAY_HANDLE']
+    """Tela pra configurar tokens de integrações externas (Mercado Pago,
+    InfinitePay, certificado da NFS-e Nacional) sem precisar editar .env
+    no servidor. Valores ficam cifrados no banco -- o formulário nunca
+    mostra o valor salvo de volta, só se já tem algo configurado ou não."""
+    campos = ['MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'INFINITYPAY_HANDLE', 'NFSE_CERTIFICADO_SENHA']
 
     if request.method == 'POST':
         for chave in campos:
@@ -2357,6 +2492,19 @@ def admin_integracoes():
                 reg = Integracao(chave=chave)
                 db.session.add(reg)
             reg.set_valor(valor)
+
+        # Certificado (.pfx) da NFS-e -- arquivo binário, guarda em base64
+        # dentro do mesmo cofre cifrado (Integracao) que os outros segredos.
+        arquivo_pfx = request.files.get('NFSE_CERTIFICADO_PFX')
+        if arquivo_pfx and arquivo_pfx.filename:
+            import base64
+            pfx_b64 = base64.b64encode(arquivo_pfx.read()).decode('ascii')
+            reg = Integracao.query.filter_by(chave='NFSE_CERTIFICADO_PFX_B64').first()
+            if not reg:
+                reg = Integracao(chave='NFSE_CERTIFICADO_PFX_B64')
+                db.session.add(reg)
+            reg.set_valor(pfx_b64)
+
         db.session.commit()
         flash('Integrações atualizadas.', 'success')
         return redirect(url_for('admin_integracoes'))
@@ -2365,7 +2513,23 @@ def admin_integracoes():
     for chave in campos:
         reg = Integracao.query.filter_by(chave=chave).first()
         status[chave] = bool(reg and reg.valor_cifrado)
+    reg_pfx = Integracao.query.filter_by(chave='NFSE_CERTIFICADO_PFX_B64').first()
+    status['NFSE_CERTIFICADO_PFX_B64'] = bool(reg_pfx and reg_pfx.valor_cifrado)
     return render_template('admin_integracoes.html', status=status)
+
+
+def _certificado_nfse_configurado():
+    """Retorna (pfx_bytes, senha) se o certificado da NFS-e já foi
+    configurado em /admin/integracoes, ou (None, None) se não."""
+    import base64
+    pfx_b64 = Integracao.obter('NFSE_CERTIFICADO_PFX_B64', '')
+    senha = Integracao.obter('NFSE_CERTIFICADO_SENHA', '')
+    if not pfx_b64:
+        return None, None
+    try:
+        return base64.b64decode(pfx_b64), senha
+    except Exception:
+        return None, None
 
 
 def _mp_config():

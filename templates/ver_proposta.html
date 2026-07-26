@@ -126,6 +126,10 @@
     <div class="card mb-3"><div class="card-header"><i class="fas fa-handshake"></i>Condições</div><div class="card-body" style="font-size:.84rem">{{ proposta.condicoes }}</div></div>
     {% endif %}
     {% if proposta.status == 'aprovada' %}
+    <a href="{{ url_for('emitir_nfse_proposta', id=proposta.id) }}" class="btn btn-nb w-100 mb-2"
+       style="{% if proposta.nfse_status == 'emitida' %}background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3){% endif %}">
+      <i class="fas fa-file-invoice me-2"></i>{% if proposta.nfse_status == 'emitida' %}Nota Fiscal Emitida{% else %}Emitir Nota Fiscal{% endif %}
+    </a>
     <a href="{{ url_for('nova_os') }}?proposta_id={{ proposta.id }}&cliente_id={{ proposta.cliente_id }}" class="btn btn-nb w-100 mb-2">
       <i class="fas fa-tools me-2"></i>Criar Ordem de Serviço
     </a>

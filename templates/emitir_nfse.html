@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Emitir Nota Fiscal — {{ proposta.numero }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="fas fa-file-invoice me-2" style="color:#00D4FF"></i>Emitir Nota Fiscal</h1>
+  <p><a href="{{ url_for('ver_proposta', id=proposta.id) }}" style="color:var(--nb-muted)">{{ proposta.numero }}</a> › Emitir NFS-e</p>
+</div>
+
+<div class="row">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-info-circle"></i>Dados</div>
+      <div class="card-body">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}{% for cat,msg in messages %}<div class="alert alert-{{ cat }} mb-3">{{ msg }}</div>{% endfor %}{% endif %}
+        {% endwith %}
+
+        {% if proposta.nfse_status == 'emitida' %}
+        <div class="alert alert-success">
+          <i class="fas fa-check-circle me-1"></i>Nota já emitida em {{ proposta.nfse_emitido_em|data if proposta.nfse_emitido_em else '' }}.<br>
+          Chave de acesso: <code style="word-break:break-all">{{ proposta.nfse_chave_acesso }}</code>
+        </div>
+        {% else %}
+        <p class="text-muted" style="font-size:.85rem">
+          Cliente, itens e valores vêm direto do cadastro da proposta -- só preencha a
+          observação (opcional) que quer que apareça na descrição do serviço.
+          {% if proposta.nfse_status == 'erro' %}
+          <br><span class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Última tentativa falhou: {{ proposta.nfse_erro }}</span>
+          {% endif %}
+        </p>
+        <form method="POST">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label">Observação (opcional)</label>
+            <textarea name="observacao" class="form-control" rows="4" placeholder="Ex: Referente à instalação concluída em..."></textarea>
+          </div>
+          <button type="submit" class="btn btn-accent"><i class="fas fa-paper-plane me-2"></i>Emitir Nota Fiscal</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-list"></i>Itens da proposta</div>
+      <div class="card-body p-0">
+        <table class="table mb-0">
+          <tbody>
+            {% for item in proposta.itens %}
+            <tr>
+              <td style="font-weight:500">{{ item.descricao }}</td>
+              <td class="text-center">{{ item.quantidade }}x</td>
+              <td class="text-end">R$ {{ "%.2f"|format(item.quantidade * item.preco_unitario) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
