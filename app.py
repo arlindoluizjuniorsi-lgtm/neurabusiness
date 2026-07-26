@@ -884,40 +884,77 @@ def proposta_publica(token):
     # Token expirado só bloqueia se a proposta ainda não foi aprovada
     if p.token_expira_em and p.token_expira_em < datetime.now() and p.status not in ('aprovada',):
         return render_template('link_expirado.html'), 410
+    # Cliente voltando do checkout da InfinitePay (redirect_url) -- eles não
+    # documentam assinatura de webhook, então confirmamos de verdade
+    # perguntando pro payment_check deles com os IDs que vieram na URL, em
+    # vez de confiar direto nos parâmetros (que o próprio navegador manda e
+    # poderiam ser adulterados).
+    transaction_nsu = request.args.get('transaction_nsu')
+    slug = request.args.get('slug')
+    if transaction_nsu and slug and p.infinitypay_link:
+        _infinitypay_confirmar_pagamento(p, transaction_nsu, slug)
     emp = Empresa.query.get(p.empresa_id)
     total_itens = sum(i.quantidade * i.preco_unitario for i in p.itens)
     custo_extra = (p.custo_locomocao or 0)+(p.custo_alimentacao or 0)+(p.custo_outros or 0)
+    restante = _valor_restante_proposta(p) if p.status == 'aprovada' else None
     return render_template('proposta_publica.html', proposta=p, empresa=emp,
                            itens=p.itens, total=total_itens+custo_extra,
-                           total_itens=total_itens, logo_b64=logo_b64)
+                           total_itens=total_itens, logo_b64=logo_b64, restante=restante)
 
 @app.route('/proposta/premium/<token>')
 def proposta_premium_pub(token):
     p = Proposta.query.filter_by(token_publico=token).first_or_404()
     if p.token_expira_em and p.token_expira_em < datetime.now():
         return render_template('link_expirado.html'), 410
+    transaction_nsu = request.args.get('transaction_nsu')
+    slug = request.args.get('slug')
+    if transaction_nsu and slug and p.infinitypay_link:
+        _infinitypay_confirmar_pagamento(p, transaction_nsu, slug)
     emp = Empresa.query.get(p.empresa_id)
     total_itens = sum(i.quantidade * i.preco_unitario for i in p.itens)
     custo_extra = (p.custo_locomocao or 0)+(p.custo_alimentacao or 0)+(p.custo_outros or 0)
+    restante = _valor_restante_proposta(p) if p.status == 'aprovada' else None
     return render_template('proposta_premium.html', proposta=p, empresa=emp,
                            itens=p.itens, total=total_itens+custo_extra,
-                           total_itens=total_itens, anexos=p.anexos, logo_b64=logo_b64)
+                           total_itens=total_itens, anexos=p.anexos, logo_b64=logo_b64, restante=restante)
 
-def _gerar_link_pagamento_mp(p):
+def _valor_total_proposta(p):
+    total_itens = sum(i.quantidade * i.preco_unitario for i in p.itens)
+    custo_extra = (p.custo_locomocao or 0) + (p.custo_alimentacao or 0) + (p.custo_outros or 0)
+    return round(total_itens + custo_extra, 2)
+
+
+def _valor_restante_proposta(p):
+    """Quanto ainda falta o cliente pagar no total (independente do
+    percentual escolhido na assinatura) -- usado na tela pública quando
+    ele volta pra pagar o saldo depois de já ter pago o sinal."""
+    return max(round(_valor_total_proposta(p) - (p.valor_pago or 0), 2), 0)
+
+
+def _gerar_link_pagamento_mp(p, forcar_valor=None, descricao=None):
     """Cria uma Preferência de Checkout Pro (Pix+cartão+boleto no mesmo
     link) pra proposta recém-assinada, e salva o link direto nela. Nunca
     levanta exceção -- se o MP falhar ou não estiver configurado, a
-    aprovação da proposta segue normalmente, só sem o link de pagamento."""
+    aprovação da proposta segue normalmente, só sem o link de pagamento.
+
+    `forcar_valor`/`descricao`: quando informado, gera o link com um único
+    item nesse valor (usado pro sinal de 50% ou pro saldo restante) em vez
+    de itemizar a proposta inteira."""
     try:
         mp = _mp_config()
         if not mp['access_token']:
             return
-        itens = [{'titulo': i.descricao, 'quantidade': i.quantidade, 'valor_unitario': i.preco_unitario}
-                  for i in p.itens]
-        custo_extra = (p.custo_locomocao or 0) + (p.custo_alimentacao or 0) + (p.custo_outros or 0)
-        if custo_extra:
-            itens.append({'titulo': 'Custos adicionais (locomoção/alimentação/outros)',
-                           'quantidade': 1, 'valor_unitario': custo_extra})
+        if forcar_valor is not None:
+            if forcar_valor <= 0:
+                return
+            itens = [{'titulo': descricao or f'Proposta {p.numero}', 'quantidade': 1, 'valor_unitario': forcar_valor}]
+        else:
+            itens = [{'titulo': i.descricao, 'quantidade': i.quantidade, 'valor_unitario': i.preco_unitario}
+                      for i in p.itens]
+            custo_extra = (p.custo_locomocao or 0) + (p.custo_alimentacao or 0) + (p.custo_outros or 0)
+            if custo_extra:
+                itens.append({'titulo': 'Custos adicionais (locomoção/alimentação/outros)',
+                               'quantidade': 1, 'valor_unitario': custo_extra})
         if not itens:
             return
         back_url = url_for('proposta_publica', token=p.token_publico, _external=True)
@@ -939,28 +976,38 @@ def _gerar_link_pagamento_mp(p):
         logger.error(f'[PAGAMENTO] erro inesperado gerando link de pagamento pra proposta {p.numero}: {e}')
 
 
-def _gerar_link_pagamento_infinitypay(p):
+def _gerar_link_pagamento_infinitypay(p, forcar_valor=None, descricao=None):
     """Mesma ideia da preferência do MP, mas via link de pagamento da
     InfinitePay. Também nunca levanta exceção -- fica inerte enquanto
     INFINITYPAY_HANDLE não estiver configurado em /admin/integracoes.
-    O Checkout Integrado da InfinitePay não usa API key/token."""
+    O Checkout Integrado da InfinitePay não usa API key/token.
+
+    `forcar_valor`/`descricao`: mesma ideia do MP acima (sinal ou saldo
+    restante em vez da proposta itemizada)."""
     try:
         handle = Integracao.obter('INFINITYPAY_HANDLE', '')
         if not handle:
             return
-        itens = [{'titulo': i.descricao, 'quantidade': i.quantidade, 'valor_unitario': i.preco_unitario}
-                  for i in p.itens]
-        custo_extra = (p.custo_locomocao or 0) + (p.custo_alimentacao or 0) + (p.custo_outros or 0)
-        if custo_extra:
-            itens.append({'titulo': 'Custos adicionais (locomoção/alimentação/outros)',
-                           'quantidade': 1, 'valor_unitario': custo_extra})
+        if forcar_valor is not None:
+            if forcar_valor <= 0:
+                return
+            itens = [{'titulo': descricao or f'Proposta {p.numero}', 'quantidade': 1, 'valor_unitario': forcar_valor}]
+        else:
+            itens = [{'titulo': i.descricao, 'quantidade': i.quantidade, 'valor_unitario': i.preco_unitario}
+                      for i in p.itens]
+            custo_extra = (p.custo_locomocao or 0) + (p.custo_alimentacao or 0) + (p.custo_outros or 0)
+            if custo_extra:
+                itens.append({'titulo': 'Custos adicionais (locomoção/alimentação/outros)',
+                               'quantidade': 1, 'valor_unitario': custo_extra})
         if not itens:
             return
         redirect_url = url_for('proposta_publica', token=p.token_publico, _external=True)
+        webhook_url = url_for('webhook_infinitypay', _external=True)
         link, erro = infinitypay_integracao.criar_link_pagamento(
             handle, itens,
             order_nsu=p.numero,
             redirect_url=redirect_url,
+            webhook_url=webhook_url,
         )
         if erro:
             logger.error(f'[PAGAMENTO] erro gerando link InfinitePay pra proposta {p.numero}: {erro}')
@@ -1024,8 +1071,22 @@ def aprovar_proposta_publico(id, token):
         except Exception as e:
             logger.error(f'[CONTRATO] erro gerando/assinando contrato automatico da proposta {p.numero}: {e}')
 
-    _gerar_link_pagamento_mp(p)
-    _gerar_link_pagamento_infinitypay(p)
+    # Opção de pagar só o sinal (50%) em vez do valor total -- perguntada
+    # na própria tela de assinatura, antes de gerar o link de pagamento.
+    opcao_pagamento = request.form.get('opcao_pagamento', 'total').strip()
+    p.pagamento_percentual = 50 if opcao_pagamento == 'sinal' else 100
+    p.status_pagamento = p.status_pagamento or 'pendente'
+    db.session.commit()
+
+    if p.pagamento_percentual == 50:
+        valor_cobranca = round(_valor_total_proposta(p) * 0.5, 2)
+        descricao_cobranca = f'Sinal (50%) — Proposta {p.numero}'
+    else:
+        valor_cobranca = None
+        descricao_cobranca = None
+
+    _gerar_link_pagamento_mp(p, forcar_valor=valor_cobranca, descricao=descricao_cobranca)
+    _gerar_link_pagamento_infinitypay(p, forcar_valor=valor_cobranca, descricao=descricao_cobranca)
 
     # Encaminha direto pro link de pagamento assim que ele existir --
     # prioriza Mercado Pago (integracao mais testada) e cai pro InfinitePay
@@ -1035,6 +1096,36 @@ def aprovar_proposta_publico(id, token):
         return redirect(destino_pagamento)
 
     flash('Proposta aprovada e assinada!','success')
+    return redirect(url_for('proposta_publica', token=token))
+
+
+@app.route('/propostas/<int:id>/pagar-restante/<token>/<gateway>')
+def pagar_restante_publico(id, token, gateway):
+    """Usado quando o cliente pagou só o sinal (50%) e volta no link da
+    proposta depois pra quitar o restante -- gera um link novo (MP ou
+    InfinitePay) só com o saldo que falta, com base no que o webhook já
+    confirmou como pago."""
+    p = Proposta.query.filter_by(id=id, token_publico=token).first_or_404()
+    if p.status != 'aprovada':
+        return redirect(url_for('proposta_publica', token=token))
+    restante = _valor_restante_proposta(p)
+    if restante <= 0:
+        flash('Esta proposta já está totalmente paga.', 'success')
+        return redirect(url_for('proposta_publica', token=token))
+    p.pagamento_percentual = 100  # a partir de agora o alvo passa a ser o valor total
+    db.session.commit()
+    descricao = f'Restante — Proposta {p.numero}'
+    if gateway == 'mp':
+        _gerar_link_pagamento_mp(p, forcar_valor=restante, descricao=descricao)
+        destino = p.mp_init_point
+    elif gateway == 'infinitypay':
+        _gerar_link_pagamento_infinitypay(p, forcar_valor=restante, descricao=descricao)
+        destino = p.infinitypay_link
+    else:
+        destino = None
+    if destino:
+        return redirect(destino)
+    flash('Não consegui gerar o link de pagamento agora. Tente novamente em instantes.', 'danger')
     return redirect(url_for('proposta_publica', token=token))
 
 # ─── ORDENS DE SERVIÇO ─────────────────────────────────────────────────────────
@@ -2336,8 +2427,19 @@ def _mp_processar_pagamento(payment_id, mp):
         logger.warning(f'[MP-WEBHOOK] não consegui buscar o pagamento {payment_id} na API do MP')
         return
 
-    chave = (pagamento.get('external_reference') or '').strip().upper()
+    chave = (pagamento.get('external_reference') or '').strip()
     status = pagamento.get('status')
+
+    # Pagamento de uma proposta comercial do Creative (numero tipo
+    # NB-202607-0009) -- checa antes da licença, que usa outro formato de
+    # chave (NRDK-...).
+    p = Proposta.query.filter_by(numero=chave).first()
+    if p:
+        if status == 'approved':
+            _mp_registrar_pagamento_proposta(p, payment_id, pagamento)
+        return
+
+    chave = chave.upper()
     lic = LicencaNeuraDesk.query.filter_by(chave=chave).first()
     if not lic:
         logger.warning(f'[MP-WEBHOOK] pagamento {payment_id} aprovado mas referencia licença desconhecida: {chave!r}')
@@ -2363,6 +2465,104 @@ def _mp_processar_pagamento(payment_id, mp):
         lic.mp_ultimo_pagamento_id = str(payment_id)
 
     db.session.commit()
+
+
+def _mp_registrar_pagamento_proposta(p, payment_id, pagamento):
+    """Confirma pagamento (MP) de uma proposta comercial do Creative --
+    soma o valor pago (cobre tanto o sinal de 50% quanto o saldo pago
+    depois) e marca pendente/parcial/pago."""
+    if p.mp_payment_id == str(payment_id):
+        # notificação duplicada do mesmo pagamento -- MP reenvia quando
+        # não recebe 200 a tempo. Não soma de novo.
+        return
+    valor = float(pagamento.get('transaction_amount') or 0)
+    _registrar_pagamento_proposta(p, valor, str(payment_id))
+
+
+def _registrar_pagamento_proposta(p, valor, referencia_pagamento):
+    """Soma `valor` ao total já confirmado da proposta, atualiza
+    status_pagamento (parcial/pago) e notifica Arlindo via Telegram. Usado
+    tanto pelo webhook do MP quanto pela verificação de pagamento da
+    InfinitePay. `referencia_pagamento` é só pra deduplicar notificações
+    repetidas do mesmo pagamento (payment_id do MP ou transaction_nsu da
+    InfinitePay) -- reaproveita a coluna mp_payment_id pra isso."""
+    if valor <= 0:
+        return
+    p.valor_pago = round((p.valor_pago or 0) + valor, 2)
+    p.mp_payment_id = referencia_pagamento
+    p.pago_em = datetime.now()
+    total = _valor_total_proposta(p)
+    p.status_pagamento = 'pago' if p.valor_pago >= total - 0.01 else 'parcial'
+    db.session.commit()
+    _notificar_pagamento_proposta(p, valor)
+
+
+def _notificar_pagamento_proposta(p, valor):
+    try:
+        from telegram_notify import enviar_mensagem_telegram
+        from ia_assistente import fmt
+        cliente_nome = p.cliente.nome if p.cliente else '?'
+        total = _valor_total_proposta(p)
+        status_txt = 'PAGO INTEGRALMENTE ✅' if p.status_pagamento == 'pago' else 'PARCIAL — falta receber o restante'
+        enviar_mensagem_telegram(
+            f"💰 *Pagamento confirmado!*\n\n"
+            f"📄 Proposta: {p.numero}\n"
+            f"👤 Cliente: {cliente_nome}\n"
+            f"💵 Valor recebido agora: {fmt(valor)}\n"
+            f"📊 Total pago: {fmt(p.valor_pago)} de {fmt(total)}\n"
+            f"📌 Status: {status_txt}"
+        )
+    except Exception as e:
+        logger.warning(f'[PAGAMENTO] falha ao notificar Telegram do pagamento da proposta {p.numero}: {e}')
+
+
+def _infinitypay_confirmar_pagamento(p, transaction_nsu, slug):
+    """Confirma de fato (via payment_check, servidor a servidor) um
+    pagamento InfinitePay antes de marcar a proposta como paga -- nunca
+    confia direto em parâmetros vindos do navegador ou de um webhook sem
+    assinatura verificável."""
+    try:
+        handle = Integracao.obter('INFINITYPAY_HANDLE', '')
+        if not handle:
+            return
+        if p.mp_payment_id == str(transaction_nsu):
+            return  # já processado
+        dados, erro = infinitypay_integracao.verificar_pagamento(handle, p.numero, transaction_nsu, slug)
+        if erro or not dados:
+            logger.warning(f'[INFINITYPAY] payment_check falhou pra proposta {p.numero}: {erro}')
+            return
+        aprovado = dados.get('paid') is True or str(dados.get('status', '')).lower() in ('paid', 'approved', 'success')
+        if not aprovado:
+            return
+        valor_centavos = dados.get('amount') or dados.get('paid_amount')
+        valor = round(float(valor_centavos) / 100, 2) if valor_centavos else _valor_restante_proposta(p)
+        _registrar_pagamento_proposta(p, valor, str(transaction_nsu))
+    except Exception as e:
+        logger.error(f'[INFINITYPAY] erro confirmando pagamento da proposta {p.numero}: {e}')
+
+
+@app.route('/webhook/infinitypay', methods=['POST'])
+@csrf.exempt
+def webhook_infinitypay():
+    """Recebe a notificação de pagamento aprovado da InfinitePay. A
+    InfinitePay não documenta um esquema de assinatura pra esse webhook
+    (diferente do MP), então NUNCA confiamos direto no corpo -- só usamos
+    ele como gatilho pra perguntar de verdade pro payment_check deles com
+    os identificadores recebidos; só marca como pago se a própria API da
+    InfinitePay confirmar."""
+    body = request.get_json(silent=True) or {}
+    order_nsu = body.get('order_nsu') or body.get('nsu')
+    transaction_nsu = body.get('transaction_nsu')
+    slug = body.get('slug')
+    if not order_nsu or not transaction_nsu or not slug:
+        return jsonify({'ok': True}), 200
+    try:
+        p = Proposta.query.filter_by(numero=str(order_nsu)).first()
+        if p:
+            _infinitypay_confirmar_pagamento(p, transaction_nsu, slug)
+    except Exception as e:
+        logger.error(f'[INFINITYPAY-WEBHOOK] erro processando order_nsu {order_nsu}: {e}')
+    return jsonify({'ok': True}), 200
 
 
 def _mp_processar_preapproval(preapproval_id, mp):

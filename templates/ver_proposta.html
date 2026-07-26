@@ -72,6 +72,18 @@
         {% if proposta.forma_pagamento %}
         <div class="mt-3" style="font-size:.84rem"><i class="fas fa-money-bill me-1" style="color:#10B981"></i><b>Pagamento:</b> {{ proposta.forma_pagamento }}</div>
         {% endif %}
+        {% if proposta.status == 'aprovada' %}
+        <div class="mt-3" style="font-size:.84rem">
+          <i class="fas fa-hand-holding-usd me-1" style="color:#10B981"></i><b>Cobrança:</b>
+          {% if proposta.status_pagamento == 'pago' %}
+          <span class="badge" style="background:#10B981">Pago — R$ {{ "%.2f"|format(proposta.valor_pago or 0) }}</span>
+          {% elif proposta.status_pagamento == 'parcial' %}
+          <span class="badge" style="background:#f97316">Parcial — R$ {{ "%.2f"|format(proposta.valor_pago or 0) }} de R$ {{ "%.2f"|format(total) }}</span>
+          {% else %}
+          <span class="badge" style="background:#64748b">Aguardando pagamento</span>
+          {% endif %}
+        </div>
+        {% endif %}
       </div>
     </div>
     <div class="card">

@@ -275,7 +275,23 @@ input[type=text]::placeholder{color:#475569}
       {% endif %}
     </div>
     {% endif %}
-    {% if proposta.mp_init_point or proposta.infinitypay_link %}
+    {% if proposta.status_pagamento == 'pago' %}
+    <div style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35);border-radius:10px;padding:16px 20px;max-width:480px;margin:18px auto 0">
+      <div style="font-weight:700;color:#10B981;font-size:.95rem"><i class="fas fa-check-circle me-2"></i>Pagamento confirmado — obrigado!</div>
+      <div style="font-size:.78rem;color:#94a3b8;margin-top:4px">Valor pago: R$ {{ "%.2f"|format(proposta.valor_pago or 0) }}</div>
+    </div>
+    {% elif proposta.status_pagamento == 'parcial' and restante %}
+    <div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:10px;padding:18px 20px;max-width:480px;margin:18px auto 0">
+      <div style="font-weight:700;color:#e2e8f0;font-size:.95rem;margin-bottom:4px"><i class="fas fa-hourglass-half me-2" style="color:#10B981"></i>Sinal recebido — falta o restante</div>
+      <div style="font-size:.8rem;color:#94a3b8;margin-bottom:14px">Já pago: R$ {{ "%.2f"|format(proposta.valor_pago or 0) }} &middot; Restante: <b style="color:#e2e8f0">R$ {{ "%.2f"|format(restante) }}</b></div>
+      <a href="{{ url_for('pagar_restante_publico', id=proposta.id, token=proposta.token_publico, gateway='mp') }}" style="display:block;background:linear-gradient(135deg,#10B981,#059669);color:#fff;text-decoration:none;font-weight:700;border-radius:8px;padding:12px;margin-bottom:8px">
+        <i class="fas fa-lock me-2"></i>Pagar restante com Mercado Pago
+      </a>
+      <a href="{{ url_for('pagar_restante_publico', id=proposta.id, token=proposta.token_publico, gateway='infinitypay') }}" style="display:block;background:#fff;color:#059669;text-decoration:none;font-weight:700;border-radius:8px;padding:12px;border:1.5px solid #10B981">
+        <i class="fas fa-lock me-2"></i>Pagar restante com InfinitePay
+      </a>
+    </div>
+    {% elif proposta.mp_init_point or proposta.infinitypay_link %}
     <div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:10px;padding:18px 20px;max-width:480px;margin:18px auto 0">
       <div style="font-weight:700;color:#e2e8f0;font-size:.95rem;margin-bottom:4px"><i class="fas fa-credit-card me-2" style="color:#10B981"></i>Pagamento</div>
       <div style="font-size:.8rem;color:#94a3b8;margin-bottom:14px">Pix, cartão ou boleto — escolha na tela de pagamento.</div>
@@ -308,6 +324,17 @@ input[type=text]::placeholder{color:#475569}
         <div class="mb-3 text-start">
           <label style="font-size:.75rem;font-weight:700;color:#374151;display:block;margin-bottom:6px">CPF *</label>
           <input type="text" name="cpf_assinatura" required placeholder="000.000.000-00" maxlength="14" oninput="fmtCpf(this)">
+        </div>
+        <div class="mb-3 text-start">
+          <label style="font-size:.75rem;font-weight:700;color:#374151;display:block;margin-bottom:8px">Como prefere pagar?</label>
+          <label style="display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.2);border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer">
+            <input type="radio" name="opcao_pagamento" value="total" checked style="width:auto">
+            <span style="font-size:.82rem;color:#e2e8f0">Pagar o valor total agora — R$ {{ "%.2f"|format(total) }}</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.2);border-radius:8px;padding:10px 12px;cursor:pointer">
+            <input type="radio" name="opcao_pagamento" value="sinal" style="width:auto">
+            <span style="font-size:.82rem;color:#e2e8f0">Pagar só o sinal (50%) agora — R$ {{ "%.2f"|format(total * 0.5) }}, restante depois</span>
+          </label>
         </div>
         <div style="background:rgba(0,0,0,.2);border-radius:8px;padding:10px 14px;font-size:.72rem;color:#64748b;text-align:left;margin-bottom:16px;line-height:1.6">
           <i class="fas fa-shield-alt me-1" style="color:#10B981"></i>

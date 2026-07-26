@@ -175,6 +175,17 @@ class Proposta(db.Model):
     infinitypay_link      = db.Column(db.String(500))
     link_pagamento_gerado_em = db.Column(db.DateTime)
 
+    # Confirmacao de pagamento (webhook MP / verificacao InfinitePay).
+    # status_pagamento: pendente (nada confirmado) | parcial (sinal pago) | pago (total confirmado)
+    status_pagamento      = db.Column(db.String(20), default='pendente')
+    valor_pago            = db.Column(db.Float, default=0)
+    # 50 (cliente optou por pagar so o sinal) ou 100 (integral) -- escolhido
+    # na propria assinatura publica; some para 100 quando o cliente decide
+    # pagar o restante depois.
+    pagamento_percentual  = db.Column(db.Integer)
+    mp_payment_id         = db.Column(db.String(50))
+    pago_em               = db.Column(db.DateTime)
+
     itens   = db.relationship('ItemProposta', backref='proposta', lazy=True,
                   cascade='all, delete-orphan')
     anexos  = db.relationship('ProjetoAnexo', backref='proposta', lazy=True,

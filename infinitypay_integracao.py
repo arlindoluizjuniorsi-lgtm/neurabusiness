@@ -59,3 +59,32 @@ def criar_link_pagamento(handle, itens, order_nsu, redirect_url,
     if not link:
         return None, {'message': 'resposta da InfinitePay sem link reconhecível', 'raw': dados}
     return link, None
+
+
+def verificar_pagamento(handle, order_nsu, transaction_nsu, slug, timeout=15):
+    """Consulta POST /payment_check -- alternativa ao webhook pra confirmar
+    se um pagamento foi mesmo aprovado. Usado tanto quando o cliente volta
+    do checkout pro redirect_url (que traz transaction_nsu/slug na URL)
+    quanto quando o webhook chega, pra nao confiar cegamente no corpo do
+    webhook (a InfinitePay nao documenta um esquema de assinatura pra ele,
+    entao qualquer um poderia forjar um POST -- so confirmamos de fato
+    perguntando pra API deles com os identificadores recebidos)."""
+    try:
+        r = requests.post(
+            f'{INFINITYPAY_API_BASE}/payment_check',
+            headers={'Content-Type': 'application/json'},
+            json={
+                'handle': handle,
+                'order_nsu': str(order_nsu),
+                'transaction_nsu': transaction_nsu,
+                'slug': slug,
+            },
+            timeout=timeout,
+        )
+    except requests.RequestException as e:
+        return None, {'message': str(e)}
+
+    dados = r.json() if r.content else {}
+    if r.status_code != 200:
+        return None, dados
+    return dados, None
