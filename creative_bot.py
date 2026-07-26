@@ -13,7 +13,8 @@ from ia_assistente import executar_comando, interpretar_produto_imagem, cadastra
 
 (MENU,CLIENTE,NC_NOME,NC_TEL,SERVICO,PRODUTO,QTD,PRECO,MAIS,
  PERGUNTA_ETAPAS,ETAPA_TITULO,ETAPA_DIAS,VALIDADE,PAGAMENTO,CONFIRMAR,
- IA_AGUARDA,IA_CORRECAO,IA_CONFIRMAR,IA_TEL,IA_CADASTRAR_CLIENTE)=range(20)
+ IA_AGUARDA,IA_CORRECAO,IA_CONFIRMAR,IA_TEL,IA_CADASTRAR_CLIENTE,
+ CAD_CLIENTE_NOME,CAD_CLIENTE_TEL)=range(22)
 
 def get_emp():
     with app.app_context():
@@ -60,13 +61,16 @@ def carregar_catalogo():
 async def start(u:Update,c:ContextTypes.DEFAULT_TYPE):
     c.user_data.clear()
     await u.message.reply_text(
-        f"👋 Olá *{u.effective_user.first_name}*!\n\nComo deseja criar a proposta?",
+        f"👋 Olá *{u.effective_user.first_name}*!\n\nO que deseja fazer?",
         parse_mode='Markdown',
-        reply_markup=kb(["📋 Nova Proposta Manual","🎤 Falar com a IA","❌ Cancelar"],1))
+        reply_markup=kb(["📋 Nova Proposta Manual","🎤 Falar com a IA","👤 Cadastrar Cliente","❌ Cancelar"],1))
     return MENU
 
 async def menu(u:Update,c:ContextTypes.DEFAULT_TYPE):
     txt = u.message.text
+    if "Cadastrar Cliente" in txt:
+        await u.message.reply_text("👤 *Nome completo do cliente:*", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+        return CAD_CLIENTE_NOME
     if "Manual" in txt:
         c.user_data['itens']=[];c.user_data['etapas']=[]
         return await listar_clientes(u,c)
@@ -110,6 +114,24 @@ async def nc_tel(u:Update,c:ContextTypes.DEFAULT_TYPE):
         emp=get_emp();x=Cliente(empresa_id=emp.id,nome=c.user_data['nc_nome'],telefone=u.message.text.strip(),tipo='PF')
         db.session.add(x);db.session.commit();c.user_data['cliente']={'id':x.id,'nome':x.nome}
     await u.message.reply_text(f"✅ *{c.user_data['nc_nome']}* cadastrado!",parse_mode='Markdown');return await listar_servicos(u,c)
+
+# ══════════════════════ CADASTRO MANUAL DE CLIENTE (fora do fluxo de proposta) ══════════════════════
+async def cad_cliente_nome(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    c.user_data['cad_cliente_nome']=u.message.text.strip()
+    await u.message.reply_text("📱 *WhatsApp do cliente* (ou digite *pular*):",parse_mode='Markdown')
+    return CAD_CLIENTE_TEL
+
+async def cad_cliente_tel(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    txt=u.message.text.strip()
+    telefone=None if txt.lower() in ('pular','-','') else txt
+    with app.app_context():
+        emp=get_emp()
+        x=Cliente(empresa_id=emp.id,nome=c.user_data['cad_cliente_nome'],telefone=telefone,tipo='PF')
+        db.session.add(x);db.session.commit()
+    msg=f"✅ *{c.user_data['cad_cliente_nome']}* cadastrado" + (f" ({telefone})" if telefone else "") + "!"
+    await u.message.reply_text(msg,parse_mode='Markdown',
+        reply_markup=kb(["📋 Nova Proposta Manual","🎤 Falar com a IA","👤 Cadastrar Cliente","❌ Cancelar"],1))
+    return MENU
 
 async def listar_servicos(u:Update,c:ContextTypes.DEFAULT_TYPE):
     _, servicos_opts, _ = carregar_catalogo()
@@ -323,22 +345,38 @@ async def processar_mensagem(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=Tru
             if not resultado_img:
                 await u.message.reply_text("❌ Não consegui analisar essa imagem agora. Tente de novo.")
                 return estado_atual
-            if not resultado_img.get('encontrado'):
+            if not resultado_img.get('encontrado') or not resultado_img.get('produtos'):
                 await u.message.reply_text(
-                    "🤔 " + (resultado_img.get('motivo') or "Não identifiquei um produto com preço claro nessa imagem."))
+                    "🤔 " + (resultado_img.get('motivo') or "Não identifiquei nenhum produto com preço claro nessa imagem."))
                 return estado_atual
-            if not resultado_img.get('nome') or resultado_img.get('preco_venda') is None:
-                await u.message.reply_text("🤔 Identifiquei a imagem, mas faltou nome ou preço pra cadastrar. Pode me dizer por texto?")
-                return estado_atual
+
+            ajuste = resultado_img.get('ajuste_percentual')
             emp = get_emp()
-            msg_cadastro = await asyncio.to_thread(
-                cadastrar_produto, emp.id, resultado_img['nome'], resultado_img['preco_venda'],
-                resultado_img.get('preco_custo'), resultado_img.get('categoria'),
-                resultado_img.get('descricao'), resultado_img.get('estoque'))
-            detalhes = f"\n\n📋 _Identificado na imagem:_ {resultado_img.get('descricao') or '-'}"
-            if resultado_img.get('categoria'):
-                detalhes += f"\n🏷️ Categoria: {resultado_img['categoria']}"
-            await u.message.reply_text(msg_cadastro + detalhes, parse_mode='Markdown')
+            linhas = []
+            for item in resultado_img['produtos'][:30]:
+                nome = item.get('nome')
+                preco_extraido = item.get('preco_extraido')
+                if not nome or preco_extraido is None:
+                    continue
+                if ajuste:
+                    preco_custo = float(preco_extraido)
+                    preco_venda = round(preco_custo * (1 + float(ajuste) / 100), 2)
+                else:
+                    preco_custo = None
+                    preco_venda = float(preco_extraido)
+                msg_cadastro = await asyncio.to_thread(
+                    cadastrar_produto, emp.id, nome, preco_venda, preco_custo,
+                    item.get('categoria'), item.get('descricao'), item.get('estoque'))
+                if preco_custo is not None:
+                    msg_cadastro += f" _(custo {fmt(preco_custo)} + {ajuste:g}%)_"
+                linhas.append(msg_cadastro)
+
+            if not linhas:
+                await u.message.reply_text("🤔 Identifiquei a imagem, mas nenhum produto tinha nome e preço suficientes pra cadastrar.")
+                return estado_atual
+
+            cabecalho = f"📦 *{len(linhas)} produto(s) cadastrado(s) da imagem:*\n\n" if len(linhas) > 1 else ""
+            await u.message.reply_text(cabecalho + "\n".join(linhas), parse_mode='Markdown')
         except Exception as e:
             await u.message.reply_text(f"❌ Erro processando a imagem: {e}")
         return estado_atual
@@ -378,10 +416,18 @@ async def processar_mensagem(u:Update, c:ContextTypes.DEFAULT_TYPE, primeiro=Tru
     if resultado.get('tipo') == 'acao':
         comando = resultado.get('comando') or texto_msg or ''
         emp = get_emp()
-        resposta_ia = await asyncio.to_thread(executar_comando, comando, emp.id)
-        await u.message.reply_text(
-            resposta_ia or "❌ Não consegui executar esse comando agora. Tente de novo.",
-            parse_mode='Markdown')
+        texto_resposta, ricos = await asyncio.to_thread(executar_comando, comando, emp.id)
+        for rico in ricos:
+            if rico.get('_tipo_especial') == 'reenvio_proposta':
+                await u.message.reply_text(f"🔄 *Reenviando a proposta {rico['numero']} (atualizada)...*", parse_mode='Markdown')
+                await u.message.reply_text(rico['mensagem_cliente'])
+                pdf_io = io.BytesIO(rico['pdf_bytes']); pdf_io.name = rico['pdf_nome']
+                await u.message.reply_document(document=pdf_io, filename=pdf_io.name,
+                    caption=f"📎 PDF da proposta {rico['numero']}")
+        if texto_resposta:
+            await u.message.reply_text(texto_resposta, parse_mode='Markdown')
+        elif not ricos:
+            await u.message.reply_text("❌ Não consegui executar esse comando agora. Tente de novo.")
         return estado_atual
 
     # ── tipo == proposta ──
@@ -571,6 +617,8 @@ def main():
             IA_CORRECAO:[MessageHandler(filters.VOICE|filters.AUDIO|filters.TEXT|filters.PHOTO,ia_correcao)],
             IA_CONFIRMAR:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_confirmar)],
             IA_TEL:[MessageHandler(filters.TEXT&~filters.COMMAND,ia_tel)],
+            CAD_CLIENTE_NOME:[MessageHandler(filters.TEXT&~filters.COMMAND,cad_cliente_nome)],
+            CAD_CLIENTE_TEL:[MessageHandler(filters.TEXT&~filters.COMMAND,cad_cliente_tel)],
         },
         fallbacks=[CommandHandler('cancelar',cancelar)],allow_reentry=True)
     app_bot.add_handler(conv)

@@ -51,8 +51,10 @@ Primeiro decida o TIPO da mensagem:
 - "acao": um comando de gestão do sistema -- consultar dados (mostrar/listar propostas,
   clientes, produtos, serviços, resumo geral) ou alterar dados já existentes (cadastrar
   cliente/produto/serviço novo, editar proposta/cliente/produto/serviço existente, adicionar
-  ou remover item de uma proposta). Qualquer coisa do tipo "mostra minhas propostas", "quais
-  clientes eu tenho", "cadastra um produto X por Y reais", "muda o telefone do fulano" etc.
+  ou remover item de uma proposta, REENVIAR o link/PDF/apresentação de uma proposta já
+  existente). Qualquer coisa do tipo "mostra minhas propostas", "quais clientes eu tenho",
+  "cadastra um produto X por Y reais", "muda o telefone do fulano", "reenvia a proposta
+  NB-202607-0009", "manda de novo o PDF do fulano" etc.
 - "pergunta": qualquer outra coisa -- cálculo, dúvida, pergunta geral relacionada ao trabalho,
   que não seja nem criar proposta nova nem uma ação de gestão sobre dado já cadastrado.
 

@@ -353,49 +353,125 @@ def remover_item_proposta(empresa_id, numero, nome_item):
         return f"✅ Removido *{nome_removido}* da proposta {numero}."
 
 
+def reenviar_proposta(empresa_id, numero_ou_cliente):
+    """Regera o PDF (com os dados atuais da proposta -- reflete qualquer
+    edicao feita depois da criacao) e a mensagem de apresentacao, pra
+    reenviar pro usuario o mesmo pacote que ele recebe quando cria uma
+    proposta nova (link + PDF + texto pronto pro cliente). Retorna um
+    dict especial (nao string) que o bot do Telegram sabe reconhecer e
+    enviar como documento -- ver creative_bot.py."""
+    from app import app
+    from models import Proposta, Empresa
+    from pdf_generator import gerar_proposta_pdf
+    with app.app_context():
+        termo = (numero_ou_cliente or '').strip()
+        p = Proposta.query.filter_by(empresa_id=empresa_id, numero=termo).first()
+        if not p:
+            propostas = Proposta.query.filter_by(empresa_id=empresa_id) \
+                .order_by(Proposta.criado_em.desc()).all()
+            candidatas = [pp for pp in propostas if pp.cliente and termo.lower() in pp.cliente.nome.lower()]
+            if candidatas:
+                p = candidatas[0]
+        if not p:
+            return f"Não encontrei nenhuma proposta com '{numero_ou_cliente}'."
+
+        emp = Empresa.query.get(empresa_id)
+        itens_pdf = [{'descricao': i.descricao, 'quantidade': i.quantidade,
+                      'preco_unitario': i.preco_unitario, 'tipo': i.tipo} for i in p.itens]
+        etapas_pdf = [{'titulo': e.titulo, 'descricao': e.descricao, 'duracao_dias': e.duracao_dias}
+                      for e in sorted(p.etapas, key=lambda x: x.ordem)] if p.etapas else []
+        emp_dict = {col.name: getattr(emp, col.name) for col in emp.__table__.columns}
+        p_dict = {col.name: getattr(p, col.name) for col in p.__table__.columns}
+        cli_dict = {col.name: getattr(p.cliente, col.name) for col in p.cliente.__table__.columns} if p.cliente else {}
+        pdf_buf = gerar_proposta_pdf(p_dict, emp_dict, cli_dict, itens_pdf, etapas=etapas_pdf)
+        pdf_bytes = pdf_buf.getvalue() if hasattr(pdf_buf, 'getvalue') else pdf_buf.read()
+
+        total = sum(i.preco_unitario * i.quantidade for i in p.itens)
+        cliente_nome = p.cliente.nome if p.cliente else ''
+        link_pub = f"https://app.creativeinfra.com.br/proposta/view/{p.token_publico}"
+
+        mensagem_cliente = (
+            f"Olá, {cliente_nome}! Esperamos que esteja bem.\n\n"
+            f"Segue a proposta comercial para o serviço solicitado.\n"
+            f"Abaixo as informações:\n\n"
+            f"📄 Proposta: {p.numero}\n"
+            f"💰 Valor total: {fmt(total)}\n"
+            f"💳 Pagamento: {p.forma_pagamento or '-'}\n"
+            f"📅 Validade: {p.validade} dias\n\n"
+            f"🔗 Para visualizar e aprovar a proposta, acesse:\n{link_pub}\n\n"
+            f"Qualquer dúvida, estou à disposição!"
+        )
+
+        return {
+            '_tipo_especial': 'reenvio_proposta',
+            'numero': p.numero,
+            'mensagem_cliente': mensagem_cliente,
+            'pdf_bytes': pdf_bytes,
+            'pdf_nome': f"Proposta_{p.numero.replace('-', '_')}.pdf",
+        }
+
+
 # ═══════════════════════ CADASTRO DE PRODUTO POR FOTO (visão do Gemini) ═══════════════════════
 
 def interpretar_produto_imagem(imagem_bytes, mime_type, legenda=None, produtos_existentes=None):
-    """Manda uma foto (propaganda/etiqueta/embalagem de produto) pro Gemini
-    e pede pra extrair os dados de cadastro. Retorna um dict:
-      {"encontrado": true, "nome":..., "preco_venda": numero, "preco_custo": numero ou null,
-       "categoria": ... ou null, "descricao": ... ou null, "estoque": numero ou null}
+    """Manda uma foto (propaganda, etiqueta, embalagem OU catálogo com vários
+    produtos) pro Gemini e pede pra extrair os dados de cadastro de TODOS os
+    produtos que aparecerem na imagem. Retorna um dict:
+      {"encontrado": true, "motivo": null, "ajuste_percentual": numero ou null,
+       "produtos": [{"nome":..., "preco_extraido": numero, "categoria": ... ou null,
+                     "descricao": ... ou null, "estoque": numero ou null}, ...]}
       ou
-      {"encontrado": false, "motivo": "..."}
+      {"encontrado": false, "motivo": "...", "produtos": []}
+    "ajuste_percentual" só vem preenchido se a legenda pedir explicitamente um
+    acréscimo/desconto percentual -- nesse caso "preco_extraido" é o preço que
+    apareceu na imagem (tratado como CUSTO) e quem chama essa função deve
+    calcular o preço de venda final aplicando o ajuste (matemática feita em
+    Python, não pela IA, pra não arriscar erro de conta em cima de dinheiro).
     Retorna None em caso de erro de rede/API."""
     lista_produtos = '\n'.join(f'- {p}' for p in (produtos_existentes or [])[:200])
     prompt = f"""Você é o assistente de um profissional de instalação e manutenção de CFTV e
-infraestrutura. A pessoa te mandou uma FOTO (propaganda, etiqueta, embalagem ou nota de um
-produto) pedindo pra cadastrar esse produto no estoque do sistema.
+infraestrutura. A pessoa te mandou uma FOTO (propaganda, etiqueta, embalagem, nota ou um
+CATÁLOGO com vários produtos) pedindo pra cadastrar o(s) produto(s) no estoque do sistema.
 
-Extraia da imagem:
+A imagem pode ter UM produto só ou VÁRIOS (ex: catálogo de distribuidor com uma lista de
+itens, cada um com seu próprio preço) -- extraia TODOS os produtos que aparecerem, um por um.
+
+Pra cada produto, extraia:
 1. Nome do produto (claro e objetivo, sem o texto todo da propaganda)
-2. Preço de venda (se a imagem mostrar mais de um preço -- ex: "de X por Y" -- use o preço
-   final/promocional Y; se não tiver certeza de qual é o preço de venda, marque encontrado=false)
-3. Categoria (ex: câmera, cabo, conector, fonte, sensor etc), se der pra inferir
-4. Descrição curta com as especificações visíveis (resolução, modelo, voltagem etc)
-
-Se a legenda da mensagem mencionar quantidade/estoque ou algum ajuste de preço, considere isso
-também.
+2. Preço (se a imagem mostrar mais de um preço pro mesmo item -- ex: "de X por Y" -- use o
+   preço final/promocional Y)
+3. Categoria (ex: câmera, motor de portão, cabo, conector, fonte, sensor etc), se der pra inferir
+4. Descrição curta com as especificações visíveis (potência, modelo, voltagem etc)
 
 {"Legenda enviada junto com a foto: " + legenda if legenda else "Nenhuma legenda foi enviada."}
+
+Se a legenda pedir um ACRÉSCIMO ou DESCONTO percentual nos valores (ex: "com acréscimo de 20%"),
+preencha "ajuste_percentual" com esse número (20 pra acréscimo, -10 pra desconto de 10% etc) --
+nesse caso o preço que você extraiu da imagem é o CUSTO/preço de fornecedor, não o preço final;
+NÃO calcule você mesmo o valor ajustado, só devolva o preço extraído da imagem em
+"preco_extraido" e o percentual em "ajuste_percentual" separadamente. Se a legenda não mencionar
+nenhum ajuste, deixe "ajuste_percentual" como null e "preco_extraido" já é o preço de venda.
 
 PRODUTOS JÁ CADASTRADOS (contexto, evite sugerir nome idêntico a um já existente sem avisar):
 {lista_produtos}
 
-Se a imagem não mostrar claramente um produto com preço identificável, retorne
-encontrado=false e explique o motivo em "motivo".
+Se a imagem não mostrar claramente nenhum produto com preço identificável, retorne
+encontrado=false, "produtos" vazio, e explique o motivo em "motivo".
 
 Responda APENAS com um JSON no formato exato abaixo, sem texto adicional:
 {{
   "encontrado": true ou false,
   "motivo": "só se encontrado==false, senão null",
-  "nome": "nome do produto ou null",
-  "preco_venda": numero ou null,
-  "preco_custo": numero ou null,
-  "categoria": "categoria ou null",
-  "descricao": "descrição curta ou null",
-  "estoque": numero ou null
+  "ajuste_percentual": numero ou null,
+  "produtos": [
+    {{
+      "nome": "nome do produto",
+      "preco_extraido": numero,
+      "categoria": "categoria ou null",
+      "descricao": "descrição curta ou null",
+      "estoque": numero ou null
+    }}
+  ]
 }}"""
 
     parts = [{"text": prompt}, {"inline_data": {
@@ -407,22 +483,31 @@ Responda APENAS com um JSON no formato exato abaixo, sem texto adicional:
         "generationConfig": {
             "temperature": 0.2,
             "responseMimeType": "application/json",
-            # Forca o Gemini a devolver um OBJETO -- sem isso, ele as vezes
-            # devolve uma LISTA (ex: "produtos possiveis") e o .get() abaixo
-            # quebra com "'list' object has no attribute 'get'".
+            # Forca o Gemini a devolver um OBJETO (com uma lista de produtos
+            # dentro) -- sem isso, ele pode devolver uma LISTA solta no nivel
+            # raiz e o .get() no chamador quebra com AttributeError.
             "responseSchema": {
                 "type": "OBJECT",
                 "properties": {
-                    "encontrado":   {"type": "BOOLEAN"},
-                    "motivo":       {"type": "STRING", "nullable": True},
-                    "nome":         {"type": "STRING", "nullable": True},
-                    "preco_venda":  {"type": "NUMBER", "nullable": True},
-                    "preco_custo":  {"type": "NUMBER", "nullable": True},
-                    "categoria":    {"type": "STRING", "nullable": True},
-                    "descricao":    {"type": "STRING", "nullable": True},
-                    "estoque":      {"type": "NUMBER", "nullable": True},
+                    "encontrado":         {"type": "BOOLEAN"},
+                    "motivo":             {"type": "STRING", "nullable": True},
+                    "ajuste_percentual":  {"type": "NUMBER", "nullable": True},
+                    "produtos": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "nome":           {"type": "STRING"},
+                                "preco_extraido":  {"type": "NUMBER"},
+                                "categoria":      {"type": "STRING", "nullable": True},
+                                "descricao":      {"type": "STRING", "nullable": True},
+                                "estoque":        {"type": "NUMBER", "nullable": True},
+                            },
+                            "required": ["nome", "preco_extraido"],
+                        },
+                    },
                 },
-                "required": ["encontrado"],
+                "required": ["encontrado", "produtos"],
             },
         },
     }
@@ -439,12 +524,12 @@ Responda APENAS com um JSON no formato exato abaixo, sem texto adicional:
                 data = json.loads(resp.read())
             texto_resp = data['candidates'][0]['content']['parts'][0]['text']
             resultado = json.loads(texto_resp)
-            # Salvaguarda: mesmo com o schema acima, trata o caso de vir
-            # uma lista em vez de objeto (pega o primeiro item ou reporta
-            # nao encontrado, em vez de quebrar mais adiante com AttributeError).
+            # Salvaguarda: trata o caso (raro, mesmo com o schema acima) de
+            # vir uma lista solta no nivel raiz em vez do objeto esperado.
             if isinstance(resultado, list):
-                resultado = resultado[0] if resultado and isinstance(resultado[0], dict) else \
-                    {"encontrado": False, "motivo": "Não consegui identificar um único produto claro nessa imagem."}
+                resultado = {"encontrado": True, "motivo": None, "ajuste_percentual": None,
+                             "produtos": [x for x in resultado if isinstance(x, dict)]} if resultado else \
+                    {"encontrado": False, "motivo": "Não consegui identificar produtos nessa imagem.", "produtos": []}
             return resultado
         except urllib.error.HTTPError as e:
             corpo = e.read().decode('utf-8', errors='ignore')
@@ -479,6 +564,7 @@ FUNMAP = {
     'editar_proposta': editar_proposta,
     'adicionar_item_proposta': adicionar_item_proposta,
     'remover_item_proposta': remover_item_proposta,
+    'reenviar_proposta': reenviar_proposta,
 }
 
 TOOLS = [
@@ -636,6 +722,16 @@ TOOLS = [
             "nome_item": {"type": "STRING", "description": "Nome (ou parte dele) do item a remover."},
         }, "required": ["numero", "nome_item"]},
     },
+    {
+        "name": "reenviar_proposta",
+        "description": "Reenvia o pacote completo de uma proposta já existente: mensagem de "
+                       "apresentação pronta pro cliente, link público e PDF ATUALIZADO (reflete "
+                       "qualquer edição feita depois da criação). Use quando pedirem pra reenviar, "
+                       "mandar de novo, ou regerar o PDF/link/apresentação de uma proposta.",
+        "parameters": {"type": "OBJECT", "properties": {
+            "numero_ou_cliente": {"type": "STRING", "description": "Número da proposta ou nome do cliente."},
+        }, "required": ["numero_ou_cliente"]},
+    },
 ]
 
 SYSTEM_PROMPT = """Você é o assistente de gestão do NeuraBusiness, sistema de propostas
@@ -651,8 +747,11 @@ corresponder a nenhuma ferramenta disponível, responda em texto explicando que 
 
 def executar_comando(comando, empresa_id):
     """Manda o comando pro Gemini com as ferramentas disponíveis, executa a(s)
-    função(ões) que ele escolher contra o banco de verdade, e devolve o texto
-    pronto pra responder no Telegram. Retorna None em caso de erro de rede."""
+    função(ões) que ele escolher contra o banco de verdade, e devolve uma
+    tupla (texto, ricos): texto pronto pra responder no Telegram (ou None se
+    só houve resultado "rico"), e uma lista de resultados especiais (hoje só
+    reenvio_proposta) que o bot precisa enviar como anexo/documento. Em erro
+    de rede/API devolve (None, [])."""
     body = {
         "contents": [{"role": "user", "parts": [{"text": f"{SYSTEM_PROMPT}\n\nComando: {comando}"}]}],
         "tools": [{"functionDeclarations": TOOLS}],
@@ -678,20 +777,21 @@ def executar_comando(comando, empresa_id):
                 time.sleep(2)
                 continue
             print(f"[ERRO Gemini assistente] {ultimo_erro}")
-            return None
+            return None, []
         except Exception as e:
             print(f"[ERRO Gemini assistente] {e}")
-            return None
+            return None, []
     else:
         print(f"[ERRO Gemini assistente] Falhou após 3 tentativas: {ultimo_erro}")
-        return None
+        return None, []
 
     try:
         parts = data['candidates'][0]['content']['parts']
     except (KeyError, IndexError):
-        return None
+        return None, []
 
     respostas = []
+    ricos = []
     for part in parts:
         if 'functionCall' in part:
             nome_fn = part['functionCall'].get('name')
@@ -701,12 +801,17 @@ def executar_comando(comando, empresa_id):
                 respostas.append(f"(a IA tentou usar uma ferramenta desconhecida: {nome_fn})")
                 continue
             try:
-                respostas.append(fn(empresa_id=empresa_id, **args))
+                resultado = fn(empresa_id=empresa_id, **args)
             except Exception as e:
                 respostas.append(f"❌ Erro executando '{nome_fn}': {e}")
+                continue
+            if isinstance(resultado, dict) and resultado.get('_tipo_especial'):
+                ricos.append(resultado)
+            else:
+                respostas.append(resultado)
         elif 'text' in part and part['text'].strip():
             respostas.append(part['text'].strip())
 
-    if not respostas:
-        return "Não entendi esse comando. Tente algo como 'mostra minhas propostas' ou 'cadastra um cliente novo'."
-    return "\n\n".join(respostas)
+    if not respostas and not ricos:
+        return "Não entendi esse comando. Tente algo como 'mostra minhas propostas' ou 'cadastra um cliente novo'.", []
+    return ("\n\n".join(respostas) if respostas else None), ricos
