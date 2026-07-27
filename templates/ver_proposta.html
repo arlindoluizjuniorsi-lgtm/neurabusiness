@@ -83,6 +83,16 @@
           <span class="badge" style="background:#64748b">Aguardando pagamento</span>
           {% endif %}
         </div>
+        {% if proposta.status_pagamento != 'pago' %}
+        <form method="POST" action="{{ url_for('confirmar_pagamento_proposta', id=proposta.id) }}" class="mt-2 d-flex gap-2 align-items-center flex-wrap">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <span style="font-size:.72rem;color:var(--nb-muted)">Cliente pagou por fora (Pix/dinheiro)?</span>
+          <input type="number" step="0.01" name="valor" value="{{ '%.2f'|format(restante) }}" style="width:110px;padding:5px 8px;font-size:.78rem;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.2);color:#e2e8f0">
+          <button type="submit" class="btn btn-sm" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);border-radius:7px" onclick="return confirm('Confirmar que recebeu esse valor?')">
+            <i class="fas fa-check me-1"></i>Confirmar Pagamento
+          </button>
+        </form>
+        {% endif %}
         {% endif %}
       </div>
     </div>

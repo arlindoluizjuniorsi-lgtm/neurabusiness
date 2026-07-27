@@ -746,13 +746,15 @@ def ver_proposta(id):
     host = req.host_url.rstrip('/')
     link_publico    = f"{host}/proposta/view/{p.token_publico}"
     link_premium    = f"{host}/proposta/premium/{p.token_publico}"
+    restante = _valor_restante_proposta(p) if p.status == 'aprovada' else None
     return render_template('ver_proposta.html', proposta=p,
                            total=total_itens+custo_extra,
                            total_itens=total_itens,
                            itens=p.itens,
                            anexos=p.anexos, contrato=contrato,
                            link_publico=link_publico,
-                           link_premium=link_premium)
+                           link_premium=link_premium,
+                           restante=restante)
 @app.route('/propostas/<int:id>/editar', methods=['GET','POST'])
 @login_required
 @empresa_required
@@ -850,6 +852,30 @@ def mudar_status_proposta(id, novo_status):
     if novo_status == 'enviada':  p.enviado_em  = datetime.now()
     db.session.commit()
     flash(f'Status alterado para {novo_status}.','success')
+    return redirect(url_for('ver_proposta', id=id))
+
+@app.route('/propostas/<int:id>/confirmar-pagamento', methods=['POST'])
+@login_required
+@empresa_required
+def confirmar_pagamento_proposta(id):
+    """Confirmação manual de pagamento -- pra quando o cliente combina
+    "de boca" e paga direto no Pix/dinheiro por fora do MP/InfinitePay.
+    Soma o valor informado ao valor_pago da proposta e reaproveita o
+    mesmo caminho (status parcial/pago + notificação no Telegram) usado
+    pelos webhooks de pagamento."""
+    p = Proposta.query.filter_by(id=id, empresa_id=eid()).first_or_404()
+    if p.status != 'aprovada':
+        flash('Só é possível confirmar pagamento de uma proposta aprovada.', 'warning')
+        return redirect(url_for('ver_proposta', id=id))
+    try:
+        valor = float(request.form.get('valor', '').replace(',', '.'))
+    except (TypeError, ValueError):
+        valor = 0
+    if valor <= 0:
+        flash('Informe um valor válido.', 'warning')
+        return redirect(url_for('ver_proposta', id=id))
+    _registrar_pagamento_proposta(p, valor, f'manual-{uuid.uuid4().hex[:10]}')
+    flash('Pagamento confirmado manualmente!', 'success')
     return redirect(url_for('ver_proposta', id=id))
 
 @app.route('/propostas/<int:id>/emitir-nfse', methods=['GET', 'POST'])
