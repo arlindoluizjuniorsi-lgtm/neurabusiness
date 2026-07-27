@@ -1263,14 +1263,21 @@ def aprovar_proposta_publico(id, token):
     _gerar_link_pagamento_mp(p)
     _gerar_link_pagamento_infinitypay(p)
 
-    # Encaminha direto pro link de pagamento assim que ele existir --
-    # prioriza Mercado Pago (integracao mais testada) e cai pro InfinitePay
-    # se so ele estiver configurado.
-    destino_pagamento = p.mp_init_point or p.infinitypay_link
-    if destino_pagamento:
-        return redirect(destino_pagamento)
-
-    flash('Proposta aprovada e assinada!','success')
+    # Link de pagamento já fica pronto de qualquer forma -- só encaminha
+    # direto pra ele agora se o cliente marcou "pagar agora". Se não
+    # marcou, ele assina e pode voltar no mesmo link público depois pra
+    # escolher pagar (a tela já mostra os botões de pagamento quando ele
+    # volta, porque o link já foi gerado aqui).
+    pagar_agora = request.form.get('pagar_agora') == 'sim'
+    if pagar_agora:
+        # prioriza Mercado Pago (integração mais testada) e cai pro
+        # InfinitePay se só ele estiver configurado.
+        destino_pagamento = p.mp_init_point or p.infinitypay_link
+        if destino_pagamento:
+            return redirect(destino_pagamento)
+        flash('Proposta aprovada e assinada!','success')
+    else:
+        flash('Proposta aprovada e assinada! Você pode pagar quando quiser voltando neste mesmo link.','success')
     return redirect(url_for('proposta_publica', token=token))
 
 

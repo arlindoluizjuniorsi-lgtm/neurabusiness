@@ -325,11 +325,15 @@ input[type=text]::placeholder{color:#475569}
           <label style="font-size:.75rem;font-weight:700;color:#94a3b8;display:block;margin-bottom:6px">CPF *</label>
           <input type="text" name="cpf_assinatura" required placeholder="000.000.000-00" maxlength="14" oninput="fmtCpf(this)">
         </div>
+        <div class="mb-3 text-start" style="display:flex;align-items:center;gap:10px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:8px;padding:10px 14px">
+          <input type="checkbox" name="pagar_agora" value="sim" id="pagarAgora" checked onchange="atualizaBotaoPagamento()" style="width:auto;transform:scale(1.2);flex-shrink:0">
+          <label for="pagarAgora" style="font-size:.85rem;color:#e2e8f0;cursor:pointer;margin:0">Pagar agora, logo após assinar</label>
+        </div>
         <div style="background:rgba(0,0,0,.2);border-radius:8px;padding:10px 14px;font-size:.72rem;color:#64748b;text-align:left;margin-bottom:16px;line-height:1.6">
           <i class="fas fa-shield-alt me-1" style="color:#10B981"></i>
           Ao assinar, você declara ter lido e aceito esta proposta, autoriza a execução/instalação do serviço e concorda em firmar o contrato de prestação de serviços gerado a partir desta aprovação. Serão registrados nome, CPF, IP e data/hora, gerando um hash SHA-256 como prova jurídica conforme a <strong>Lei nº 14.063/2020</strong> e o <strong>Marco Civil da Internet</strong>.
         </div>
-        <button type="submit" class="btn-aprovar"><i class="fas fa-signature me-2"></i>Assinar e Pagar</button>
+        <button type="submit" class="btn-aprovar" id="btnAssinar"><i class="fas fa-signature me-2"></i>Assinar e Pagar</button>
       </div>
     </form>
   {% endif %}
@@ -343,6 +347,13 @@ input[type=text]::placeholder{color:#475569}
 </div>
 
 <script>
+function atualizaBotaoPagamento(){
+  const chk = document.getElementById('pagarAgora');
+  const btn = document.getElementById('btnAssinar');
+  btn.innerHTML = chk.checked
+    ? '<i class="fas fa-signature me-2"></i>Assinar e Pagar'
+    : '<i class="fas fa-signature me-2"></i>Assinar (pagar depois)';
+}
 function fmtCpf(el){
   let v=el.value.replace(/\D/g,'');
   if(v.length<=3)el.value=v;
