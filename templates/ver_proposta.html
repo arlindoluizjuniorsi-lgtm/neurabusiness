@@ -32,6 +32,12 @@
       <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:8px"><i class="fas fa-times me-1"></i>Recusada</button>
     </form>
     {% endif %}
+    {% if proposta.status in ['rascunho','enviada'] %}
+    <form method="POST" action="{{ url_for('aprovar_e_pagar_proposta', id=proposta.id) }}" style="display:inline" onsubmit="return confirm('Cliente já pagou o valor total (R$ {{ '%.2f'|format(total) }})? Isso vai aprovar a proposta e marcar como paga.')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);border-radius:8px"><i class="fas fa-money-check-dollar me-1"></i>Proposta Paga</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 

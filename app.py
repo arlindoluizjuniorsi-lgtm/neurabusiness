@@ -880,6 +880,28 @@ def confirmar_pagamento_proposta(id):
     flash('Pagamento confirmado manualmente!', 'success')
     return redirect(url_for('ver_proposta', id=id))
 
+@app.route('/propostas/<int:id>/aprovar-e-pagar', methods=['POST'])
+@login_required
+@empresa_required
+def aprovar_e_pagar_proposta(id):
+    """Atalho pra quando o cliente combinou tudo "de boca", nem chegou a
+    aprovar pelo link, mas já pagou -- aprova a proposta (igual o botão
+    "Aprovar" já existente) e confirma o pagamento do valor total de uma
+    vez só. Não mexe no fluxo público de assinatura/contrato -- só marca
+    status internamente, igual o botão manual de aprovar já faz."""
+    p = Proposta.query.filter_by(id=id, empresa_id=eid()).first_or_404()
+    if p.status not in ('rascunho', 'enviada'):
+        flash('Essa proposta já foi aprovada ou recusada.', 'warning')
+        return redirect(url_for('ver_proposta', id=id))
+    p.status = 'aprovada'
+    p.aprovado_em = datetime.now()
+    p.status_pagamento = p.status_pagamento or 'pendente'
+    db.session.commit()
+    valor = _valor_total_proposta(p)
+    _registrar_pagamento_proposta(p, valor, f'manual-{uuid.uuid4().hex[:10]}')
+    flash('Proposta aprovada e pagamento confirmado!', 'success')
+    return redirect(url_for('ver_proposta', id=id))
+
 @app.route('/propostas/<int:id>/emitir-nfse', methods=['GET', 'POST'])
 @login_required
 @empresa_required
