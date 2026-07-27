@@ -68,7 +68,7 @@
             <label class="form-label">Forma de Pagamento</label>
             <select name="forma_pagamento" class="form-select">
               {% set fp_atual = proposta.forma_pagamento if proposta else '' %}
-              {% for fp in ['Pix à Vista','Transferência Bancária','Dinheiro','50% entrada + 50% conclusão','30/70','Parcelado (combinar)'] %}
+              {% for fp in ['Pix à Vista','Pix ou Cartão','Cartão de Crédito','Transferência Bancária','Dinheiro','50% entrada + 50% conclusão','30/70','Parcelado (combinar)'] %}
               <option value="{{ fp }}" {% if fp_atual==fp %}selected{% endif %}>{{ fp }}</option>
               {% endfor %}
             </select>
