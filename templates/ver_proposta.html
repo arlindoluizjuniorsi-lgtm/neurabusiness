@@ -20,6 +20,10 @@
       <i class="fas fa-external-link-alt me-1"></i>Ver Público
     </a>
     <button onclick="copyLink()" class="btn btn-nb"><i class="fas fa-copy me-1"></i>Copiar Link</button>
+    <form method="POST" action="{{ url_for('reenviar_proposta_telegram', id=proposta.id) }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-nb" style="color:#0088cc"><i class="fab fa-telegram me-1"></i>Reenviar Telegram</button>
+    </form>
     {% if proposta.status == 'rascunho' %}
     <form method="POST" action="{{ url_for('mudar_status_proposta', id=proposta.id, novo_status='enviada') }}" style="display:inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -857,6 +857,15 @@ def mudar_status_proposta(id, novo_status):
     flash(f'Status alterado para {novo_status}.','success')
     return redirect(url_for('ver_proposta', id=id))
 
+@app.route('/propostas/<int:id>/reenviar-telegram', methods=['POST'])
+@login_required
+@empresa_required
+def reenviar_proposta_telegram(id):
+    p = Proposta.query.filter_by(id=id, empresa_id=eid()).first_or_404()
+    _notificar_proposta_criada_telegram(p)
+    flash('Proposta reenviada pro Telegram!', 'success')
+    return redirect(request.referrer or url_for('ver_proposta', id=id))
+
 @app.route('/propostas/<int:id>/confirmar-pagamento', methods=['POST'])
 @login_required
 @empresa_required
