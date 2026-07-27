@@ -38,8 +38,8 @@
           <td>
             <span class="status-badge" style="background:{% if os.prioridade=='urgente' %}rgba(239,68,68,0.15);color:#ef4444{% elif os.prioridade=='alta' %}rgba(245,158,11,0.15);color:#f59e0b{% elif os.prioridade=='baixa' %}rgba(100,116,139,0.1);color:#94a3b8{% else %}rgba(100,116,139,0.15);color:#64748b{% endif %}">{{ os.prioridade }}</span>
           </td>
-          <td><span class="status-badge status-{{ os.status }}">{{ os.status }}</span></td>
-          <td style="font-size:0.78rem;color:var(--nb-text-muted)">{{ os.data_prevista|data if os.data_prevista else '—' }}</td>
+          <td><span class="status-badge s-{{ os.status }}">{{ os.status }}</span></td>
+          <td style="font-size:0.78rem;color:var(--nb-muted)">{{ os.data_prevista|data if os.data_prevista else '—' }}</td>
           <td>
             <a href="{{ url_for('ver_os', id=os.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-eye"></i></a>
           </td>
@@ -49,8 +49,8 @@
     </table>
     {% else %}
     <div class="text-center py-5">
-      <i class="fas fa-tools fa-3x mb-3 d-block" style="color:var(--nb-text-light)"></i>
-      <h5 style="color:var(--nb-text-muted)">Nenhuma OS encontrada</h5>
+      <i class="fas fa-tools fa-3x mb-3 d-block" style="color:var(--nb-light)"></i>
+      <h5 style="color:var(--nb-muted)">Nenhuma OS encontrada</h5>
       <a href="{{ url_for('nova_os') }}" class="btn btn-accent mt-2">Criar primeira OS</a>
     </div>
     {% endif %}

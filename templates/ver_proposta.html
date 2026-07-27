@@ -22,17 +22,28 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-accent"><i class="fas fa-paper-plane me-1"></i>Marcar como Enviada</button>
     </form>
-    {% elif proposta.status == 'enviada' %}
+    {% elif proposta.status in ['enviada','standby'] %}
     <form method="POST" action="{{ url_for('mudar_status_proposta', id=proposta.id, novo_status='aprovada') }}" style="display:inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-accent"><i class="fas fa-check me-1"></i>Aprovar</button>
     </form>
+    {% if proposta.status == 'enviada' %}
+    <form method="POST" action="{{ url_for('mudar_status_proposta', id=proposta.id, novo_status='standby') }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm" style="background:rgba(245,158,11,.1);color:#f59e0b;border:1px solid rgba(245,158,11,.3);border-radius:8px"><i class="fas fa-pause me-1"></i>Cliente vai esperar (Standby)</button>
+    </form>
+    {% else %}
+    <form method="POST" action="{{ url_for('mudar_status_proposta', id=proposta.id, novo_status='enviada') }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm" style="background:rgba(59,130,246,.1);color:#3b82f6;border:1px solid rgba(59,130,246,.3);border-radius:8px"><i class="fas fa-rotate-left me-1"></i>Tirar do Standby</button>
+    </form>
+    {% endif %}
     <form method="POST" action="{{ url_for('mudar_status_proposta', id=proposta.id, novo_status='recusada') }}" style="display:inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:8px"><i class="fas fa-times me-1"></i>Recusada</button>
     </form>
     {% endif %}
-    {% if proposta.status in ['rascunho','enviada'] %}
+    {% if proposta.status in ['rascunho','enviada','standby'] %}
     <form method="POST" action="{{ url_for('aprovar_e_pagar_proposta', id=proposta.id) }}" style="display:inline" onsubmit="return confirm('Cliente já pagou o valor total (R$ {{ '%.2f'|format(total) }})? Isso vai aprovar a proposta e marcar como paga.')">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-sm" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);border-radius:8px"><i class="fas fa-money-check-dollar me-1"></i>Proposta Paga</button>
@@ -93,7 +104,7 @@
         <form method="POST" action="{{ url_for('confirmar_pagamento_proposta', id=proposta.id) }}" class="mt-2 d-flex gap-2 align-items-center flex-wrap">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <span style="font-size:.72rem;color:var(--nb-muted)">Cliente pagou por fora (Pix/dinheiro)?</span>
-          <input type="number" step="0.01" name="valor" value="{{ '%.2f'|format(restante) }}" style="width:110px;padding:5px 8px;font-size:.78rem;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.2);color:#e2e8f0">
+          <input type="number" step="0.01" name="valor" value="{{ '%.2f'|format(restante) }}" class="form-control" style="width:110px;padding:5px 8px;font-size:.78rem">
           <button type="submit" class="btn btn-sm" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);border-radius:7px" onclick="return confirm('Confirmar que recebeu esse valor?')">
             <i class="fas fa-check me-1"></i>Confirmar Pagamento
           </button>

@@ -890,7 +890,7 @@ def aprovar_e_pagar_proposta(id):
     vez só. Não mexe no fluxo público de assinatura/contrato -- só marca
     status internamente, igual o botão manual de aprovar já faz."""
     p = Proposta.query.filter_by(id=id, empresa_id=eid()).first_or_404()
-    if p.status not in ('rascunho', 'enviada'):
+    if p.status not in ('rascunho', 'enviada', 'standby'):
         flash('Essa proposta já foi aprovada ou recusada.', 'warning')
         return redirect(url_for('ver_proposta', id=id))
     p.status = 'aprovada'

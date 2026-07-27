@@ -4,7 +4,7 @@
 <div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
   <div>
     <h1><i class="fas fa-tools me-2" style="color:#7C3AED"></i>{{ os_obj.numero }}</h1>
-    <p><a href="{{ url_for('listar_os') }}" style="color:var(--nb-text-muted)">OS</a> › {{ os_obj.titulo }}</p>
+    <p><a href="{{ url_for('listar_os') }}" style="color:var(--nb-muted)">OS</a> › {{ os_obj.titulo }}</p>
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <a href="{{ url_for('editar_os', id=os_obj.id) }}" class="btn btn-nb">
@@ -43,40 +43,40 @@
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-6">
-            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Cliente</div>
+            <div style="font-size:0.7rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Cliente</div>
             <div style="font-weight:700">{{ os_obj.cliente.nome }}</div>
-            {% if os_obj.cliente.tel %}<div style="font-size:0.82rem;color:var(--nb-text-muted)">{{ os_obj.cliente.tel }}</div>{% endif %}
+            {% if os_obj.cliente.tel %}<div style="font-size:0.82rem;color:var(--nb-muted)">{{ os_obj.cliente.tel }}</div>{% endif %}
           </div>
           <div class="col-md-3">
-            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Status</div>
-            <span class="status-badge status-{{ os_obj.status }}" style="font-size:0.85rem;padding:5px 14px">{{ os_obj.status }}</span>
+            <div style="font-size:0.7rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Status</div>
+            <span class="status-badge s-{{ os_obj.status }}" style="font-size:0.85rem;padding:5px 14px">{{ os_obj.status }}</span>
           </div>
           <div class="col-md-3">
-            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Prioridade</div>
+            <div style="font-size:0.7rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Prioridade</div>
             <span class="status-badge" style="font-size:0.85rem;padding:5px 14px;background:{% if os_obj.prioridade=='urgente' %}rgba(239,68,68,0.15);color:#ef4444{% elif os_obj.prioridade=='alta' %}rgba(245,158,11,0.15);color:#f59e0b{% else %}rgba(100,116,139,0.15);color:#64748b{% endif %}">{{ os_obj.prioridade }}</span>
           </div>
           {% if os_obj.tecnico %}
           <div class="col-md-4">
-            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Técnico</div>
+            <div style="font-size:0.7rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Técnico</div>
             <div style="font-weight:600"><i class="fas fa-user-hard-hat me-1" style="color:#7C3AED"></i>{{ os_obj.tecnico }}</div>
           </div>
           {% endif %}
           {% if os_obj.data_prevista %}
           <div class="col-md-4">
-            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Data Prevista</div>
+            <div style="font-size:0.7rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Data Prevista</div>
             <div style="font-weight:600">{{ os_obj.data_prevista|data }}</div>
           </div>
           {% endif %}
           {% if os_obj.proposta_id %}
           <div class="col-md-4">
-            <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Proposta</div>
+            <div style="font-size:0.7rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Proposta</div>
             <a href="{{ url_for('ver_proposta', id=os_obj.proposta_id) }}" style="color:#00D4FF;font-weight:600;font-size:0.85rem">Ver proposta</a>
           </div>
           {% endif %}
         </div>
         
         <div style="margin-top:20px">
-          <div style="font-size:0.7rem;color:var(--nb-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Descrição</div>
+          <div style="font-size:0.7rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Descrição</div>
           <div style="background:var(--nb-surface-alt);border:1px solid var(--nb-border);border-radius:8px;padding:14px;font-size:0.88rem;line-height:1.6;white-space:pre-wrap">{{ os_obj.descricao }}</div>
         </div>
         
@@ -96,10 +96,10 @@
         {% for item in os_obj.itens %}
         <form method="POST" action="{{ url_for('toggle_item_os', id=os_obj.id, item_id=item.id) }}" style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--nb-border)">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" style="background:none;border:none;padding:0;cursor:pointer;font-size:1.2rem;color:{% if item.concluido %}#10B981{% else %}var(--nb-text-muted){% endif %}">
+          <button type="submit" style="background:none;border:none;padding:0;cursor:pointer;font-size:1.2rem;color:{% if item.concluido %}#10B981{% else %}var(--nb-muted){% endif %}">
             <i class="fa-{{ 'solid' if item.concluido else 'regular' }} fa-square-check"></i>
           </button>
-          <span style="font-size:0.88rem;{% if item.concluido %}text-decoration:line-through;color:var(--nb-text-muted){% endif %}">{{ item.descricao }}</span>
+          <span style="font-size:0.88rem;{% if item.concluido %}text-decoration:line-through;color:var(--nb-muted){% endif %}">{{ item.descricao }}</span>
         </form>
         {% endfor %}
       </div>
@@ -118,7 +118,7 @@
           <div style="position:relative;margin-bottom:16px">
             <div style="position:absolute;left:-16px;width:10px;height:10px;background:#00D4FF;border-radius:50%;top:4px"></div>
             <div style="font-size:0.78rem;font-weight:700;color:var(--nb-text)">OS Criada</div>
-            <div style="font-size:0.72rem;color:var(--nb-text-muted)">{{ os_obj.criado_em|data('%d/%m/%Y às %H:%M') }}</div>
+            <div style="font-size:0.72rem;color:var(--nb-muted)">{{ os_obj.criado_em|data('%d/%m/%Y às %H:%M') }}</div>
           </div>
           
           {% if os_obj.status in ['em_andamento','concluida'] %}
@@ -133,7 +133,7 @@
             <div style="position:absolute;left:-16px;width:10px;height:10px;background:#10B981;border-radius:50%;top:4px"></div>
             <div style="font-size:0.78rem;font-weight:700;color:#10B981">Concluída</div>
             {% if os_obj.data_conclusao %}
-            <div style="font-size:0.72rem;color:var(--nb-text-muted)">{{ os_obj.data_conclusao|data }}</div>
+            <div style="font-size:0.72rem;color:var(--nb-muted)">{{ os_obj.data_conclusao|data }}</div>
             {% endif %}
           </div>
           {% endif %}

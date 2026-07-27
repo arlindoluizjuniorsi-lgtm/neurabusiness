@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-header">
   <h1><i class="fas fa-tools me-2" style="color:#7C3AED"></i>{% if os %}Editar {{ os.numero }}{% else %}Nova Ordem de Serviço{% endif %}</h1>
-  <p><a href="{{ url_for('listar_os') }}" style="color:var(--nb-text-muted)">OS</a> › {% if os %}{{ os.numero }}{% else %}Nova{% endif %}</p>
+  <p><a href="{{ url_for('listar_os') }}" style="color:var(--nb-muted)">OS</a> › {% if os %}{{ os.numero }}{% else %}Nova{% endif %}</p>
 </div>
 
 <form method="POST">

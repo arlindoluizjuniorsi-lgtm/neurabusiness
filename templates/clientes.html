@@ -31,7 +31,7 @@
       <tbody>
         {% for c in clientes %}
         <tr>
-          <td style="color:var(--nb-text-muted);font-size:0.8rem">{{ c.id }}</td>
+          <td style="color:var(--nb-muted);font-size:0.8rem">{{ c.id }}</td>
           <td style="font-weight:600">{{ c.nome }}</td>
           <td style="font-size:0.83rem">{{ c.email or '—' }}</td>
           <td style="font-size:0.83rem">{{ c.telefone or '—' }}</td>
@@ -47,8 +47,8 @@
     </table>
     {% else %}
     <div class="text-center py-5">
-      <i class="fas fa-users fa-3x mb-3 d-block" style="color:var(--nb-text-light)"></i>
-      <h5 style="color:var(--nb-text-muted)">Nenhum cliente cadastrado</h5>
+      <i class="fas fa-users fa-3x mb-3 d-block" style="color:var(--nb-light)"></i>
+      <h5 style="color:var(--nb-muted)">Nenhum cliente cadastrado</h5>
       <a href="{{ url_for('novo_cliente') }}" class="btn btn-accent mt-2">Adicionar cliente</a>
     </div>
     {% endif %}
