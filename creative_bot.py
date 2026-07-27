@@ -349,6 +349,7 @@ async def confirmar(u:Update,c:ContextTypes.DEFAULT_TYPE):
         msg_cliente += f"💳 Pagamento: {c.user_data['pagamento']}\n"
         msg_cliente += f"📅 Validade: {c.user_data['validade']} dias\n\n"
         msg_cliente += f"🔗 Para visualizar e aprovar a proposta, acesse:\n{link_pub}\n\n"
+        msg_cliente += f"No final da página, você pode assinar autorizando o serviço e efetuar o pagamento.\n\n"
         msg_cliente += f"Qualquer dúvida, estou à disposição!"
 
         await u.message.reply_text(f"✅ *Proposta {numero} gerada!*\n\n_Mensagem pronta para encaminhar ao cliente:_",parse_mode='Markdown')

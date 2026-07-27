@@ -714,6 +714,7 @@ def nova_proposta():
                     titulo=titulo, duracao_dias=int(dias or 1),
                     descricao=desc_e))
         db.session.commit()
+        _notificar_proposta_criada_telegram(p)
         flash(f'Proposta {numero} criada!','success')
         return redirect(url_for('ver_proposta', id=p.id))
     clientes  = Cliente.query.filter_by(empresa_id=eid()).order_by(Cliente.nome).all()
@@ -2769,6 +2770,49 @@ def _notificar_pagamento_proposta(p, valor, os_obj=None):
         enviar_mensagem_telegram(msg)
     except Exception as e:
         logger.warning(f'[PAGAMENTO] falha ao notificar Telegram do pagamento da proposta {p.numero}: {e}')
+
+
+def _notificar_proposta_criada_telegram(p):
+    """Manda pro Telegram, quando a proposta é criada pelo site (não pelo
+    bot), a mesma coisa que o bot já manda quando cria por lá: uma
+    mensagem pronta pra encaminhar ao cliente + o PDF em anexo. Nunca
+    levanta exceção -- a criação da proposta não pode falhar por causa
+    disso."""
+    try:
+        from telegram_notify import enviar_mensagem_telegram, enviar_documento_telegram
+        from ia_assistente import fmt
+        from pdf_generator import gerar_proposta_pdf
+        emp = Empresa.query.get(p.empresa_id)
+        itens = [{'descricao': i.descricao, 'quantidade': i.quantidade,
+                   'preco_unitario': i.preco_unitario, 'tipo': i.tipo} for i in p.itens]
+        etapas = [{'titulo': e.titulo, 'descricao': e.descricao, 'duracao_dias': e.duracao_dias}
+                   for e in sorted(p.etapas, key=lambda x: x.ordem)] if p.etapas else []
+        total = _valor_total_proposta(p)
+        cliente_nome = p.cliente.nome if p.cliente else '?'
+        link_pub = f"{request.host_url.rstrip('/')}/proposta/view/{p.token_publico}"
+
+        msg_cliente  = f"Olá, {cliente_nome}! Esperamos que esteja bem.\n\n"
+        msg_cliente += f"Segue a proposta comercial para o serviço solicitado.\n"
+        msg_cliente += f"Abaixo as informações:\n\n"
+        msg_cliente += f"📄 Proposta: {p.numero}\n"
+        msg_cliente += f"💰 Valor total: {fmt(total)}\n"
+        if p.forma_pagamento:
+            msg_cliente += f"💳 Pagamento: {p.forma_pagamento}\n"
+        msg_cliente += f"📅 Validade: {p.validade} dias\n\n"
+        msg_cliente += f"🔗 Para visualizar e aprovar a proposta, acesse:\n{link_pub}\n\n"
+        msg_cliente += f"No final da página, você pode assinar autorizando o serviço e efetuar o pagamento.\n\n"
+        msg_cliente += f"Qualquer dúvida, estou à disposição!"
+
+        enviar_mensagem_telegram(f"✅ *Proposta {p.numero} criada!*\n\n_Mensagem pronta para encaminhar ao cliente:_")
+        enviar_mensagem_telegram(msg_cliente)
+
+        buf = gerar_proposta_pdf(modelo_para_dict(p), modelo_para_dict(emp),
+                                  modelo_para_dict(p.cliente), itens, etapas=etapas)
+        pdf_bytes = buf.getvalue() if hasattr(buf, 'getvalue') else buf.read()
+        enviar_documento_telegram(pdf_bytes, f"Proposta_{p.numero.replace('-','_')}.pdf",
+                                   caption=f"📎 PDF da proposta {p.numero}")
+    except Exception as e:
+        logger.warning(f'[PROPOSTA] falha ao notificar Telegram da criação da proposta {p.numero}: {e}')
 
 
 def _infinitypay_confirmar_pagamento(p, transaction_nsu, slug):
