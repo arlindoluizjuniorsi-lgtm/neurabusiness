@@ -1206,22 +1206,12 @@ def aprovar_proposta_publico(id, token):
         except Exception as e:
             logger.error(f'[CONTRATO] erro gerando/assinando contrato automatico da proposta {p.numero}: {e}')
 
-    # Opção de pagar só o sinal (50%) em vez do valor total -- perguntada
-    # na própria tela de assinatura, antes de gerar o link de pagamento.
-    opcao_pagamento = request.form.get('opcao_pagamento', 'total').strip()
-    p.pagamento_percentual = 50 if opcao_pagamento == 'sinal' else 100
+    p.pagamento_percentual = 100
     p.status_pagamento = p.status_pagamento or 'pendente'
     db.session.commit()
 
-    if p.pagamento_percentual == 50:
-        valor_cobranca = round(_valor_total_proposta(p) * 0.5, 2)
-        descricao_cobranca = f'Sinal (50%) — Proposta {p.numero}'
-    else:
-        valor_cobranca = None
-        descricao_cobranca = None
-
-    _gerar_link_pagamento_mp(p, forcar_valor=valor_cobranca, descricao=descricao_cobranca)
-    _gerar_link_pagamento_infinitypay(p, forcar_valor=valor_cobranca, descricao=descricao_cobranca)
+    _gerar_link_pagamento_mp(p)
+    _gerar_link_pagamento_infinitypay(p)
 
     # Encaminha direto pro link de pagamento assim que ele existir --
     # prioriza Mercado Pago (integracao mais testada) e cai pro InfinitePay
