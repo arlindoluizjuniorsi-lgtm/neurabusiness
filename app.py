@@ -19,7 +19,7 @@ import mp_integracao
 import infinitypay_integracao
 from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CatalogoServico, MaterialInfra, Cliente, Proposta,
-                    ItemProposta, OrdemServico, ProjetoAnexo, Contrato, OsAssinatura,
+                    ItemProposta, OrdemServico, ItemOs, ProjetoAnexo, Contrato, OsAssinatura,
                     LicencaNeuraDesk, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk)
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
@@ -747,6 +747,7 @@ def ver_proposta(id):
     link_publico    = f"{host}/proposta/view/{p.token_publico}"
     link_premium    = f"{host}/proposta/premium/{p.token_publico}"
     restante = _valor_restante_proposta(p) if p.status == 'aprovada' else None
+    os_existente = OrdemServico.query.filter_by(proposta_id=p.id).first()
     return render_template('ver_proposta.html', proposta=p,
                            total=total_itens+custo_extra,
                            total_itens=total_itens,
@@ -754,7 +755,8 @@ def ver_proposta(id):
                            anexos=p.anexos, contrato=contrato,
                            link_publico=link_publico,
                            link_premium=link_premium,
-                           restante=restante)
+                           restante=restante,
+                           os_existente=os_existente)
 @app.route('/propostas/<int:id>/editar', methods=['GET','POST'])
 @login_required
 @empresa_required
@@ -1362,6 +1364,17 @@ def editar_os(id):
     return render_template('form_os.html', os=os_obj,
                            clientes=clientes, propostas=propostas)
 
+
+@app.route('/os/<int:id>/itens/<int:item_id>/toggle', methods=['POST'])
+@login_required
+@empresa_required
+def toggle_item_os(id, item_id):
+    os_obj = OrdemServico.query.filter_by(id=id, empresa_id=eid()).first_or_404()
+    item = ItemOs.query.filter_by(id=item_id, os_id=os_obj.id).first_or_404()
+    item.concluido = not item.concluido
+    item.concluido_em = datetime.now() if item.concluido else None
+    db.session.commit()
+    return redirect(url_for('ver_os', id=id))
 
 @app.route('/os/<int:id>/excluir', methods=['POST'])
 @login_required
@@ -2663,9 +2676,10 @@ def _registrar_pagamento_proposta(p, valor, referencia_pagamento):
     """Soma `valor` ao total já confirmado da proposta, atualiza
     status_pagamento (parcial/pago) e notifica Arlindo via Telegram. Usado
     tanto pelo webhook do MP quanto pela verificação de pagamento da
-    InfinitePay. `referencia_pagamento` é só pra deduplicar notificações
-    repetidas do mesmo pagamento (payment_id do MP ou transaction_nsu da
-    InfinitePay) -- reaproveita a coluna mp_payment_id pra isso."""
+    InfinitePay quanto pela confirmação manual. `referencia_pagamento` é só
+    pra deduplicar notificações repetidas do mesmo pagamento (payment_id do
+    MP ou transaction_nsu da InfinitePay) -- reaproveita a coluna
+    mp_payment_id pra isso."""
     if valor <= 0:
         return
     p.valor_pago = round((p.valor_pago or 0) + valor, 2)
@@ -2674,17 +2688,46 @@ def _registrar_pagamento_proposta(p, valor, referencia_pagamento):
     total = _valor_total_proposta(p)
     p.status_pagamento = 'pago' if p.valor_pago >= total - 0.01 else 'parcial'
     db.session.commit()
-    _notificar_pagamento_proposta(p, valor)
+    os_obj = None
+    if p.status_pagamento == 'pago':
+        os_obj = _criar_os_automatica_para_proposta(p)
+    _notificar_pagamento_proposta(p, valor, os_obj)
 
 
-def _notificar_pagamento_proposta(p, valor):
+def _criar_os_automatica_para_proposta(p):
+    """Gera a OS automaticamente assim que a proposta fica 100% paga, com
+    um item por serviço/produto da proposta pra ir marcando conforme
+    conclui. Nunca duplica -- se já existe uma OS pra essa proposta
+    (gerada manualmente ou por um pagamento anterior), não cria outra."""
+    if OrdemServico.query.filter_by(proposta_id=p.id).first():
+        return None
+    try:
+        count  = OrdemServico.query.filter_by(empresa_id=p.empresa_id).count()
+        numero = f"OS-{datetime.now().strftime('%Y%m')}-{count+1:04d}"
+        os_obj = OrdemServico(
+            empresa_id=p.empresa_id, numero=numero, titulo=p.titulo,
+            cliente_id=p.cliente_id, proposta_id=p.id,
+            descricao=f'OS gerada automaticamente após confirmação de pagamento da proposta {p.numero}.')
+        db.session.add(os_obj)
+        db.session.flush()
+        for item in p.itens:
+            db.session.add(ItemOs(os_id=os_obj.id, descricao=item.descricao))
+        db.session.commit()
+        return os_obj
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f'[OS-AUTO] erro gerando OS automática da proposta {p.numero}: {e}')
+        return None
+
+
+def _notificar_pagamento_proposta(p, valor, os_obj=None):
     try:
         from telegram_notify import enviar_mensagem_telegram
         from ia_assistente import fmt
         cliente_nome = p.cliente.nome if p.cliente else '?'
         total = _valor_total_proposta(p)
         status_txt = 'PAGO INTEGRALMENTE ✅' if p.status_pagamento == 'pago' else 'PARCIAL — falta receber o restante'
-        enviar_mensagem_telegram(
+        msg = (
             f"💰 *Pagamento confirmado!*\n\n"
             f"📄 Proposta: {p.numero}\n"
             f"👤 Cliente: {cliente_nome}\n"
@@ -2692,6 +2735,9 @@ def _notificar_pagamento_proposta(p, valor):
             f"📊 Total pago: {fmt(p.valor_pago)} de {fmt(total)}\n"
             f"📌 Status: {status_txt}"
         )
+        if os_obj:
+            msg += f"\n🛠️ OS {os_obj.numero} criada automaticamente — marque os itens conforme for concluindo."
+        enviar_mensagem_telegram(msg)
     except Exception as e:
         logger.warning(f'[PAGAMENTO] falha ao notificar Telegram do pagamento da proposta {p.numero}: {e}')
 

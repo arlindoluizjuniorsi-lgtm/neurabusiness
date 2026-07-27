@@ -258,6 +258,20 @@ class OrdemServico(db.Model):
 
     assinatura = db.relationship('OsAssinatura', backref='os', lazy=True,
                      uselist=False, cascade='all, delete-orphan')
+    itens = db.relationship('ItemOs', backref='ordem_servico', lazy=True,
+                     cascade='all, delete-orphan', order_by='ItemOs.id')
+
+
+class ItemOs(db.Model):
+    """Tarefa/item da OS -- pré-preenchido a partir dos itens da proposta
+    quando a OS é gerada automaticamente após o pagamento, pra marcar
+    conforme vai concluindo."""
+    __tablename__ = 'itens_os'
+    id           = db.Column(db.Integer, primary_key=True)
+    os_id        = db.Column(db.Integer, db.ForeignKey('ordens_servico.id'), nullable=False)
+    descricao    = db.Column(db.String(300), nullable=False)
+    concluido    = db.Column(db.Boolean, default=False)
+    concluido_em = db.Column(db.DateTime)
 
 
 class ProjetoAnexo(db.Model):
