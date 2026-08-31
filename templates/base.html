@@ -162,6 +162,33 @@ body{background:var(--nb-bg);color:var(--nb-text);padding-top:58px;min-height:10
   <a href="{{ url_for('listar_os') }}" class="sb-item {% if request.endpoint in ['listar_os','ver_os','nova_os'] %}active{% endif %}">
     <i class="fas fa-tools"></i>Ordens de Serviço
   </a>
+  {% if current_user and current_user.is_super_admin %}
+  <div class="sb-lbl">Gestão Pessoal</div>
+  <a href="{{ url_for('dashboard_pessoal') }}" class="sb-item {% if request.endpoint=='dashboard_pessoal' %}active{% endif %}">
+    <i class="fas fa-wallet"></i>Dashboard
+  </a>
+  <a href="{{ url_for('listar_gastos_pessoais') }}" class="sb-item {% if 'gasto_pessoal' in (request.endpoint or '') %}active{% endif %}">
+    <i class="fas fa-receipt"></i>Lançamentos
+  </a>
+  <a href="{{ url_for('listar_cartoes_pessoais') }}" class="sb-item {% if 'cartao_pessoal' in (request.endpoint or '') or request.endpoint=='listar_cartoes_pessoais' %}active{% endif %}">
+    <i class="fas fa-credit-card"></i>Cartões
+  </a>
+  <a href="{{ url_for('listar_rendas_pessoais') }}" class="sb-item {% if 'renda_pessoal' in (request.endpoint or '') or request.endpoint=='listar_rendas_pessoais' %}active{% endif %}">
+    <i class="fas fa-money-bill-wave"></i>Rendas
+  </a>
+  <a href="{{ url_for('listar_gastos_carro') }}" class="sb-item {% if 'gasto_carro' in (request.endpoint or '') or request.endpoint=='importar_xml_carro' %}active{% endif %}">
+    <i class="fas fa-car"></i>Carro
+  </a>
+  <a href="{{ url_for('listar_gastos_casa') }}" class="sb-item {% if 'gasto_casa' in (request.endpoint or '') or request.endpoint=='importar_xml_casa' %}active{% endif %}">
+    <i class="fas fa-house-chimney"></i>Casa
+  </a>
+  <a href="{{ url_for('listar_revisoes') }}" class="sb-item {% if request.endpoint in ['listar_revisoes','novo_revisao','editar_revisao','importar_xml_revisao','listar_veiculos','novo_veiculo','editar_veiculo','resumo_revisoes','resumo_revisoes_pdf'] %}active{% endif %}">
+    <i class="fas fa-screwdriver-wrench"></i>Revisões
+  </a>
+  <a href="{{ url_for('troca_carro') }}" class="sb-item {% if request.endpoint in ['troca_carro','novo_item_venda_troca','excluir_item_venda_troca'] %}active{% endif %}">
+    <i class="fas fa-right-left"></i>Troca de Carro
+  </a>
+  {% endif %}
   {% if session.is_admin %}
   <div class="sb-lbl">Admin</div>
   <a href="{{ url_for('listar_empresas') }}" class="sb-item {% if 'empresa' in (request.endpoint or '') %}active{% endif %}">

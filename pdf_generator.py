@@ -575,3 +575,288 @@ def gerar_os_pdf(os_obj, empresa, cliente):
     doc.build(story)
     buf.seek(0)
     return buf
+
+
+# ─── REVISÃO / MANUTENÇÃO DE VEÍCULO (Gestão Pessoal) ──────────────────────────
+def gerar_revisao_pdf(revisao, veiculo, itens, manutencoes=None):
+    """PDF de uma revisão/manutenção de veículo -- odômetro, motivo,
+    peças com valores, mão de obra e serviços de rotina marcados nela.
+    `revisao`/`veiculo` são dicts (ver modelo_para_dict); `itens` é a
+    lista de peças (descricao/qtd/valor); `manutencoes` é uma lista de
+    nomes de serviços de rotina registrados nesta revisão (opcional)."""
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=20*mm, rightMargin=20*mm,
+        topMargin=18*mm, bottomMargin=18*mm,
+        title=f"Revisão {veiculo.get('apelido') or veiculo.get('modelo') or ''}"
+    )
+    largura_util = A4[0] - 40*mm
+    styles = get_styles()
+    story = []
+
+    # ── CABEÇALHO (sem logo de empresa -- é um registro pessoal) ──
+    nome_veiculo = ' '.join(str(p) for p in [
+        veiculo.get('apelido'), veiculo.get('marca'), veiculo.get('modelo'),
+        veiculo.get('ano_modelo')] if p)
+    story.append(Paragraph('REGISTRO DE REVISÃO / MANUTENÇÃO', styles['titulo_doc']))
+    story.append(Paragraph(nome_veiculo or 'Veículo', styles['subtitulo_doc']))
+    story.append(HRFlowable(width='100%', thickness=2, color=COR_ACCENT2, spaceAfter=10))
+
+    # ── DADOS DO VEÍCULO ──
+    placa = veiculo.get('placa') or '—'
+    cor_v = veiculo.get('cor') or '—'
+    combustivel = (veiculo.get('combustivel') or '—').capitalize()
+    veic_data = [
+        [Paragraph('<b>PLACA</b>', styles['label']), Paragraph('<b>COR</b>', styles['label']),
+         Paragraph('<b>COMBUSTÍVEL</b>', styles['label']), Paragraph('<b>KM ATUAL DO VEÍCULO</b>', styles['label'])],
+        [Paragraph(placa, styles['valor_bold']), Paragraph(cor_v, styles['valor']),
+         Paragraph(combustivel, styles['valor']),
+         Paragraph(f"{veiculo.get('km_atual'):,}".replace(',', '.') if veiculo.get('km_atual') else '—', styles['valor'])],
+    ]
+    col_w4 = [largura_util/4] * 4
+    t_veic = Table(veic_data, colWidths=col_w4)
+    t_veic.setStyle(TableStyle([
+        ('BOX', (0,0), (-1,-1), 0.5, COR_BORDA), ('INNERGRID', (0,0), (-1,-1), 0.3, COR_BORDA),
+        ('BACKGROUND', (0,0), (-1,0), COR_LINHA_PAR), ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4), ('LEFTPADDING', (0,0), (-1,-1), 8),
+    ]))
+    story.append(t_veic)
+    story.append(Spacer(1, 10))
+
+    # ── DADOS DA REVISÃO ──
+    motivo = revisao.get('motivo', 'rotina')
+    cor_motivo = '#ef4444' if motivo == 'quebra' else '#10B981'
+    texto_motivo = 'QUEBRA / PROBLEMA' if motivo == 'quebra' else 'REVISÃO DE ROTINA'
+    data_rev = revisao.get('data')
+    data_fmt = data_rev.strftime('%d/%m/%Y') if hasattr(data_rev, 'strftime') else str(data_rev or '—')
+    odometro = revisao.get('odometro')
+    odometro_fmt = f"{odometro:,}".replace(',', '.') + ' km' if odometro else '—'
+
+    rev_data = [
+        [Paragraph('<b>DATA</b>', styles['label']), Paragraph('<b>ODÔMETRO</b>', styles['label']),
+         Paragraph('<b>MOTIVO</b>', styles['label']), Paragraph('<b>OFICINA</b>', styles['label'])],
+        [Paragraph(data_fmt, styles['valor_bold']), Paragraph(odometro_fmt, styles['valor_bold']),
+         Paragraph(f'<font color="{cor_motivo}"><b>{texto_motivo}</b></font>', styles['valor_bold']),
+         Paragraph(revisao.get('oficina') or '—', styles['valor'])],
+    ]
+    t_rev = Table(rev_data, colWidths=col_w4)
+    t_rev.setStyle(TableStyle([
+        ('BOX', (0,0), (-1,-1), 0.5, COR_BORDA), ('INNERGRID', (0,0), (-1,-1), 0.3, COR_BORDA),
+        ('BACKGROUND', (0,0), (-1,0), COR_LINHA_PAR), ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4), ('LEFTPADDING', (0,0), (-1,-1), 8),
+    ]))
+    story.append(t_rev)
+    story.append(Spacer(1, 10))
+
+    # ── DESCRIÇÃO ──
+    if revisao.get('descricao'):
+        story.append(Paragraph('DESCRIÇÃO / RESUMO', styles['secao']))
+        desc_box = Table([[Paragraph(revisao['descricao'].replace('\n', '<br/>'), styles['normal'])]],
+                          colWidths=[largura_util])
+        desc_box.setStyle(TableStyle([
+            ('BOX', (0,0), (-1,-1), 0.5, COR_BORDA), ('BACKGROUND', (0,0), (-1,-1), COR_LINHA_PAR),
+            ('TOPPADDING', (0,0), (-1,-1), 8), ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ('LEFTPADDING', (0,0), (-1,-1), 12), ('LINEAFTER', (0,0), (0,-1), 2, COR_ACCENT2),
+        ]))
+        story.append(desc_box)
+        story.append(Spacer(1, 8))
+
+    # ── PEÇAS ──
+    story.append(Paragraph('PEÇAS UTILIZADAS', styles['secao']))
+    if itens:
+        cab = [Paragraph('<b>Descrição</b>', styles['label']), Paragraph('<b>Qtd</b>', styles['label']),
+               Paragraph('<b>Valor Unit.</b>', styles['label']), Paragraph('<b>Subtotal</b>', styles['label'])]
+        linhas = [cab]
+        total_pecas = 0.0
+        for it in itens:
+            qtd = it.get('qtd', 1) or 1
+            valor = it.get('valor', 0) or 0
+            unit = (valor / qtd) if qtd else valor
+            total_pecas += valor
+            linhas.append([
+                Paragraph(it.get('descricao', ''), styles['valor']),
+                Paragraph(f"{qtd:g}", styles['valor']),
+                Paragraph(f"R$ {unit:.2f}", styles['valor']),
+                Paragraph(f"R$ {valor:.2f}", styles['valor_bold']),
+            ])
+        t_pecas = Table(linhas, colWidths=[largura_util*0.5, largura_util*0.12, largura_util*0.19, largura_util*0.19])
+        t_pecas.setStyle(TableStyle([
+            ('BOX', (0,0), (-1,-1), 0.5, COR_BORDA), ('INNERGRID', (0,0), (-1,-1), 0.3, COR_BORDA),
+            ('BACKGROUND', (0,0), (-1,0), COR_HEADER_TB),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, COR_LINHA_PAR]),
+            ('TOPPADDING', (0,0), (-1,-1), 5), ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('LEFTPADDING', (0,0), (-1,-1), 8), ('ALIGN', (1,0), (-1,-1), 'CENTER'),
+        ]))
+        story.append(t_pecas)
+    else:
+        story.append(Paragraph('Nenhuma peça registrada nesta revisão.', styles['normal']))
+    story.append(Spacer(1, 8))
+
+    # ── SERVIÇOS DE ROTINA MARCADOS ──
+    if manutencoes:
+        story.append(Paragraph('SERVIÇOS DE ROTINA REGISTRADOS NESTA REVISÃO', styles['secao']))
+        story.append(Paragraph(' &bull; '.join(manutencoes), styles['normal']))
+        story.append(Spacer(1, 8))
+
+    # ── TOTAIS ──
+    mao_de_obra = revisao.get('mao_de_obra', 0) or 0
+    valor_total = revisao.get('valor_total', 0) or 0
+    forma_pag = revisao.get('forma_pagamento') or '—'
+    parcela_total = revisao.get('parcela_total')
+    tot_data = [
+        [Paragraph('Mão de Obra', styles['valor']), Paragraph(f"R$ {mao_de_obra:.2f}", styles['valor'])],
+        [Paragraph('Forma de Pagamento', styles['valor']), Paragraph(forma_pag, styles['valor'])],
+    ]
+    if parcela_total and parcela_total > 1:
+        tot_data.append([Paragraph('Parcelamento', styles['valor']),
+                          Paragraph(f"{parcela_total}x de R$ {(valor_total/parcela_total):.2f}", styles['valor'])])
+    t_tot = Table(tot_data, colWidths=[largura_util*0.7, largura_util*0.3])
+    t_tot.setStyle(TableStyle([
+        ('ALIGN', (1,0), (1,-1), 'RIGHT'), ('TOPPADDING', (0,0), (-1,-1), 2), ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+    ]))
+    story.append(t_tot)
+    story.append(Spacer(1, 6))
+    total_box = Table([[Paragraph('VALOR TOTAL DA REVISÃO', styles['total_label']),
+                         Paragraph(f"R$ {valor_total:.2f}", styles['total_valor'])]],
+                       colWidths=[largura_util*0.7, largura_util*0.3])
+    total_box.setStyle(TableStyle([
+        ('BOX', (0,0), (-1,-1), 1, COR_VERDE), ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f0fdf4')),
+        ('TOPPADDING', (0,0), (-1,-1), 8), ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('LEFTPADDING', (0,0), (-1,-1), 12), ('RIGHTPADDING', (0,0), (-1,-1), 12),
+    ]))
+    story.append(total_box)
+
+    # ── RODAPÉ ──
+    story.append(Spacer(1, 20))
+    story.append(HRFlowable(width='100%', thickness=0.3, color=COR_BORDA, spaceAfter=4))
+    story.append(Paragraph(f'Documento gerado em {datetime.now().strftime("%d/%m/%Y às %H:%M")} — NeuraBusiness / Gestão Pessoal', styles['rodape']))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf
+
+
+def gerar_resumo_revisoes_pdf(veiculo, resumo):
+    """PDF com o histórico de revisões do veículo organizado por ano e mês
+    -- sem valores (é um registro de manutenção, não financeiro), só data,
+    odômetro, o que foi feito (peça/serviço) e onde. `veiculo` é um dict
+    (ver modelo_para_dict); `resumo` é a lista [{ano, meses:[{mes,
+    nome_mes, revisoes:[{data, odometro, servico, oficina, motivo}]}]}]
+    já agrupada e ordenada (ver _montar_resumo_revisoes em app.py)."""
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=18*mm, rightMargin=18*mm,
+        topMargin=18*mm, bottomMargin=18*mm,
+        title=f"Resumo de Revisões — {veiculo.get('apelido') or veiculo.get('modelo') or ''}"
+    )
+    largura_util = A4[0] - 36*mm
+    styles = get_styles()
+    story = []
+
+    # ── CABEÇALHO ──
+    nome_veiculo = ' '.join(str(p) for p in [
+        veiculo.get('apelido'), veiculo.get('marca'), veiculo.get('modelo'),
+        veiculo.get('ano_modelo')] if p)
+    story.append(Paragraph('RESUMO DE REVISÕES E MANUTENÇÕES', styles['titulo_doc']))
+    story.append(Paragraph(nome_veiculo or 'Veículo', styles['subtitulo_doc']))
+    story.append(HRFlowable(width='100%', thickness=2, color=COR_ACCENT2, spaceAfter=10))
+
+    # ── DADOS DO VEÍCULO (cabeçalho organizado, sem valores) ──
+    placa = veiculo.get('placa') or '—'
+    cor_v = veiculo.get('cor') or '—'
+    combustivel = (veiculo.get('combustivel') or '—').capitalize()
+    km_atual = veiculo.get('km_atual')
+    veic_data = [
+        [Paragraph('<b>PLACA</b>', styles['label']), Paragraph('<b>COR</b>', styles['label']),
+         Paragraph('<b>COMBUSTÍVEL</b>', styles['label']), Paragraph('<b>KM ATUAL</b>', styles['label'])],
+        [Paragraph(placa, styles['valor_bold']), Paragraph(cor_v, styles['valor']),
+         Paragraph(combustivel, styles['valor']),
+         Paragraph(f"{km_atual:,}".replace(',', '.') + ' km' if km_atual else '—', styles['valor_bold'])],
+    ]
+    col_w4 = [largura_util/4] * 4
+    t_veic = Table(veic_data, colWidths=col_w4)
+    t_veic.setStyle(TableStyle([
+        ('BOX', (0,0), (-1,-1), 0.5, COR_BORDA), ('INNERGRID', (0,0), (-1,-1), 0.3, COR_BORDA),
+        ('BACKGROUND', (0,0), (-1,0), COR_LINHA_PAR), ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4), ('LEFTPADDING', (0,0), (-1,-1), 8),
+    ]))
+    story.append(t_veic)
+    story.append(Spacer(1, 6))
+
+    # ── RESUMO GERAL ──
+    total_revisoes = sum(a['total_no_ano'] for a in resumo)
+    todas_datas = [rv['data'] for a in resumo for m in a['meses'] for rv in m['revisoes']]
+    periodo = ''
+    if todas_datas:
+        periodo = f"{min(todas_datas).strftime('%d/%m/%Y')} a {max(todas_datas).strftime('%d/%m/%Y')}"
+    resumo_geral = Table([[
+        Paragraph(f'<b>{total_revisoes}</b> revisão(ões) registrada(s)', styles['valor']),
+        Paragraph(f'Período: <b>{periodo}</b>' if periodo else '—', styles['valor']),
+    ]], colWidths=[largura_util*0.5, largura_util*0.5])
+    resumo_geral.setStyle(TableStyle([('ALIGN', (1,0), (1,0), 'RIGHT')]))
+    story.append(resumo_geral)
+    story.append(Spacer(1, 10))
+
+    if not resumo:
+        story.append(Paragraph('Nenhuma revisão registrada pra este veículo ainda.', styles['normal']))
+
+    cor_motivo = {'quebra': colors.HexColor('#ef4444'), 'rotina': COR_VERDE}
+
+    # ── UM BLOCO POR ANO, COM SUBSEÇÃO POR MÊS ──
+    for bloco_ano in resumo:
+        titulo_ano = Table([[
+            Paragraph(f'{bloco_ano["ano"]}', ParagraphStyle('ano', fontName='Helvetica-Bold', fontSize=13,
+                                                              textColor=colors.white)),
+            Paragraph(f'{bloco_ano["total_no_ano"]} revisão(ões)',
+                      ParagraphStyle('ano_qtd', fontName='Helvetica', fontSize=9,
+                                     textColor=colors.white, alignment=TA_RIGHT)),
+        ]], colWidths=[largura_util*0.7, largura_util*0.3])
+        titulo_ano.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), COR_HEADER_TB),
+            ('TOPPADDING', (0,0), (-1,-1), 6), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('LEFTPADDING', (0,0), (-1,-1), 10), ('RIGHTPADDING', (0,0), (-1,-1), 10),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(titulo_ano)
+        story.append(Spacer(1, 4))
+
+        for bloco_mes in bloco_ano['meses']:
+            story.append(Paragraph(f'{bloco_mes["nome_mes"]} de {bloco_ano["ano"]}', styles['secao']))
+            cab = [Paragraph('<b>Data</b>', styles['label']), Paragraph('<b>Odômetro</b>', styles['label']),
+                   Paragraph('<b>Revisão / Peça Trocada</b>', styles['label']),
+                   Paragraph('<b>Oficina / Loja</b>', styles['label'])]
+            linhas = [cab]
+            for rv in bloco_mes['revisoes']:
+                odo_fmt = f"{rv['odometro']:,}".replace(',', '.') + ' km' if rv['odometro'] else '—'
+                cor_m = cor_motivo.get(rv['motivo'], COR_TEXTO)
+                linhas.append([
+                    Paragraph(rv['data'].strftime('%d/%m/%Y'), styles['valor_bold']),
+                    Paragraph(odo_fmt, styles['valor']),
+                    Paragraph(rv['servico'], ParagraphStyle('servico', fontName='Helvetica', fontSize=9,
+                                                             textColor=cor_m, leading=12)),
+                    Paragraph(rv['oficina'], styles['valor']),
+                ])
+            t_mes = Table(linhas, colWidths=[largura_util*0.14, largura_util*0.16,
+                                              largura_util*0.44, largura_util*0.26], repeatRows=1)
+            t_mes.setStyle(TableStyle([
+                ('BOX', (0,0), (-1,-1), 0.5, COR_BORDA), ('INNERGRID', (0,0), (-1,-1), 0.3, COR_BORDA),
+                ('BACKGROUND', (0,0), (-1,0), COR_LINHA_PAR),
+                ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, COR_LINHA_PAR]),
+                ('TOPPADDING', (0,0), (-1,-1), 5), ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+                ('LEFTPADDING', (0,0), (-1,-1), 8), ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ]))
+            story.append(t_mes)
+            story.append(Spacer(1, 8))
+
+        story.append(Spacer(1, 6))
+
+    # ── RODAPÉ ──
+    story.append(Spacer(1, 10))
+    story.append(HRFlowable(width='100%', thickness=0.3, color=COR_BORDA, spaceAfter=4))
+    story.append(Paragraph(f'Documento gerado em {datetime.now().strftime("%d/%m/%Y às %H:%M")} — NeuraBusiness / Gestão Pessoal', styles['rodape']))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf

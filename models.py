@@ -1,6 +1,6 @@
 """NeuraBusiness — Modelos de Dados (SQLAlchemy)"""
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, date
 import secrets
 import json
 
@@ -534,3 +534,462 @@ class Integracao(db.Model):
         if not reg:
             return default
         return reg.get_valor() or default
+
+
+class CartaoPessoal(db.Model):
+    """Cartão de crédito usado nos gastos pessoais (Gestão Pessoal) --
+    agrupa lançamentos (ex: BB, Meli) e guarda limite/fechamento/cor."""
+    __tablename__ = 'gp_cartoes'
+    id             = db.Column(db.Integer, primary_key=True)
+    usuario_id     = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    nome           = db.Column(db.String(50), nullable=False)
+    limite         = db.Column(db.Float, default=0)
+    dia_fechamento = db.Column(db.Integer, default=1)  # dia do mês em que a fatura fecha (1 = sem ajuste, usa mês calendário puro)
+    cor            = db.Column(db.String(7), default='#64748b')  # cor do badge (hex), texto claro/escuro calculado automaticamente
+    ativo          = db.Column(db.Boolean, default=True)
+    criado_em      = db.Column(db.DateTime, default=datetime.now)
+
+    def ciclo_atual(self):
+        """Mês (date, dia 1) da fatura corrente, considerando o dia de
+        fechamento -- antes do fechamento do mês, a fatura "corrente"
+        ainda é a do mês anterior (evita avançar a numeração das
+        parcelas cedo demais, antes da fatura realmente fechar)."""
+        hoje = date.today()
+        if hoje.day >= (self.dia_fechamento or 1):
+            return hoje.replace(day=1)
+        mes = hoje.month - 2
+        ano = hoje.year + mes // 12
+        mes = mes % 12 + 1
+        return date(ano, mes, 1)
+
+
+class RendaPessoal(db.Model):
+    """Entrada de renda pessoal (Gestão Pessoal) -- alimentada manualmente
+    (ex: Salário dia 20, Salário dia 05, Extra) pra comparar com os gastos
+    do mês e saber quanto precisa entrar/sobra.
+      fixa  -> se repete todo mês (salário), conta enquanto ativo=True
+      extra -> pontual, só conta no mês de mes_referencia (ex: '2026-08')
+    """
+    __tablename__ = 'gp_rendas'
+    id              = db.Column(db.Integer, primary_key=True)
+    usuario_id      = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    tipo            = db.Column(db.String(20), nullable=False, default='fixa')  # fixa|extra
+    descricao       = db.Column(db.String(200), nullable=False)
+    valor           = db.Column(db.Float, nullable=False, default=0)
+    dia_recebimento = db.Column(db.Integer)  # informativo, usado em 'fixa' (ex: 20, 5)
+    mes_referencia  = db.Column(db.String(7))  # 'YYYY-MM', usado em 'extra'
+    ativo           = db.Column(db.Boolean, default=True)
+    criado_em       = db.Column(db.DateTime, default=datetime.now)
+    atualizado_em   = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def conta_no_mes(self, ref=None):
+        ref = ref or date.today()
+        if self.tipo == 'fixa':
+            return self.ativo
+        return self.ativo and self.mes_referencia == ref.strftime('%Y-%m')
+
+
+class GastoPessoal(db.Model):
+    """Lançamento de gasto pessoal (Gestão Pessoal). Substitui a planilha
+    GASTOS.xlsx -- cobre os 4 tipos que existiam nela:
+      fixo       -> gasto fixo mensal (categoria, sem cartão), sempre conta
+                    enquanto ativo=True (ex: Carro, Energia, MEI...)
+      recorrente -> assinatura/gasto recorrente de um cartão (Spotify,
+                    Netflix...), sempre conta enquanto ativo=True
+      avista     -> compra pontual de um cartão, só conta no mês de
+                    mes_referencia (ex: "2026-08")
+      parcelado  -> compra parcelada de um cartão; a parcela atual é
+                    calculada a partir de data_primeira_parcela + o mês
+                    corrente (não precisa mais atualizar "X/Y" à mão toda
+                    fatura -- isso é o que a planilha exigia manualmente)
+    """
+    __tablename__ = 'gp_gastos'
+    id                    = db.Column(db.Integer, primary_key=True)
+    usuario_id            = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    tipo                  = db.Column(db.String(20), nullable=False)  # fixo|recorrente|avista|parcelado
+    cartao_id             = db.Column(db.Integer, db.ForeignKey('gp_cartoes.id'))  # null pra 'fixo'
+    categoria             = db.Column(db.String(100))  # usado em 'fixo' (Carro, Seguro, Energia...)
+    descricao             = db.Column(db.String(200), nullable=False)
+    valor                 = db.Column(db.Float, nullable=False, default=0)
+    mes_referencia         = db.Column(db.String(7))   # 'YYYY-MM', usado em 'avista'
+    data_primeira_parcela = db.Column(db.Date)          # usado em 'parcelado'
+    parcela_total         = db.Column(db.Integer)       # usado em 'parcelado'
+    ativo                 = db.Column(db.Boolean, default=True)
+    criado_em             = db.Column(db.DateTime, default=datetime.now)
+    atualizado_em         = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    cartao = db.relationship('CartaoPessoal')
+
+    def parcela_atual(self, ref=None):
+        """Nº da parcela corrente (1-based) na competência `ref` (date,
+        default hoje), calculado a partir de data_primeira_parcela --
+        automatiza o que antes era editado à mão na planilha."""
+        if not self.data_primeira_parcela:
+            return None
+        ref = ref or date.today()
+        meses = (ref.year - self.data_primeira_parcela.year) * 12 + (ref.month - self.data_primeira_parcela.month) + 1
+        return meses
+
+    def quitado(self, ref=None):
+        if self.tipo != 'parcelado' or not self.parcela_total:
+            return False
+        atual = self.parcela_atual(ref)
+        return atual is not None and atual > self.parcela_total
+
+    def parcelas_restantes(self, ref=None):
+        """Quantas parcelas (contando a corrente) ainda faltam pagar --
+        usado pra calcular quanto do limite do cartão está comprometido."""
+        if self.tipo != 'parcelado' or not self.parcela_total:
+            return 0
+        atual = self.parcela_atual(ref)
+        if atual is None:
+            return 0
+        return max(self.parcela_total - atual + 1, 0)
+
+    def valor_restante(self, ref=None):
+        """Quanto ainda falta pagar no total (parcelas restantes x valor da parcela)."""
+        return self.valor * self.parcelas_restantes(ref)
+
+    def conta_no_mes(self, ref=None):
+        """Se este lançamento entra na conta do mês de referência."""
+        ref = ref or date.today()
+        if self.tipo in ('fixo', 'recorrente'):
+            return self.ativo
+        if self.tipo == 'avista':
+            return self.mes_referencia == ref.strftime('%Y-%m')
+        if self.tipo == 'parcelado':
+            atual = self.parcela_atual(ref)
+            return self.ativo and atual is not None and 1 <= atual <= (self.parcela_total or 0)
+        return False
+
+
+class GastoCarro(db.Model):
+    """Gasto com o carro (Gestão Pessoal) -- lançado manualmente ou
+    importado de XML de NFe/NFC-e (posto de gasolina, oficina, etc).
+    `chave_nfe` é única pra não importar a mesma nota duas vezes."""
+    __tablename__ = 'gp_gastos_carro'
+    id                     = db.Column(db.Integer, primary_key=True)
+    usuario_id             = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    tipo                   = db.Column(db.String(20), nullable=False, default='outro')
+    # combustivel|manutencao|pedagio|multa|seguro|ipva|lavagem|acessorio|outro
+    data                   = db.Column(db.Date, nullable=False, default=date.today)
+    descricao              = db.Column(db.String(300))
+    valor                  = db.Column(db.Float, nullable=False, default=0)  # valor TOTAL da compra (se parcelado, a parcela é calculada dividindo por parcela_total)
+    km_atual               = db.Column(db.Integer)
+    litros                 = db.Column(db.Float)  # usado em 'combustivel'
+    tanque_cheio           = db.Column(db.Boolean, default=True)  # abasteceu até completar o tanque? se não (top-off preventivo), entra na conta de consumo sem virar ponto de referência
+    posto_estabelecimento  = db.Column(db.String(200))
+    forma_pagamento        = db.Column(db.String(50))
+    numero_nota            = db.Column(db.String(20))
+    chave_nfe              = db.Column(db.String(44), unique=True)
+    itens_json             = db.Column(db.Text)  # itens detalhados da nota (se importado de XML)
+    arquivo_xml            = db.Column(db.String(300))  # nome do arquivo salvo em static/uploads
+    origem                 = db.Column(db.String(10), default='manual')  # manual|xml
+    cartao_id              = db.Column(db.Integer, db.ForeignKey('gp_cartoes.id'))  # se pago no cartão -- entra na fatura/limite dele
+    parcela_total          = db.Column(db.Integer)  # se > 1, `valor` (total) é dividido por parcela_total pra saber quanto entra em cada fatura
+    criado_em              = db.Column(db.DateTime, default=datetime.now)
+    atualizado_em          = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    cartao = db.relationship('CartaoPessoal')
+
+    def itens(self):
+        if not self.itens_json:
+            return []
+        try:
+            return json.loads(self.itens_json)
+        except (ValueError, TypeError):
+            return []
+
+    def parcela_atual(self, ref=None):
+        """Nº da parcela corrente (1-based) -- sempre 1 se não for parcelado."""
+        if not self.parcela_total or self.parcela_total <= 1:
+            return 1
+        ref = ref or date.today()
+        return (ref.year - self.data.year) * 12 + (ref.month - self.data.month) + 1
+
+    def quitado(self, ref=None):
+        if not self.parcela_total or self.parcela_total <= 1:
+            return False
+        return self.parcela_atual(ref) > self.parcela_total
+
+    def parcelas_restantes(self, ref=None):
+        """Quantas parcelas (contando a corrente) ainda vão aparecer em
+        faturas a partir de `ref` -- usado pra saber quanto do limite do
+        cartão esse gasto ainda compromete."""
+        ref = ref or date.today()
+        if not self.parcela_total or self.parcela_total <= 1:
+            return 1 if (self.data.year == ref.year and self.data.month == ref.month) else 0
+        atual = self.parcela_atual(ref)
+        return max(self.parcela_total - atual + 1, 0)
+
+    def valor_parcela(self):
+        """Quanto entra em CADA fatura -- `valor` é o total da compra;
+        se parcelado, divide pelo nº de parcelas."""
+        if self.parcela_total and self.parcela_total > 1:
+            return self.valor / self.parcela_total
+        return self.valor
+
+    def valor_restante(self, ref=None):
+        return self.valor_parcela() * self.parcelas_restantes(ref)
+
+    def conta_no_mes(self, ref=None):
+        ref = ref or date.today()
+        if not self.parcela_total or self.parcela_total <= 1:
+            return self.data.year == ref.year and self.data.month == ref.month
+        atual = self.parcela_atual(ref)
+        return 1 <= atual <= self.parcela_total
+
+
+class GastoCasa(db.Model):
+    """Gasto da casa (Gestão Pessoal) -- mercado, hortifruti, açougue,
+    manutenção da casa, coisas do bebê etc. Mesmo esquema do GastoCarro
+    (XML de NFe/NFC-e, cartão/parcelas, dedup por chave_nfe), mas também
+    dá pra montar a compra item a item na mão (sem precisar de XML)."""
+    __tablename__ = 'gp_gastos_casa'
+    id                 = db.Column(db.Integer, primary_key=True)
+    usuario_id         = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    tipo               = db.Column(db.String(20), nullable=False, default='outro')
+    # mercado|hortifruti|acougue|manutencao|bebe|outro
+    data               = db.Column(db.Date, nullable=False, default=date.today)
+    descricao          = db.Column(db.String(300))
+    valor              = db.Column(db.Float, nullable=False, default=0)  # valor TOTAL da compra (se parcelado, a parcela é calculada dividindo por parcela_total)
+    estabelecimento    = db.Column(db.String(200))
+    forma_pagamento    = db.Column(db.String(50))
+    numero_nota        = db.Column(db.String(20))
+    chave_nfe          = db.Column(db.String(44), unique=True)
+    itens_json         = db.Column(db.Text)  # itens da compra -- vindos do XML OU montados item a item na mão
+    arquivo_xml        = db.Column(db.String(300))
+    origem             = db.Column(db.String(10), default='manual')  # manual|xml
+    cartao_id          = db.Column(db.Integer, db.ForeignKey('gp_cartoes.id'))
+    parcela_total      = db.Column(db.Integer)
+    criado_em          = db.Column(db.DateTime, default=datetime.now)
+    atualizado_em      = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    cartao = db.relationship('CartaoPessoal')
+
+    def itens(self):
+        if not self.itens_json:
+            return []
+        try:
+            return json.loads(self.itens_json)
+        except (ValueError, TypeError):
+            return []
+
+    def parcela_atual(self, ref=None):
+        if not self.parcela_total or self.parcela_total <= 1:
+            return 1
+        ref = ref or date.today()
+        return (ref.year - self.data.year) * 12 + (ref.month - self.data.month) + 1
+
+    def quitado(self, ref=None):
+        if not self.parcela_total or self.parcela_total <= 1:
+            return False
+        return self.parcela_atual(ref) > self.parcela_total
+
+    def parcelas_restantes(self, ref=None):
+        ref = ref or date.today()
+        if not self.parcela_total or self.parcela_total <= 1:
+            return 1 if (self.data.year == ref.year and self.data.month == ref.month) else 0
+        atual = self.parcela_atual(ref)
+        return max(self.parcela_total - atual + 1, 0)
+
+    def valor_parcela(self):
+        if self.parcela_total and self.parcela_total > 1:
+            return self.valor / self.parcela_total
+        return self.valor
+
+    def valor_restante(self, ref=None):
+        return self.valor_parcela() * self.parcelas_restantes(ref)
+
+    def conta_no_mes(self, ref=None):
+        ref = ref or date.today()
+        if not self.parcela_total or self.parcela_total <= 1:
+            return self.data.year == ref.year and self.data.month == ref.month
+        atual = self.parcela_atual(ref)
+        return 1 <= atual <= self.parcela_total
+
+
+class VeiculoPessoal(db.Model):
+    """Veículo do usuário (Gestão Pessoal) -- separado da revisão em si
+    justamente pra poder trocar de carro sem perder o histórico: as
+    revisões antigas continuam ligadas ao carro antigo, as novas vão pro
+    carro novo, sem precisar migrar nada na mão."""
+    __tablename__ = 'gp_veiculos'
+    id              = db.Column(db.Integer, primary_key=True)
+    usuario_id      = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    apelido         = db.Column(db.String(100))
+    marca           = db.Column(db.String(60))
+    modelo          = db.Column(db.String(80))
+    ano_modelo      = db.Column(db.Integer)
+    ano_fabricacao  = db.Column(db.Integer)
+    placa           = db.Column(db.String(10))
+    cor             = db.Column(db.String(40))
+    combustivel     = db.Column(db.String(20))  # flex|gasolina|diesel|etanol|eletrico|hibrido
+    km_atual        = db.Column(db.Integer)
+    # manual|automatico|cvt|dualogic|outro -- define quais itens de
+    # manutenção recorrente fazem sentido (ex: fluido do atuador do
+    # robô só existe em câmbio automatizado tipo Dualogic) e qual óleo
+    # recomendar em cada caixa (ver INFO_CAMBIO em app.py).
+    tipo_cambio     = db.Column(db.String(20))
+    ativo           = db.Column(db.Boolean, default=True)
+    criado_em       = db.Column(db.DateTime, default=datetime.now)
+
+    def nome_exibicao(self):
+        partes = [self.apelido, self.marca, self.modelo, str(self.ano_modelo) if self.ano_modelo else None]
+        nome = ' '.join(p for p in partes if p)
+        return nome or f'Veículo #{self.id}'
+
+
+class RevisaoCarro(db.Model):
+    """Revisão/manutenção de um veículo (Gestão Pessoal) -- odômetro,
+    motivo (rotina/quebra), peças usadas (item a item ou via XML da nota
+    da oficina) e mão de obra separada. Mesmo esquema de cartão/parcelas
+    dos outros módulos de gastos."""
+    __tablename__ = 'gp_revisoes_carro'
+    id              = db.Column(db.Integer, primary_key=True)
+    usuario_id      = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    veiculo_id      = db.Column(db.Integer, db.ForeignKey('gp_veiculos.id'), nullable=False)
+    data            = db.Column(db.Date, nullable=False, default=date.today)
+    odometro        = db.Column(db.Integer, nullable=False)
+    motivo          = db.Column(db.String(20), nullable=False, default='rotina')  # rotina|quebra
+    oficina         = db.Column(db.String(200))
+    descricao       = db.Column(db.String(400))
+    mao_de_obra     = db.Column(db.Float, default=0)
+    itens_json      = db.Column(db.Text)  # peças: [{descricao, qtd, valor}]
+    valor_total     = db.Column(db.Float, nullable=False, default=0)  # mao_de_obra + peças (ou vNF da nota, se XML)
+    forma_pagamento = db.Column(db.String(50))
+    numero_nota     = db.Column(db.String(20))
+    chave_nfe       = db.Column(db.String(44), unique=True)
+    arquivo_xml     = db.Column(db.String(300))
+    origem          = db.Column(db.String(10), default='manual')  # manual|xml
+    cartao_id       = db.Column(db.Integer, db.ForeignKey('gp_cartoes.id'))
+    parcela_total   = db.Column(db.Integer)
+    # True só pra notas importadas por XML que ainda não viraram uma
+    # revisão de verdade (falta odômetro/motivo) -- ficam "soltas" até o
+    # usuário puxar as peças delas pra dentro de uma revisão (nova ou já
+    # existente) ou completar os dados direto nela mesma.
+    pendente        = db.Column(db.Boolean, default=False)
+    criado_em       = db.Column(db.DateTime, default=datetime.now)
+    atualizado_em   = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    veiculo = db.relationship('VeiculoPessoal')
+    cartao  = db.relationship('CartaoPessoal')
+
+    def itens(self):
+        if not self.itens_json:
+            return []
+        try:
+            return json.loads(self.itens_json)
+        except (ValueError, TypeError):
+            return []
+
+    def valor_pecas(self):
+        return sum(it.get('valor', 0) for it in self.itens())
+
+    def parcela_atual(self, ref=None):
+        if not self.parcela_total or self.parcela_total <= 1:
+            return 1
+        ref = ref or date.today()
+        return (ref.year - self.data.year) * 12 + (ref.month - self.data.month) + 1
+
+    def quitado(self, ref=None):
+        if not self.parcela_total or self.parcela_total <= 1:
+            return False
+        return self.parcela_atual(ref) > self.parcela_total
+
+    def parcelas_restantes(self, ref=None):
+        ref = ref or date.today()
+        if not self.parcela_total or self.parcela_total <= 1:
+            return 1 if (self.data.year == ref.year and self.data.month == ref.month) else 0
+        atual = self.parcela_atual(ref)
+        return max(self.parcela_total - atual + 1, 0)
+
+    def valor_parcela(self):
+        if self.parcela_total and self.parcela_total > 1:
+            return self.valor_total / self.parcela_total
+        return self.valor_total
+
+    def valor_restante(self, ref=None):
+        return self.valor_parcela() * self.parcelas_restantes(ref)
+
+    def conta_no_mes(self, ref=None):
+        ref = ref or date.today()
+        if not self.parcela_total or self.parcela_total <= 1:
+            return self.data.year == ref.year and self.data.month == ref.month
+        atual = self.parcela_atual(ref)
+        return 1 <= atual <= self.parcela_total
+
+
+class ManutencaoRecorrente(db.Model):
+    """Um "carimbo" de quando um item de manutenção de rotina (óleo do
+    motor, filtro de ar, óleo do câmbio, fluido do atuador do robô
+    Dualogic etc.) foi feito -- gerado a partir dos checkboxes marcados
+    numa RevisaoCarro. Serve pra calcular "próxima troca prevista"
+    (odômetro/data do último registro + intervalo do catálogo em
+    app.py, ou o intervalo customizado abaixo se o usuário informou
+    um diferente do padrão)."""
+    __tablename__ = 'gp_manutencoes_recorrentes'
+    id              = db.Column(db.Integer, primary_key=True)
+    usuario_id      = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    veiculo_id      = db.Column(db.Integer, db.ForeignKey('gp_veiculos.id'), nullable=False)
+    revisao_id      = db.Column(db.Integer, db.ForeignKey('gp_revisoes_carro.id'))
+    tipo            = db.Column(db.String(40), nullable=False)  # chave do catálogo TIPOS_MANUTENCAO_RECORRENTE
+    data            = db.Column(db.Date, nullable=False)
+    odometro        = db.Column(db.Integer, nullable=False)
+    intervalo_km    = db.Column(db.Integer)     # None = usa o padrão do catálogo
+    intervalo_meses = db.Column(db.Integer)     # None = usa o padrão do catálogo
+    criado_em       = db.Column(db.DateTime, default=datetime.now)
+
+    veiculo = db.relationship('VeiculoPessoal')
+    revisao = db.relationship('RevisaoCarro')
+
+
+class ItemVendaTroca(db.Model):
+    """Item avulso que o usuário pretende vender pra ajudar na entrada de
+    um carro novo (Gestão Pessoal > Troca de Carro) -- ex: "Moto, R$
+    5.000". Não é ligado a um veículo específico (é sobre o carro que
+    ainda não existe), só uma lista solta que soma no simulador."""
+    __tablename__ = 'gp_itens_venda_troca'
+    id          = db.Column(db.Integer, primary_key=True)
+    usuario_id  = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    descricao   = db.Column(db.String(200), nullable=False)
+    valor       = db.Column(db.Float, nullable=False, default=0)
+    criado_em   = db.Column(db.DateTime, default=datetime.now)
+
+
+class SimulacaoTrocaCarro(db.Model):
+    """Uma "foto" salva do simulador de Troca de Carro -- pra comparar
+    carros diferentes que o usuário considerou, ou revisitar depois pra
+    ver se a compra valeu a pena frente ao que foi simulado. Guarda os
+    números já calculados (não só os campos de entrada) porque a FIPE e
+    a taxa de juros mudam com o tempo -- a simulação salva tem que
+    continuar mostrando o que foi visto NAQUELE momento, não recalcular
+    com dado novo."""
+    __tablename__ = 'gp_simulacoes_troca_carro'
+    id                  = db.Column(db.Integer, primary_key=True)
+    usuario_id          = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    nome_carro_novo     = db.Column(db.String(150), nullable=False)
+    valor_carro_novo    = db.Column(db.Float, nullable=False, default=0)
+
+    # Carro atual (referência FIPE usada nessa simulação)
+    carro_atual_fipe    = db.Column(db.String(200))   # "Fiat Linea LX 1.8 Dualogic 2011 Flex"
+    valor_fipe          = db.Column(db.Float)
+    oferta_loja         = db.Column(db.Float, default=0)
+    saldo_devedor       = db.Column(db.Float, default=0)
+
+    total_itens_venda   = db.Column(db.Float, default=0)
+    total_entrada       = db.Column(db.Float, default=0)
+
+    taxa_juros_am       = db.Column(db.Float, default=0)   # % a.m.
+    parcelas             = db.Column(db.Integer, default=0)
+    valor_parcela        = db.Column(db.Float, default=0)
+    total_pago           = db.Column(db.Float, default=0)
+    total_juros          = db.Column(db.Float, default=0)
+
+    # Quanto o usuário já paga hoje (financiamento do carro atual, se
+    # ainda tiver) -- pra comparar direto com valor_parcela e saber se a
+    # troca aumenta ou diminui o comprometimento mensal.
+    parcela_atual        = db.Column(db.Float)
+
+    notas               = db.Column(db.Text)  # espaço livre pra anotar depois como foi ("comprei em X", "desisti porque Y")
+    criado_em           = db.Column(db.DateTime, default=datetime.now)

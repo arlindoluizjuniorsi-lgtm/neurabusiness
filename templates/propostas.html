@@ -57,6 +57,10 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-sm" style="background:rgba(0,136,204,0.1);color:#0088cc;border:1px solid rgba(0,136,204,0.3);border-radius:8px" title="Reenviar pro Telegram"><i class="fab fa-telegram"></i></button>
               </form>
+              <form method="POST" action="{{ url_for('clonar_proposta', id=p.id) }}" style="display:inline" onsubmit="return confirm('Clonar a proposta {{ p.numero }}? Uma cópia em rascunho será criada com os mesmos itens, etapas e condições.')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm" style="background:rgba(139,92,246,0.1);color:#8b5cf6;border:1px solid rgba(139,92,246,0.3);border-radius:8px" title="Clonar Proposta"><i class="fas fa-copy"></i></button>
+              </form>
               <form method="POST" action="{{ url_for('excluir_proposta', id=p.id) }}" style="display:inline" onsubmit="return confirm('Excluir proposta {{ p.numero }}?')">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:8px" title="Excluir"><i class="fas fa-trash"></i></button>

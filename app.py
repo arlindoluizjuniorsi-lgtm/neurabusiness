@@ -12,6 +12,7 @@ from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import os, json, uuid, base64, subprocess, smtplib, logging
+import xml.etree.ElementTree as ET
 from logging.handlers import RotatingFileHandler
 
 from config import Config
@@ -20,7 +21,10 @@ import infinitypay_integracao
 from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CatalogoServico, MaterialInfra, Cliente, Proposta,
                     ItemProposta, OrdemServico, ItemOs, ProjetoAnexo, Contrato, OsAssinatura,
-                    LicencaNeuraDesk, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk)
+                    LicencaNeuraDesk, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk,
+                    CartaoPessoal, GastoPessoal, RendaPessoal, GastoCarro, GastoCasa,
+                    VeiculoPessoal, RevisaoCarro, ManutencaoRecorrente, ItemVendaTroca,
+                    SimulacaoTrocaCarro)
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -71,6 +75,18 @@ def fmt_data(value, fmt='%d/%m/%Y'):
         return datetime.fromisoformat(str(value)[:19]).strftime(fmt)
     except:
         return str(value)[:10]
+
+@app.template_filter('contraste')
+def cor_contraste(hexcolor):
+    """Preto ou branco, o que tiver mais contraste com a cor de fundo
+    (usado nos badges coloridos dos cartões da Gestão Pessoal)."""
+    try:
+        h = (hexcolor or '').lstrip('#')
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        luminancia = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        return '#000000' if luminancia > 0.55 else '#ffffff'
+    except (ValueError, IndexError):
+        return '#ffffff'
 
 # ─── HELPERS ───────────────────────────────────────────────────────────────────
 def allowed_file(filename, exts=None):
@@ -724,7 +740,7 @@ def nova_proposta():
     cats_cat  = sorted(set(s.categoria for s in catalogo))
     return render_template('form_proposta.html', proposta=None,
                            clientes=clientes, produtos=produtos,
-                           servicos=servicos,
+                           servicos=servicos, form_load_id=uuid.uuid4().hex,
                            catalogo=catalogo, categorias_catalogo=cats_cat)
 
 @app.route('/propostas/<int:id>')
@@ -824,7 +840,7 @@ def editar_proposta(id):
     cats_cat  = sorted(set(s.categoria for s in catalogo))
     return render_template('form_proposta.html', proposta=p,
                            clientes=clientes, produtos=produtos,
-                           servicos=servicos,
+                           servicos=servicos, form_load_id=uuid.uuid4().hex,
                            catalogo=catalogo, categorias_catalogo=cats_cat)
 
 
@@ -2983,6 +2999,1571 @@ def api_licenca_verificar():
     })
 
 
+# ─── GESTÃO PESSOAL ────────────────────────────────────────────────────────────
+# Controle de gastos pessoais do dono do sistema (cartões, recorrentes,
+# parcelados e gastos fixos mensais) -- substitui a planilha GASTOS.xlsx.
+# Restrito ao super_admin porque é finanças pessoais, não da empresa/cliente.
+def _mes_parse(mes_str):
+    try:
+        return datetime.strptime(mes_str, '%Y-%m').date()
+    except (TypeError, ValueError):
+        return date.today().replace(day=1)
+
+def _mes_vizinho(ref, delta):
+    mes = ref.month - 1 + delta
+    ano = ref.year + mes // 12
+    mes = mes % 12 + 1
+    return date(ano, mes, 1)
+
+@app.route('/pessoal')
+@login_required
+@super_admin_required
+def dashboard_pessoal():
+    u = get_current_user()
+    mes_explicito = request.args.get('mes')
+    ref = _mes_parse(mes_explicito) if mes_explicito else date.today().replace(day=1)
+    mes_str = ref.strftime('%Y-%m')
+
+    gastos = GastoPessoal.query.filter_by(usuario_id=u.id).all()
+    gastos_carro = GastoCarro.query.filter_by(usuario_id=u.id).all()
+    gastos_casa = GastoCasa.query.filter_by(usuario_id=u.id).all()
+    revisoes_todas = RevisaoCarro.query.filter_by(usuario_id=u.id).all()
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(CartaoPessoal.nome).all()
+
+    fixos = sorted([g for g in gastos if g.tipo == 'fixo' and g.conta_no_mes(ref)], key=lambda g: g.descricao)
+    total_fixos = sum(g.valor for g in fixos)
+
+    por_cartao = []
+    total_cartoes = 0.0
+    for c in cartoes:
+        # sem mês explícito na URL, usa o ciclo de fatura corrente do
+        # cartão (considera o dia de fechamento) em vez do mês calendário
+        # cru -- evita mostrar a parcela do mês seguinte antes da fatura
+        # atual realmente fechar.
+        ref_cartao = ref if mes_explicito else c.ciclo_atual()
+        do_cartao = [g for g in gastos if g.cartao_id == c.id and g.conta_no_mes(ref_cartao)]
+        do_cartao_carro = [g for g in gastos_carro if g.cartao_id == c.id and g.conta_no_mes(ref_cartao)]
+        do_cartao_casa = [g for g in gastos_casa if g.cartao_id == c.id and g.conta_no_mes(ref_cartao)]
+        do_cartao_revisoes = [r for r in revisoes_todas if r.cartao_id == c.id and r.conta_no_mes(ref_cartao)]
+        subtotal = (sum(g.valor for g in do_cartao) + sum(g.valor_parcela() for g in do_cartao_carro)
+                    + sum(g.valor_parcela() for g in do_cartao_casa) + sum(r.valor_parcela() for r in do_cartao_revisoes))
+        total_cartoes += subtotal
+        ocupado = _ocupado_cartao(c, gastos, ref_cartao)
+        por_cartao.append({
+            'cartao': c,
+            'avista': [g for g in do_cartao if g.tipo == 'avista'],
+            'recorrentes': [g for g in do_cartao if g.tipo == 'recorrente'],
+            'parcelados': [g for g in do_cartao if g.tipo == 'parcelado'],
+            'gastos_carro': do_cartao_carro,
+            'gastos_casa': do_cartao_casa,
+            'revisoes': do_cartao_revisoes,
+            'subtotal': subtotal,
+            'ocupado': ocupado,
+            'livre': (c.limite - ocupado) if c.limite else None,
+            'perc': min(ocupado / c.limite * 100, 100) if c.limite else None,
+        })
+
+    rendas = RendaPessoal.query.filter_by(usuario_id=u.id).all()
+    rendas_mes = sorted([r for r in rendas if r.conta_no_mes(ref)], key=lambda r: r.descricao)
+    total_receitas = sum(r.valor for r in rendas_mes)
+    total_geral = total_fixos + total_cartoes
+    saldo = total_receitas - total_geral
+    total_a_quitar = sum(g.valor_restante(ref) for g in gastos if g.tipo == 'parcelado' and g.ativo)
+
+    return render_template('gestao_pessoal_dashboard.html',
+        total_a_quitar=total_a_quitar,
+        mes_str=mes_str, mes_ref=ref,
+        mes_prev=_mes_vizinho(ref, -1).strftime('%Y-%m'),
+        mes_next=_mes_vizinho(ref, 1).strftime('%Y-%m'),
+        fixos=fixos, total_fixos=total_fixos,
+        por_cartao=por_cartao, total_cartoes=total_cartoes,
+        total_geral=total_geral,
+        rendas_mes=rendas_mes, total_receitas=total_receitas, saldo=saldo)
+
+@app.route('/pessoal/lancamentos')
+@login_required
+@super_admin_required
+def listar_gastos_pessoais():
+    u = get_current_user()
+    tipo_f = request.args.get('tipo') or ''
+    q = GastoPessoal.query.filter_by(usuario_id=u.id)
+    if tipo_f:
+        q = q.filter_by(tipo=tipo_f)
+    gastos = q.order_by(GastoPessoal.tipo, GastoPessoal.descricao).all()
+    return render_template('gestao_pessoal_lancamentos.html', gastos=gastos, tipo_f=tipo_f, hoje=date.today())
+
+def _preencher_gasto_form(g, u):
+    tipo = request.form.get('tipo', 'fixo')
+    g.tipo      = tipo
+    g.descricao = request.form.get('descricao', '').strip()
+    g.valor     = float((request.form.get('valor') or '0').replace(',', '.'))
+    g.cartao_id = int(request.form['cartao_id']) if tipo != 'fixo' and request.form.get('cartao_id') else None
+    g.mes_referencia = request.form.get('mes_referencia') if tipo == 'avista' else None
+    if tipo == 'parcelado':
+        dpp = request.form.get('data_primeira_parcela')
+        g.data_primeira_parcela = datetime.strptime(dpp, '%Y-%m-%d').date() if dpp else None
+        g.parcela_total = int(request.form.get('parcela_total') or 0)
+    else:
+        g.data_primeira_parcela = None
+        g.parcela_total = None
+
+@app.route('/pessoal/lancamentos/novo', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def novo_gasto_pessoal():
+    u = get_current_user()
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(CartaoPessoal.nome).all()
+    if request.method == 'POST':
+        g = GastoPessoal(usuario_id=u.id, ativo=True)
+        _preencher_gasto_form(g, u)
+        db.session.add(g)
+        db.session.commit()
+        flash('Lançamento adicionado!', 'success')
+        return redirect(url_for('listar_gastos_pessoais'))
+    return render_template('form_gasto_pessoal.html', gasto=None, cartoes=cartoes, hoje=date.today().strftime('%Y-%m'))
+
+@app.route('/pessoal/lancamentos/<int:id>/editar', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def editar_gasto_pessoal(id):
+    u = get_current_user()
+    g = GastoPessoal.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(CartaoPessoal.nome).all()
+    if request.method == 'POST':
+        _preencher_gasto_form(g, u)
+        db.session.commit()
+        flash('Lançamento atualizado!', 'success')
+        return redirect(url_for('listar_gastos_pessoais'))
+    return render_template('form_gasto_pessoal.html', gasto=g, cartoes=cartoes, hoje=date.today().strftime('%Y-%m'))
+
+@app.route('/pessoal/lancamentos/<int:id>/toggle', methods=['POST'])
+@login_required
+@super_admin_required
+def toggle_gasto_pessoal(id):
+    u = get_current_user()
+    g = GastoPessoal.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    g.ativo = not g.ativo
+    db.session.commit()
+    flash('Gasto reativado!' if g.ativo else 'Gasto marcado como quitado/cancelado.', 'success')
+    return redirect(request.referrer or url_for('listar_gastos_pessoais'))
+
+@app.route('/pessoal/lancamentos/<int:id>/excluir', methods=['POST'])
+@login_required
+@super_admin_required
+def excluir_gasto_pessoal(id):
+    u = get_current_user()
+    g = GastoPessoal.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    db.session.delete(g)
+    db.session.commit()
+    flash('Lançamento excluído!', 'success')
+    return redirect(url_for('listar_gastos_pessoais'))
+
+def _ocupado_cartao(c, gastos, ref_cartao=None):
+    ref_cartao = ref_cartao or c.ciclo_atual()
+    gastos_carro_cartao = GastoCarro.query.filter_by(usuario_id=c.usuario_id, cartao_id=c.id).all()
+    gastos_casa_cartao = GastoCasa.query.filter_by(usuario_id=c.usuario_id, cartao_id=c.id).all()
+    revisoes_cartao = RevisaoCarro.query.filter_by(usuario_id=c.usuario_id, cartao_id=c.id).all()
+    return (
+        sum(g.valor for g in gastos if g.cartao_id == c.id and g.tipo in ('recorrente', 'avista') and g.conta_no_mes(ref_cartao))
+        + sum(g.valor * g.parcelas_restantes(ref_cartao)
+              for g in gastos if g.cartao_id == c.id and g.tipo == 'parcelado' and g.ativo)
+        + sum(g.valor_restante(ref_cartao) for g in gastos_carro_cartao)
+        + sum(g.valor_restante(ref_cartao) for g in gastos_casa_cartao)
+        + sum(g.valor_restante(ref_cartao) for g in revisoes_cartao)
+    )
+
+@app.route('/pessoal/cartoes')
+@login_required
+@super_admin_required
+def listar_cartoes_pessoais():
+    u = get_current_user()
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id).order_by(CartaoPessoal.nome).all()
+    gastos = GastoPessoal.query.filter_by(usuario_id=u.id).all()
+    resumo = []
+    for c in cartoes:
+        ocupado = _ocupado_cartao(c, gastos)
+        resumo.append({
+            'cartao': c, 'ocupado': ocupado,
+            'livre': (c.limite - ocupado) if c.limite else None,
+            'perc': min(ocupado / c.limite * 100, 100) if c.limite else None,
+        })
+    return render_template('gestao_pessoal_cartoes.html', resumo=resumo)
+
+def _preencher_cartao_form(c):
+    c.nome           = request.form.get('nome', '').strip()
+    c.limite         = float((request.form.get('limite') or '0').replace(',', '.'))
+    c.dia_fechamento = int(request.form.get('dia_fechamento') or 1)
+    c.cor            = request.form.get('cor') or '#64748b'
+
+@app.route('/pessoal/cartoes/novo', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def novo_cartao_pessoal():
+    if request.method == 'POST':
+        c = CartaoPessoal(usuario_id=get_current_user().id)
+        _preencher_cartao_form(c)
+        db.session.add(c)
+        db.session.commit()
+        flash('Cartão adicionado!', 'success')
+        return redirect(url_for('listar_cartoes_pessoais'))
+    return render_template('form_cartao_pessoal.html', cartao=None)
+
+@app.route('/pessoal/cartoes/<int:id>/editar', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def editar_cartao_pessoal(id):
+    u = get_current_user()
+    c = CartaoPessoal.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    if request.method == 'POST':
+        _preencher_cartao_form(c)
+        c.ativo = bool(request.form.get('ativo'))
+        db.session.commit()
+        flash('Cartão atualizado!', 'success')
+        return redirect(url_for('listar_cartoes_pessoais'))
+    return render_template('form_cartao_pessoal.html', cartao=c)
+
+@app.route('/pessoal/rendas')
+@login_required
+@super_admin_required
+def listar_rendas_pessoais():
+    u = get_current_user()
+    rendas = RendaPessoal.query.filter_by(usuario_id=u.id).order_by(RendaPessoal.tipo, RendaPessoal.descricao).all()
+    return render_template('gestao_pessoal_rendas.html', rendas=rendas, hoje=date.today())
+
+def _preencher_renda_form(r):
+    tipo = request.form.get('tipo', 'fixa')
+    r.tipo            = tipo
+    r.descricao       = request.form.get('descricao', '').strip()
+    r.valor           = float((request.form.get('valor') or '0').replace(',', '.'))
+    r.dia_recebimento = int(request.form['dia_recebimento']) if tipo == 'fixa' and request.form.get('dia_recebimento') else None
+    r.mes_referencia  = request.form.get('mes_referencia') if tipo == 'extra' else None
+
+@app.route('/pessoal/rendas/novo', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def nova_renda_pessoal():
+    if request.method == 'POST':
+        r = RendaPessoal(usuario_id=get_current_user().id, ativo=True)
+        _preencher_renda_form(r)
+        db.session.add(r)
+        db.session.commit()
+        flash('Renda adicionada!', 'success')
+        return redirect(url_for('listar_rendas_pessoais'))
+    return render_template('form_renda_pessoal.html', renda=None, hoje=date.today().strftime('%Y-%m'))
+
+@app.route('/pessoal/rendas/<int:id>/editar', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def editar_renda_pessoal(id):
+    u = get_current_user()
+    r = RendaPessoal.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    if request.method == 'POST':
+        _preencher_renda_form(r)
+        db.session.commit()
+        flash('Renda atualizada!', 'success')
+        return redirect(url_for('listar_rendas_pessoais'))
+    return render_template('form_renda_pessoal.html', renda=r, hoje=date.today().strftime('%Y-%m'))
+
+@app.route('/pessoal/rendas/<int:id>/toggle', methods=['POST'])
+@login_required
+@super_admin_required
+def toggle_renda_pessoal(id):
+    u = get_current_user()
+    r = RendaPessoal.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    r.ativo = not r.ativo
+    db.session.commit()
+    flash('Renda reativada!' if r.ativo else 'Renda desativada.', 'success')
+    return redirect(request.referrer or url_for('listar_rendas_pessoais'))
+
+@app.route('/pessoal/rendas/<int:id>/excluir', methods=['POST'])
+@login_required
+@super_admin_required
+def excluir_renda_pessoal(id):
+    u = get_current_user()
+    r = RendaPessoal.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    db.session.delete(r)
+    db.session.commit()
+    flash('Renda excluída!', 'success')
+    return redirect(url_for('listar_rendas_pessoais'))
+
+
+# ─── GASTOS COM O CARRO (Gestão Pessoal) ───────────────────────────────────────
+NFE_NS = '{http://www.portalfiscal.inf.br/nfe}'
+_FORMAS_PAGAMENTO_NFE = {
+    '01': 'Dinheiro', '02': 'Cheque', '03': 'Cartão de Crédito', '04': 'Cartão de Débito',
+    '05': 'Crédito Loja', '10': 'Vale Alimentação', '11': 'Vale Refeição', '12': 'Vale Presente',
+    '13': 'Vale Combustível', '15': 'Boleto', '16': 'Depósito Bancário', '17': 'PIX',
+    '18': 'Transferência Bancária', '19': 'Fidelidade', '90': 'Sem Pagamento', '99': 'Outros',
+}
+_PALAVRAS_COMBUSTIVEL = ('GASOLINA', 'ETANOL', 'ALCOOL', 'ÁLCOOL', 'DIESEL', 'GNV', 'ARLA')
+# Opções fixas de forma de pagamento (campo vira <select>, não texto livre)
+# -- inclui todos os valores que o import de XML pode gerar (ver
+# _FORMAS_PAGAMENTO_NFE acima) pra nunca ficar um gasto importado com um
+# valor que não bate com nenhuma opção do dropdown.
+FORMAS_PAGAMENTO_CARRO = ['Dinheiro', 'PIX'] + sorted(
+    v for v in set(_FORMAS_PAGAMENTO_NFE.values()) if v not in ('Dinheiro', 'PIX'))
+
+
+def _parse_nfe_xml(conteudo):
+    """Extrai os dados relevantes de um XML de NFe/NFC-e (posto, oficina,
+    etc). Aceita tanto o XML "puro" (root <NFe>) quanto o processado
+    (root <nfeProc>, com <protNFe> junto). Levanta ValueError se não
+    conseguir reconhecer a estrutura."""
+    root = ET.fromstring(conteudo)
+    inf_nfe = root.find(f'.//{NFE_NS}infNFe')
+    if inf_nfe is None:
+        raise ValueError('XML não parece ser uma NFe/NFC-e válida (tag infNFe não encontrada).')
+
+    chave = (inf_nfe.get('Id') or '').replace('NFe', '').strip()
+    ide   = inf_nfe.find(f'{NFE_NS}ide')
+    emit  = inf_nfe.find(f'{NFE_NS}emit')
+    total = inf_nfe.find(f'{NFE_NS}total/{NFE_NS}ICMSTot')
+    pag   = inf_nfe.find(f'{NFE_NS}pag')
+
+    dh_emi = (ide.findtext(f'{NFE_NS}dhEmi') or ide.findtext(f'{NFE_NS}dEmi')) if ide is not None else None
+    try:
+        data_nota = datetime.fromisoformat(dh_emi[:19]).date() if dh_emi else date.today()
+    except ValueError:
+        data_nota = date.today()
+
+    nome_emit  = emit.findtext(f'{NFE_NS}xNome') if emit is not None else ''
+    v_nf       = float((total.findtext(f'{NFE_NS}vNF') if total is not None else None) or 0)
+    n_nf       = ide.findtext(f'{NFE_NS}nNF') if ide is not None else ''
+
+    itens, litros, eh_combustivel = [], 0.0, False
+    for det in inf_nfe.findall(f'{NFE_NS}det'):
+        prod = det.find(f'{NFE_NS}prod')
+        if prod is None:
+            continue
+        x_prod = prod.findtext(f'{NFE_NS}xProd') or ''
+        q_com  = float(prod.findtext(f'{NFE_NS}qCom') or 0)
+        v_prod = float(prod.findtext(f'{NFE_NS}vProd') or 0)
+        u_com  = prod.findtext(f'{NFE_NS}uCom') or ''
+        itens.append({'descricao': x_prod, 'qtd': q_com, 'unidade': u_com, 'valor': v_prod})
+        if any(p in x_prod.upper() for p in _PALAVRAS_COMBUSTIVEL):
+            eh_combustivel = True
+            litros += q_com
+
+    forma_pagamento = ''
+    if pag is not None:
+        det_pag = pag.find(f'{NFE_NS}detPag')
+        if det_pag is not None:
+            t_pag = det_pag.findtext(f'{NFE_NS}tPag')
+            forma_pagamento = _FORMAS_PAGAMENTO_NFE.get(t_pag, t_pag or '')
+
+    descricao = nome_emit or (itens[0]['descricao'] if itens else 'Compra')
+
+    return {
+        'chave_nfe': chave or None, 'data': data_nota, 'valor': v_nf, 'numero_nota': n_nf,
+        'posto_estabelecimento': nome_emit, 'descricao': descricao, 'itens': itens,
+        'tipo_sugerido': 'combustivel' if eh_combustivel else 'outro',
+        'litros': round(litros, 2) if eh_combustivel else None,
+        'forma_pagamento': forma_pagamento,
+    }
+
+
+@app.route('/pessoal/carro')
+@login_required
+@super_admin_required
+def listar_gastos_carro():
+    u = get_current_user()
+    tipo_f = request.args.get('tipo') or ''
+    q = GastoCarro.query.filter_by(usuario_id=u.id)
+    if tipo_f:
+        q = q.filter_by(tipo=tipo_f)
+    gastos = q.order_by(GastoCarro.data.desc(), GastoCarro.id.desc()).all()
+
+    total_geral = sum(g.valor for g in gastos)
+    total_combustivel = sum(g.valor for g in gastos if g.tipo == 'combustivel')
+    total_litros = sum(g.litros or 0 for g in gastos if g.tipo == 'combustivel')
+    por_tipo = {}
+    for g in gastos:
+        por_tipo.setdefault(g.tipo, 0)
+        por_tipo[g.tipo] += g.valor
+
+    # Consumo (km/L) -- usa TODO o histórico de combustível (independe do
+    # filtro de tipo da tela), método "cheio a cheio" ANCORADO em tanque
+    # cheio: só fecha uma medição entre dois abastecimentos que realmente
+    # encheram o tanque, somando os litros de qualquer abastecimento
+    # parcial (top-off preventivo) no meio -- assim um "completei antes de
+    # viajar" não gera um consumo falso, só engorda o litro do próximo
+    # fechamento de verdade.
+    combustiveis = GastoCarro.query.filter_by(usuario_id=u.id, tipo='combustivel')\
+        .filter(GastoCarro.litros.isnot(None))\
+        .order_by(GastoCarro.data, GastoCarro.id).all()
+    pares = []
+    ancora_km = None
+    litros_acumulados = 0.0
+    for g in combustiveis:
+        litros_acumulados += (g.litros or 0)
+        if g.tanque_cheio and g.km_atual is not None:
+            if ancora_km is not None:
+                dist = g.km_atual - ancora_km
+                if dist > 0 and litros_acumulados > 0:
+                    pares.append((dist, litros_acumulados))
+            ancora_km = g.km_atual
+            litros_acumulados = 0.0
+    media_geral_kml = (sum(d for d, _ in pares) / sum(l for _, l in pares)) if pares else None
+    media_ultima_kml = (pares[-1][0] / pares[-1][1]) if pares else None
+
+    # Total de parcelas do mês -- só compras no cartão que estão parceladas
+    # (independe do filtro de tipo da tela, é sempre o quadro completo).
+    hoje = date.today()
+    parcelados_no_cartao = GastoCarro.query.filter_by(usuario_id=u.id).filter(
+        GastoCarro.cartao_id.isnot(None), GastoCarro.parcela_total.isnot(None)).all()
+    total_parcelas_mes = sum(g.valor_parcela() for g in parcelados_no_cartao
+                              if g.parcela_total > 1 and g.conta_no_mes(hoje))
+
+    return render_template('gestao_pessoal_carro.html', gastos=gastos, tipo_f=tipo_f,
+        total_geral=total_geral, total_combustivel=total_combustivel,
+        total_litros=total_litros, por_tipo=por_tipo,
+        media_geral_kml=media_geral_kml, media_ultima_kml=media_ultima_kml,
+        total_parcelas_mes=total_parcelas_mes)
+
+def _preencher_gasto_carro_form(g):
+    g.tipo = request.form.get('tipo', 'outro')
+    g.descricao = request.form.get('descricao', '').strip()
+    g.valor = float((request.form.get('valor') or '0').replace(',', '.'))
+    data_str = request.form.get('data')
+    g.data = datetime.strptime(data_str, '%Y-%m-%d').date() if data_str else date.today()
+    g.km_atual = int(request.form['km_atual']) if request.form.get('km_atual') else None
+    g.litros = float(request.form['litros'].replace(',', '.')) if g.tipo == 'combustivel' and request.form.get('litros') else None
+    g.tanque_cheio = bool(request.form.get('tanque_cheio')) if g.tipo == 'combustivel' else True
+    g.posto_estabelecimento = request.form.get('posto_estabelecimento', '').strip()
+    g.forma_pagamento = request.form.get('forma_pagamento', '').strip()
+    g.cartao_id = int(request.form['cartao_id']) if request.form.get('cartao_id') else None
+    g.parcela_total = int(request.form['parcela_total']) if request.form.get('parcela_total') else None
+
+@app.route('/pessoal/carro/novo', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def novo_gasto_carro():
+    u = get_current_user()
+    if request.method == 'POST':
+        g = GastoCarro(usuario_id=u.id, origem='manual')
+        _preencher_gasto_carro_form(g)
+        db.session.add(g)
+        db.session.commit()
+        flash('Gasto com o carro adicionado!', 'success')
+        return redirect(url_for('listar_gastos_carro'))
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(CartaoPessoal.nome).all()
+    return render_template('form_gasto_carro.html', gasto=None, cartoes=cartoes,
+        formas_pagamento=FORMAS_PAGAMENTO_CARRO, hoje=date.today().strftime('%Y-%m-%d'))
+
+@app.route('/pessoal/carro/<int:id>/editar', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def editar_gasto_carro(id):
+    u = get_current_user()
+    g = GastoCarro.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    if request.method == 'POST':
+        _preencher_gasto_carro_form(g)
+        db.session.commit()
+        flash('Gasto atualizado!', 'success')
+        return redirect(url_for('listar_gastos_carro'))
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(CartaoPessoal.nome).all()
+    return render_template('form_gasto_carro.html', gasto=g, cartoes=cartoes,
+        formas_pagamento=FORMAS_PAGAMENTO_CARRO, hoje=g.data.strftime('%Y-%m-%d'))
+
+@app.route('/pessoal/carro/<int:id>/excluir', methods=['POST'])
+@login_required
+@super_admin_required
+def excluir_gasto_carro(id):
+    u = get_current_user()
+    g = GastoCarro.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    if g.arquivo_xml:
+        caminho = os.path.join(app.config['UPLOAD_FOLDER'], 'gastos_carro', g.arquivo_xml)
+        try:
+            os.remove(caminho)
+        except OSError:
+            pass
+    db.session.delete(g)
+    db.session.commit()
+    flash('Gasto excluído!', 'success')
+    return redirect(url_for('listar_gastos_carro'))
+
+@app.route('/pessoal/carro/importar-xml', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def importar_xml_carro():
+    if request.method == 'POST':
+        arquivos = request.files.getlist('arquivos_xml')
+        u = get_current_user()
+        importados, duplicados, com_erro = 0, 0, []
+        pasta = os.path.join(app.config['UPLOAD_FOLDER'], 'gastos_carro')
+        os.makedirs(pasta, exist_ok=True)
+        for f in arquivos:
+            if not f or not f.filename:
+                continue
+            try:
+                conteudo = f.read()
+                dados = _parse_nfe_xml(conteudo)
+                if dados['chave_nfe'] and GastoCarro.query.filter_by(
+                        usuario_id=u.id, chave_nfe=dados['chave_nfe']).first():
+                    duplicados += 1
+                    continue
+                nome_arquivo = f"{(dados['chave_nfe'] or uuid.uuid4().hex)}.xml"
+                with open(os.path.join(pasta, nome_arquivo), 'wb') as out:
+                    out.write(conteudo)
+                g = GastoCarro(
+                    usuario_id=u.id, origem='xml', tipo=dados['tipo_sugerido'],
+                    data=dados['data'], descricao=dados['descricao'], valor=dados['valor'],
+                    litros=dados['litros'], posto_estabelecimento=dados['posto_estabelecimento'],
+                    forma_pagamento=dados['forma_pagamento'], numero_nota=dados['numero_nota'],
+                    chave_nfe=dados['chave_nfe'], itens_json=json.dumps(dados['itens'], ensure_ascii=False),
+                    arquivo_xml=nome_arquivo)
+                db.session.add(g)
+                db.session.commit()
+                importados += 1
+            except Exception as e:
+                db.session.rollback()
+                logger.exception(f'Erro importando XML de carro "{f.filename}"')
+                com_erro.append(f'{f.filename}: {e}')
+                continue
+        msg = f'{importados} nota(s) importada(s).'
+        if duplicados:
+            msg += f' {duplicados} já tinham sido importada(s) antes (ignoradas).'
+        if com_erro:
+            msg += f' {len(com_erro)} com erro: {"; ".join(com_erro[:3])}'
+        flash(msg, 'success' if importados else 'warning')
+        return redirect(url_for('listar_gastos_carro'))
+    return render_template('importar_xml_carro.html')
+
+
+# ─── GASTOS DA CASA (Gestão Pessoal) ───────────────────────────────────────────
+ROTULOS_GASTO_CASA = {'mercado': 'Mercado', 'hortifruti': 'Hortifruti', 'acougue': 'Açougue',
+                      'manutencao': 'Manutenção da Casa', 'bebe': 'Bebê', 'outro': 'Outro'}
+
+@app.route('/pessoal/casa')
+@login_required
+@super_admin_required
+def listar_gastos_casa():
+    u = get_current_user()
+    tipo_f = request.args.get('tipo') or ''
+    q = GastoCasa.query.filter_by(usuario_id=u.id)
+    if tipo_f:
+        q = q.filter_by(tipo=tipo_f)
+    gastos = q.order_by(GastoCasa.data.desc(), GastoCasa.id.desc()).all()
+
+    total_geral = sum(g.valor for g in gastos)
+    por_tipo = {}
+    for g in gastos:
+        por_tipo.setdefault(g.tipo, 0)
+        por_tipo[g.tipo] += g.valor
+
+    hoje = date.today()
+    parcelados_no_cartao = GastoCasa.query.filter_by(usuario_id=u.id).filter(
+        GastoCasa.cartao_id.isnot(None), GastoCasa.parcela_total.isnot(None)).all()
+    total_parcelas_mes = sum(g.valor_parcela() for g in parcelados_no_cartao
+                              if g.parcela_total > 1 and g.conta_no_mes(hoje))
+
+    return render_template('gestao_pessoal_casa.html', gastos=gastos, tipo_f=tipo_f,
+        rotulos=ROTULOS_GASTO_CASA, total_geral=total_geral, por_tipo=por_tipo,
+        total_parcelas_mes=total_parcelas_mes)
+
+def _preencher_gasto_casa_form(g):
+    g.tipo = request.form.get('tipo', 'outro')
+    g.descricao = request.form.get('descricao', '').strip()
+    data_str = request.form.get('data')
+    g.data = datetime.strptime(data_str, '%Y-%m-%d').date() if data_str else date.today()
+    g.estabelecimento = request.form.get('estabelecimento', '').strip()
+    g.forma_pagamento = request.form.get('forma_pagamento', '').strip()
+    g.cartao_id = int(request.form['cartao_id']) if request.form.get('cartao_id') else None
+    g.parcela_total = int(request.form['parcela_total']) if request.form.get('parcela_total') else None
+
+    descs = request.form.getlist('item_desc[]')
+    qtds = request.form.getlist('item_qtd[]')
+    valores = request.form.getlist('item_valor[]')
+    itens = []
+    for i, desc in enumerate(descs):
+        if not desc.strip():
+            continue
+        qtd = float((qtds[i] if i < len(qtds) else '1').replace(',', '.') or 1)
+        valor_unit = float((valores[i] if i < len(valores) else '0').replace(',', '.') or 0)
+        itens.append({'descricao': desc.strip(), 'qtd': qtd, 'unidade': '', 'valor': round(qtd * valor_unit, 2)})
+
+    if itens:
+        g.itens_json = json.dumps(itens, ensure_ascii=False)
+        g.valor = round(sum(it['valor'] for it in itens), 2)
+    else:
+        g.itens_json = None
+        g.valor = float((request.form.get('valor') or '0').replace(',', '.'))
+
+@app.route('/pessoal/casa/novo', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def novo_gasto_casa():
+    u = get_current_user()
+    if request.method == 'POST':
+        g = GastoCasa(usuario_id=u.id, origem='manual')
+        _preencher_gasto_casa_form(g)
+        db.session.add(g)
+        db.session.commit()
+        flash('Gasto da casa adicionado!', 'success')
+        return redirect(url_for('listar_gastos_casa'))
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(CartaoPessoal.nome).all()
+    return render_template('form_gasto_casa.html', gasto=None, cartoes=cartoes,
+        rotulos=ROTULOS_GASTO_CASA, formas_pagamento=FORMAS_PAGAMENTO_CARRO,
+        hoje=date.today().strftime('%Y-%m-%d'))
+
+@app.route('/pessoal/casa/<int:id>/editar', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def editar_gasto_casa(id):
+    u = get_current_user()
+    g = GastoCasa.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    if request.method == 'POST':
+        _preencher_gasto_casa_form(g)
+        db.session.commit()
+        flash('Gasto atualizado!', 'success')
+        return redirect(url_for('listar_gastos_casa'))
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(CartaoPessoal.nome).all()
+    return render_template('form_gasto_casa.html', gasto=g, cartoes=cartoes,
+        rotulos=ROTULOS_GASTO_CASA, formas_pagamento=FORMAS_PAGAMENTO_CARRO,
+        hoje=g.data.strftime('%Y-%m-%d'))
+
+@app.route('/pessoal/casa/<int:id>/excluir', methods=['POST'])
+@login_required
+@super_admin_required
+def excluir_gasto_casa(id):
+    u = get_current_user()
+    g = GastoCasa.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    if g.arquivo_xml:
+        caminho = os.path.join(app.config['UPLOAD_FOLDER'], 'gastos_casa', g.arquivo_xml)
+        try:
+            os.remove(caminho)
+        except OSError:
+            pass
+    db.session.delete(g)
+    db.session.commit()
+    flash('Gasto excluído!', 'success')
+    return redirect(url_for('listar_gastos_casa'))
+
+@app.route('/pessoal/casa/importar-xml', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def importar_xml_casa():
+    if request.method == 'POST':
+        arquivos = request.files.getlist('arquivos_xml')
+        u = get_current_user()
+        importados, duplicados, com_erro = 0, 0, []
+        pasta = os.path.join(app.config['UPLOAD_FOLDER'], 'gastos_casa')
+        os.makedirs(pasta, exist_ok=True)
+        for f in arquivos:
+            if not f or not f.filename:
+                continue
+            try:
+                conteudo = f.read()
+                dados = _parse_nfe_xml(conteudo)
+                if dados['chave_nfe'] and GastoCasa.query.filter_by(
+                        usuario_id=u.id, chave_nfe=dados['chave_nfe']).first():
+                    duplicados += 1
+                    continue
+                nome_arquivo = f"{(dados['chave_nfe'] or uuid.uuid4().hex)}.xml"
+                with open(os.path.join(pasta, nome_arquivo), 'wb') as out:
+                    out.write(conteudo)
+                g = GastoCasa(
+                    usuario_id=u.id, origem='xml', tipo='outro',
+                    data=dados['data'], descricao=dados['descricao'], valor=dados['valor'],
+                    estabelecimento=dados['posto_estabelecimento'],
+                    forma_pagamento=dados['forma_pagamento'], numero_nota=dados['numero_nota'],
+                    chave_nfe=dados['chave_nfe'], itens_json=json.dumps(dados['itens'], ensure_ascii=False),
+                    arquivo_xml=nome_arquivo)
+                db.session.add(g)
+                db.session.commit()
+                importados += 1
+            except Exception as e:
+                db.session.rollback()
+                logger.exception(f'Erro importando XML de casa "{f.filename}"')
+                com_erro.append(f'{f.filename}: {e}')
+                continue
+        msg = f'{importados} nota(s) importada(s).'
+        if duplicados:
+            msg += f' {duplicados} já tinham sido importada(s) antes (ignoradas).'
+        if com_erro:
+            msg += f' {len(com_erro)} com erro: {"; ".join(com_erro[:3])}'
+        flash(msg, 'success' if importados else 'warning')
+        return redirect(url_for('listar_gastos_casa'))
+    return render_template('importar_xml_casa.html')
+
+
+# ─── VEÍCULOS E REVISÕES (Gestão Pessoal) ──────────────────────────────────────
+# Checklist de peças/serviços comuns de revisão -- conhecimento genérico de
+# mecânica, NÃO é um catálogo de compatibilidade por veículo (isso é dado
+# comercial fechado, tipo TecDoc, sem fonte aberta confiável pra baixar).
+# Serve só de atalho pra digitar mais rápido -- a sugestão que realmente
+# aprende com o carro do usuário vem do autocomplete pelo histórico dele
+# (ver `_pecas_sugeridas_veiculo` abaixo).
+PECAS_SERVICOS_COMUNS = [
+    'Óleo do Motor', 'Filtro de Óleo', 'Filtro de Ar', 'Filtro de Cabine (Ar-Condicionado)',
+    'Filtro de Combustível', 'Velas de Ignição', 'Cabos de Vela', 'Correia Dentada',
+    'Correia do Alternador', 'Correia Poly-V', 'Tensor da Correia', 'Pastilha de Freio Dianteira',
+    'Pastilha de Freio Traseira', 'Disco de Freio Dianteiro', 'Disco de Freio Traseiro',
+    'Fluido de Freio (DOT)', 'Fluido de Arrefecimento (Aditivo)', 'Bateria', 'Amortecedor Dianteiro',
+    'Amortecedor Traseiro', 'Kit de Embreagem', 'Bico Injetor', 'Bomba de Combustível', 'Radiador',
+    'Mangueira do Radiador', 'Rolamento de Roda', 'Terminal de Direção', 'Bieleta',
+    'Pivô de Suspensão', 'Alinhamento', 'Balanceamento', 'Troca de Pneu', 'Palheta do Limpador',
+    'Junta Homocinética', 'Sonda Lambda (Sensor de Oxigênio)', 'Óleo do Câmbio', 'Mão de Obra',
+]
+_PALAVRAS_MAO_DE_OBRA = ('MAO DE OBRA', 'MÃO DE OBRA', 'SERVICO', 'SERVIÇO', 'INSTALACAO',
+                          'INSTALAÇÃO', 'MONTAGEM', 'ALINHAMENTO', 'BALANCEAMENTO')
+
+# Catálogo de itens de manutenção "de rotina" que valem a pena rastrear com
+# intervalo (pra saber quando é a próxima). São intervalos de referência de
+# mercado/manual genéricos -- não substituem o manual do proprietário do
+# veículo específico, por isso ficam editáveis por registro (campo "Intervalo
+# (KM)" que aparece ao marcar o checkbox no formulário de revisão). `cambios`
+# = None quer dizer que se aplica a qualquer tipo_cambio; uma lista restringe
+# (ex: fluido do atuador do robô só existe em câmbio automatizado Dualogic).
+TIPOS_MANUTENCAO_RECORRENTE = [
+    {'chave': 'oleo_motor',               'nome': 'Óleo do Motor',                          'km_padrao': 10000, 'meses_padrao': 12, 'cambios': None},
+    {'chave': 'filtro_oleo',              'nome': 'Filtro de Óleo',                         'km_padrao': 10000, 'meses_padrao': 12, 'cambios': None},
+    {'chave': 'filtro_ar',                'nome': 'Filtro de Ar',                           'km_padrao': 10000, 'meses_padrao': 12, 'cambios': None},
+    {'chave': 'filtro_combustivel',       'nome': 'Filtro de Combustível',                  'km_padrao': 20000, 'meses_padrao': 24, 'cambios': None},
+    {'chave': 'filtro_cabine',            'nome': 'Filtro de Cabine (Ar-Condicionado)',     'km_padrao': 15000, 'meses_padrao': 12, 'cambios': None},
+    {'chave': 'velas',                    'nome': 'Velas de Ignição',                       'km_padrao': 30000, 'meses_padrao': 36, 'cambios': None},
+    {'chave': 'correia_dentada',          'nome': 'Correia Dentada',                        'km_padrao': 60000, 'meses_padrao': 48, 'cambios': None},
+    {'chave': 'fluido_freio',             'nome': 'Fluido de Freio (DOT)',                  'km_padrao': 20000, 'meses_padrao': 24, 'cambios': None},
+    {'chave': 'alinhamento_balanceamento','nome': 'Alinhamento e Balanceamento',            'km_padrao': 10000, 'meses_padrao': 12, 'cambios': None},
+    {'chave': 'troca_pneus',              'nome': 'Troca de Pneus',                         'km_padrao': 50000, 'meses_padrao': 60, 'cambios': None},
+    {'chave': 'oleo_cambio',              'nome': 'Óleo do Câmbio',                         'km_padrao': 40000, 'meses_padrao': 48, 'cambios': None},
+    {'chave': 'fluido_atuador_robo',      'nome': 'Fluido do Atuador do Robô (Dualogic)',   'km_padrao': 40000, 'meses_padrao': 48, 'cambios': ['dualogic']},
+]
+
+# Recomendação de óleo por tipo de câmbio -- pesquisado em fontes técnicas
+# (Revista O Mecânico, guias de oficina) em 2026-08, não é dado oficial da
+# fábrica. NÃO tem número fechado de intervalo pro fluido do robô Dualogic
+# (a Fiat não divulga um padrão único) -- por isso o intervalo do sistema
+# fica editável, e o texto abaixo já avisa isso.
+INFO_CAMBIO = {
+    'manual': {
+        'nome': 'Manual',
+        'oleo_caixa': 'Óleo de câmbio manual conforme especificação do fabricante (geralmente GL-4 ou GL-5 -- confira o manual do seu veículo).',
+        'oleo_atuador': None, 'observacao': None, 'fontes': [],
+    },
+    'automatico': {
+        'nome': 'Automático (conversor de torque)',
+        'oleo_caixa': 'Fluido de câmbio automático (ATF) especificado pelo fabricante -- nunca use óleo de câmbio manual nele.',
+        'oleo_atuador': None, 'observacao': None, 'fontes': [],
+    },
+    'cvt': {
+        'nome': 'CVT',
+        'oleo_caixa': 'Fluido CVT específico do fabricante -- fluido genérico/ATF comum pode danificar a variação contínua.',
+        'oleo_atuador': None, 'observacao': None, 'fontes': [],
+    },
+    'dualogic': {
+        'nome': 'Automatizado (Dualogic)',
+        'oleo_caixa': 'Óleo de câmbio manual -- a caixa mecânica embaixo do robô é a mesma do câmbio manual do modelo. Confira no manual se o seu aceita GL-5, pois alguns Dualogic só toleram GL-4 (aditivos de GL-5 podem atacar componentes de cobre).',
+        'oleo_atuador': 'Fluido hidráulico específico Petronas Tutela CS Speed, exclusivo pro atuador eletro-hidráulico -- não aceita substituto genérico.',
+        'observacao': 'Não existe um intervalo oficial único e amplamente divulgado pela Fiat -- referências de oficina variam de ~40.000 km (uso severo) a ~120.000 km (uso normal). Ajuste o campo "Intervalo (KM)" ao marcar esse item na revisão conforme o manual do seu carro e a orientação de um mecânico de confiança.',
+        'fontes': ['omecanico.com.br', 'pneuscarmg.com.br', 'oficinasbh.com'],
+    },
+    'outro': {'nome': 'Outro', 'oleo_caixa': None, 'oleo_atuador': None, 'observacao': None, 'fontes': []},
+}
+
+def _tipos_manutencao_aplicaveis(veiculo):
+    return [t for t in TIPOS_MANUTENCAO_RECORRENTE if not t['cambios'] or veiculo.tipo_cambio in t['cambios']]
+
+def _somar_meses(d, meses):
+    m = d.month - 1 + meses
+    ano = d.year + m // 12
+    mes = m % 12 + 1
+    dia = min(d.day, 28)
+    return date(ano, mes, dia)
+
+def _status_manutencoes(usuario_id, veiculo):
+    """Pra cada item do catálogo que faz sentido nesse veículo, busca o
+    último registro (o mais recente marcado numa revisão) e calcula
+    quando é a próxima -- por KM (odômetro do veículo em relação ao
+    último + intervalo) e por tempo, valendo o que vencer primeiro,
+    igual uma revisão de verdade funciona."""
+    resultado = []
+    km_atual = veiculo.km_atual
+    for t in _tipos_manutencao_aplicaveis(veiculo):
+        # Ordena por ODÔMETRO (não por data) pra decidir qual é "o
+        # último" -- KM só anda pra frente, então o registro com maior
+        # odômetro É o mais recente de verdade. Empatando por data (ex:
+        # duas revisões no mesmo dia, uma com o odômetro preenchido
+        # certo e outra esquecida em 0) um desempate por id/data teria
+        # 50% de chance de pegar o registro errado (com odômetro
+        # zerado) e mostrar "vencido" por engano mesmo tendo acabado de
+        # ser feito.
+        ultimo = ManutencaoRecorrente.query.filter_by(
+            usuario_id=usuario_id, veiculo_id=veiculo.id, tipo=t['chave']
+        ).order_by(ManutencaoRecorrente.odometro.desc(), ManutencaoRecorrente.data.desc(),
+                   ManutencaoRecorrente.id.desc()).first()
+        item = {'chave': t['chave'], 'nome': t['nome'], 'km_padrao': t['km_padrao'],
+                'meses_padrao': t['meses_padrao'], 'ultimo': ultimo, 'status': 'nunca'}
+        if ultimo:
+            km_intervalo = ultimo.intervalo_km or t['km_padrao']
+            meses_intervalo = ultimo.intervalo_meses or t['meses_padrao']
+            proxima_km = (ultimo.odometro + km_intervalo) if km_intervalo else None
+            proxima_data = _somar_meses(ultimo.data, meses_intervalo) if meses_intervalo else None
+            km_restante = (proxima_km - km_atual) if (proxima_km and km_atual) else None
+            dias_restantes = (proxima_data - date.today()).days if proxima_data else None
+            vencido = (km_restante is not None and km_restante <= 0) or (dias_restantes is not None and dias_restantes <= 0)
+            perto = (km_restante is not None and km_intervalo and km_restante <= km_intervalo * 0.1) or \
+                    (dias_restantes is not None and dias_restantes <= 30)
+            item.update(
+                proxima_km=proxima_km, proxima_data=proxima_data,
+                km_restante=km_restante, dias_restantes=dias_restantes,
+                status='vencido' if vencido else ('atencao' if perto else 'em_dia'))
+        resultado.append(item)
+    return resultado
+
+def _pecas_sugeridas_veiculo(usuario_id, veiculo_id, limite=15):
+    """Autocomplete que aprende com o histórico -- olha as peças já
+    lançadas nas revisões desse veículo (mais usadas primeiro) e, se
+    tiver pouca coisa ainda, completa com o checklist genérico."""
+    contagem = {}
+    revisoes = RevisaoCarro.query.filter_by(usuario_id=usuario_id, veiculo_id=veiculo_id).all()
+    for r in revisoes:
+        for it in r.itens():
+            desc = (it.get('descricao') or '').strip()
+            if desc:
+                contagem[desc] = contagem.get(desc, 0) + 1
+    do_historico = sorted(contagem, key=lambda d: -contagem[d])
+    resto = [p for p in PECAS_SERVICOS_COMUNS if p not in contagem]
+    return (do_historico + resto)[:limite]
+
+@app.route('/pessoal/veiculos')
+@login_required
+@super_admin_required
+def listar_veiculos():
+    u = get_current_user()
+    veiculos = VeiculoPessoal.query.filter_by(usuario_id=u.id).order_by(VeiculoPessoal.ativo.desc(), VeiculoPessoal.criado_em.desc()).all()
+    return render_template('gestao_pessoal_veiculos.html', veiculos=veiculos)
+
+def _preencher_veiculo_form(v):
+    v.apelido = request.form.get('apelido', '').strip()
+    v.marca = request.form.get('marca', '').strip()
+    v.modelo = request.form.get('modelo', '').strip()
+    v.ano_modelo = int(request.form['ano_modelo']) if request.form.get('ano_modelo') else None
+    v.ano_fabricacao = int(request.form['ano_fabricacao']) if request.form.get('ano_fabricacao') else None
+    v.placa = request.form.get('placa', '').strip().upper()
+    v.cor = request.form.get('cor', '').strip()
+    v.combustivel = request.form.get('combustivel', '').strip()
+    v.km_atual = int(request.form['km_atual']) if request.form.get('km_atual') else None
+    v.tipo_cambio = request.form.get('tipo_cambio', '').strip() or None
+
+@app.route('/pessoal/veiculos/novo', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def novo_veiculo():
+    if request.method == 'POST':
+        v = VeiculoPessoal(usuario_id=get_current_user().id, ativo=True)
+        _preencher_veiculo_form(v)
+        db.session.add(v)
+        db.session.commit()
+        flash(f'{v.nome_exibicao()} cadastrado!', 'success')
+        return redirect(url_for('listar_veiculos'))
+    return render_template('form_veiculo.html', veiculo=None)
+
+@app.route('/pessoal/veiculos/<int:id>/editar', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def editar_veiculo(id):
+    u = get_current_user()
+    v = VeiculoPessoal.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    if request.method == 'POST':
+        _preencher_veiculo_form(v)
+        v.ativo = bool(request.form.get('ativo'))
+        db.session.commit()
+        flash('Veículo atualizado!', 'success')
+        return redirect(url_for('listar_veiculos'))
+    return render_template('form_veiculo.html', veiculo=v)
+
+@app.route('/pessoal/revisoes')
+@login_required
+@super_admin_required
+def listar_revisoes():
+    u = get_current_user()
+    veiculos = VeiculoPessoal.query.filter_by(usuario_id=u.id).order_by(VeiculoPessoal.ativo.desc(), VeiculoPessoal.criado_em.desc()).all()
+    if not veiculos:
+        return render_template('gestao_pessoal_revisoes.html', veiculos=[], veiculo_atual=None, revisoes=[])
+
+    veiculo_id = request.args.get('veiculo_id', type=int) or veiculos[0].id
+    veiculo_atual = next((v for v in veiculos if v.id == veiculo_id), veiculos[0])
+
+    todas = RevisaoCarro.query.filter_by(usuario_id=u.id, veiculo_id=veiculo_atual.id)\
+        .order_by(RevisaoCarro.data.desc(), RevisaoCarro.id.desc()).all()
+    # Notas importadas por XML que ainda não viraram revisão de verdade
+    # (sem odômetro/motivo definidos) ficam separadas -- aparecem como
+    # "pendentes" pra vincular a uma revisão, não entram nas contagens
+    # de rotina/quebra nem na "última revisão" (odômetro=0 estragaria o
+    # cálculo de km rodados desde então).
+    pendentes = [r for r in todas if r.pendente]
+    revisoes = [r for r in todas if not r.pendente]
+
+    total_geral = sum(r.valor_total for r in todas)
+    total_mao_de_obra = sum(r.mao_de_obra or 0 for r in todas)
+    total_pecas = sum(r.valor_pecas() for r in todas)
+    qtd_quebra = sum(1 for r in revisoes if r.motivo == 'quebra')
+    qtd_rotina = sum(1 for r in revisoes if r.motivo == 'rotina')
+    ultima = revisoes[0] if revisoes else None
+    km_desde_ultima = None
+    if ultima and veiculo_atual.km_atual:
+        km_desde_ultima = veiculo_atual.km_atual - ultima.odometro
+
+    status_manutencoes = _status_manutencoes(u.id, veiculo_atual)
+    info_cambio = INFO_CAMBIO.get(veiculo_atual.tipo_cambio) if veiculo_atual.tipo_cambio else None
+    manutencoes_por_revisao = {}
+    if revisoes:
+        nomes_tipo = {t['chave']: t['nome'] for t in TIPOS_MANUTENCAO_RECORRENTE}
+        for m in ManutencaoRecorrente.query.filter(
+                ManutencaoRecorrente.revisao_id.in_([r.id for r in revisoes])).all():
+            manutencoes_por_revisao.setdefault(m.revisao_id, []).append(nomes_tipo.get(m.tipo, m.tipo))
+
+    return render_template('gestao_pessoal_revisoes.html', veiculos=veiculos, veiculo_atual=veiculo_atual,
+        revisoes=revisoes, pendentes=pendentes, total_geral=total_geral, total_mao_de_obra=total_mao_de_obra,
+        total_pecas=total_pecas, qtd_quebra=qtd_quebra, qtd_rotina=qtd_rotina,
+        ultima=ultima, km_desde_ultima=km_desde_ultima, status_manutencoes=status_manutencoes,
+        info_cambio=info_cambio, manutencoes_por_revisao=manutencoes_por_revisao)
+
+NOMES_MESES = {
+    1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho',
+    7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro',
+}
+
+def _texto_servico_revisao(r, nomes_manutencoes):
+    """Monta o texto de "o que foi feito" nessa revisão pro resumo/PDF --
+    prioriza as peças trocadas (mais concreto), depois os serviços de
+    rotina marcados nela, cai pra descrição livre, e por último só o
+    motivo (rotina/quebra) se não tiver nada mais específico registrado."""
+    partes = []
+    descricoes_pecas = [it.get('descricao', '').strip() for it in r.itens() if it.get('descricao', '').strip()]
+    if descricoes_pecas:
+        partes.append(', '.join(descricoes_pecas))
+    if nomes_manutencoes:
+        partes.append(', '.join(nomes_manutencoes))
+    if not partes and r.descricao:
+        partes.append(r.descricao.strip())
+    if not partes:
+        partes.append('Quebra / Problema' if r.motivo == 'quebra' else 'Revisão de rotina')
+    return ' · '.join(partes)
+
+def _montar_resumo_revisoes(u, veiculo):
+    """Agrupa as revisões (não-pendentes) do veículo por ano -> mês, cada
+    uma já com o texto de "o que foi feito" pronto -- usado tanto na tela
+    de resumo quanto no PDF, pra não duplicar a lógica de agrupamento."""
+    todas = RevisaoCarro.query.filter_by(usuario_id=u.id, veiculo_id=veiculo.id, pendente=False)\
+        .order_by(RevisaoCarro.data.asc(), RevisaoCarro.id.asc()).all()
+    if not todas:
+        return []
+
+    nomes_tipo = {t['chave']: t['nome'] for t in TIPOS_MANUTENCAO_RECORRENTE}
+    manut_por_revisao = {}
+    for m in ManutencaoRecorrente.query.filter(
+            ManutencaoRecorrente.revisao_id.in_([r.id for r in todas])).all():
+        manut_por_revisao.setdefault(m.revisao_id, []).append(nomes_tipo.get(m.tipo, m.tipo))
+
+    por_ano = {}
+    for r in todas:
+        linha = {
+            'id': r.id, 'data': r.data, 'odometro': r.odometro, 'motivo': r.motivo,
+            'oficina': (r.oficina or '').strip() or '—',
+            'servico': _texto_servico_revisao(r, manut_por_revisao.get(r.id, [])),
+        }
+        por_ano.setdefault(r.data.year, {}).setdefault(r.data.month, []).append(linha)
+
+    resumo = []
+    for ano in sorted(por_ano.keys(), reverse=True):
+        meses = []
+        for mes in sorted(por_ano[ano].keys(), reverse=True):
+            revs_mes = sorted(por_ano[ano][mes], key=lambda x: x['data'], reverse=True)
+            meses.append({'mes': mes, 'nome_mes': NOMES_MESES[mes], 'revisoes': revs_mes})
+        resumo.append({'ano': ano, 'meses': meses,
+                        'total_no_ano': sum(len(m['revisoes']) for m in meses)})
+    return resumo
+
+@app.route('/pessoal/revisoes/resumo')
+@login_required
+@super_admin_required
+def resumo_revisoes():
+    u = get_current_user()
+    veiculos = VeiculoPessoal.query.filter_by(usuario_id=u.id)\
+        .order_by(VeiculoPessoal.ativo.desc(), VeiculoPessoal.criado_em.desc()).all()
+    if not veiculos:
+        return render_template('gestao_pessoal_revisoes_resumo.html', veiculos=[], veiculo_atual=None, resumo=[])
+
+    veiculo_id = request.args.get('veiculo_id', type=int) or veiculos[0].id
+    veiculo_atual = next((v for v in veiculos if v.id == veiculo_id), veiculos[0])
+    resumo = _montar_resumo_revisoes(u, veiculo_atual)
+    total_revisoes = sum(a['total_no_ano'] for a in resumo)
+    return render_template('gestao_pessoal_revisoes_resumo.html', veiculos=veiculos,
+        veiculo_atual=veiculo_atual, resumo=resumo, total_revisoes=total_revisoes)
+
+@app.route('/pessoal/revisoes/resumo/pdf')
+@login_required
+@super_admin_required
+def resumo_revisoes_pdf():
+    from pdf_generator import gerar_resumo_revisoes_pdf
+    u = get_current_user()
+    veiculo_id = request.args.get('veiculo_id', type=int)
+    veiculo = VeiculoPessoal.query.filter_by(id=veiculo_id, usuario_id=u.id).first_or_404() if veiculo_id \
+        else VeiculoPessoal.query.filter_by(usuario_id=u.id).order_by(VeiculoPessoal.criado_em.desc()).first_or_404()
+    resumo = _montar_resumo_revisoes(u, veiculo)
+    buf = gerar_resumo_revisoes_pdf(modelo_para_dict(veiculo), resumo)
+    nome_arq = (veiculo.apelido or veiculo.modelo or 'veiculo').replace(' ', '_')
+    return send_file(buf, mimetype='application/pdf', as_attachment=False,
+                      download_name=f"Resumo_Revisoes_{nome_arq}.pdf")
+
+
+# ============================================================
+# TROCA DE CARRO — consulta FIPE + simulador de entrada/financiamento
+# ============================================================
+
+FIPE_BASE_URL = 'https://fipe.parallelum.com.br/api/v2/cars'
+
+def _fipe_get(caminho):
+    """GET simples na API pública da FIPE (Parallelum v2, sem autenticação
+    -- ver https://fipe.parallelum.com.br). Timeout curto e erro tratável
+    pelo chamador em vez de estourar exceção pra dentro da rota."""
+    import requests
+    try:
+        resp = requests.get(f'{FIPE_BASE_URL}/{caminho}', timeout=12,
+                             headers={'Accept': 'application/json'})
+        if resp.status_code != 200:
+            return None, f'FIPE respondeu {resp.status_code}'
+        return resp.json(), None
+    except Exception as e:
+        return None, str(e)
+
+@app.route('/pessoal/troca-carro/fipe/marcas')
+@login_required
+@super_admin_required
+def fipe_marcas():
+    dados, erro = _fipe_get('brands')
+    if erro:
+        return jsonify({'erro': erro}), 502
+    marcas = sorted(({'codigo': m['code'], 'nome': m['name']} for m in dados), key=lambda x: x['nome'])
+    return jsonify(marcas)
+
+@app.route('/pessoal/troca-carro/fipe/modelos/<marca_codigo>')
+@login_required
+@super_admin_required
+def fipe_modelos(marca_codigo):
+    dados, erro = _fipe_get(f'brands/{marca_codigo}/models')
+    if erro:
+        return jsonify({'erro': erro}), 502
+    modelos = sorted(({'codigo': m['code'], 'nome': m['name']} for m in dados), key=lambda x: x['nome'])
+    return jsonify(modelos)
+
+@app.route('/pessoal/troca-carro/fipe/anos/<marca_codigo>/<modelo_codigo>')
+@login_required
+@super_admin_required
+def fipe_anos(marca_codigo, modelo_codigo):
+    dados, erro = _fipe_get(f'brands/{marca_codigo}/models/{modelo_codigo}/years')
+    if erro:
+        return jsonify({'erro': erro}), 502
+    anos = [{'codigo': a['code'], 'nome': a['name']} for a in dados]
+    return jsonify(anos)
+
+@app.route('/pessoal/troca-carro/fipe/valor/<marca_codigo>/<modelo_codigo>/<ano_codigo>')
+@login_required
+@super_admin_required
+def fipe_valor(marca_codigo, modelo_codigo, ano_codigo):
+    dados, erro = _fipe_get(f'brands/{marca_codigo}/models/{modelo_codigo}/years/{ano_codigo}')
+    if erro:
+        return jsonify({'erro': erro}), 502
+    # "R$ 27.652,00" -> 27652.00 (número puro, mais fácil de somar no JS)
+    preco_txt = (dados.get('price') or '').replace('R$', '').strip()
+    preco_num = None
+    try:
+        preco_num = float(preco_txt.replace('.', '').replace(',', '.'))
+    except (ValueError, AttributeError):
+        pass
+    return jsonify({
+        'preco_texto': dados.get('price'), 'preco': preco_num,
+        'marca': dados.get('brand'), 'modelo': dados.get('model'),
+        'ano_modelo': dados.get('modelYear'), 'combustivel': dados.get('fuel'),
+        'codigo_fipe': dados.get('codeFipe'), 'mes_referencia': dados.get('referenceMonth'),
+    })
+
+@app.route('/pessoal/troca-carro')
+@login_required
+@super_admin_required
+def troca_carro():
+    u = get_current_user()
+    itens = ItemVendaTroca.query.filter_by(usuario_id=u.id).order_by(ItemVendaTroca.criado_em.desc()).all()
+    total_itens = sum(i.valor for i in itens)
+    veiculo_atual = VeiculoPessoal.query.filter_by(usuario_id=u.id, ativo=True)\
+        .order_by(VeiculoPessoal.criado_em.desc()).first()
+    return render_template('gestao_pessoal_troca_carro.html', itens=itens, total_itens=total_itens,
+                            veiculo_atual=veiculo_atual)
+
+def _eh_ajax():
+    return request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+@app.route('/pessoal/troca-carro/itens/novo', methods=['POST'])
+@login_required
+@super_admin_required
+def novo_item_venda_troca():
+    u = get_current_user()
+    descricao = request.form.get('descricao', '').strip()
+    try:
+        valor = float(request.form.get('valor') or 0)
+    except ValueError:
+        valor = 0
+    if descricao and valor > 0:
+        item = ItemVendaTroca(usuario_id=u.id, descricao=descricao, valor=valor)
+        db.session.add(item)
+        db.session.commit()
+        if _eh_ajax():
+            return jsonify({'ok': True, 'id': item.id, 'descricao': item.descricao, 'valor': item.valor})
+        flash(f'"{descricao}" adicionado à lista!', 'success')
+        return redirect(url_for('troca_carro'))
+    if _eh_ajax():
+        return jsonify({'ok': False, 'erro': 'Preencha a descrição e um valor maior que zero.'}), 400
+    flash('Preencha a descrição e um valor maior que zero.', 'warning')
+    return redirect(url_for('troca_carro'))
+
+@app.route('/pessoal/troca-carro/itens/<int:id>/excluir', methods=['POST'])
+@login_required
+@super_admin_required
+def excluir_item_venda_troca(id):
+    u = get_current_user()
+    item = ItemVendaTroca.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    db.session.delete(item)
+    db.session.commit()
+    if _eh_ajax():
+        return jsonify({'ok': True})
+    flash('Item removido da lista.', 'success')
+    return redirect(url_for('troca_carro'))
+
+@app.route('/pessoal/troca-carro/salvar', methods=['POST'])
+@login_required
+@super_admin_required
+def salvar_simulacao_troca_carro():
+    """Salva uma "foto" da simulação atual -- os números já calculados no
+    JS, não só os campos de entrada, porque a FIPE e a taxa de juros
+    mudam com o tempo e a simulação salva tem que continuar mostrando o
+    que foi visto naquele momento."""
+    u = get_current_user()
+    def f(campo):
+        try:
+            return float(request.form.get(campo) or 0)
+        except ValueError:
+            return 0
+    nome = request.form.get('nome_carro_novo', '').strip()
+    if not nome:
+        flash('Dê um nome pro carro novo antes de salvar (ex: "Corolla XEi 2023 na Fulano Motors").', 'warning')
+        return redirect(url_for('troca_carro'))
+    sim = SimulacaoTrocaCarro(
+        usuario_id=u.id,
+        nome_carro_novo=nome,
+        valor_carro_novo=f('valor_carro_novo'),
+        carro_atual_fipe=request.form.get('carro_atual_fipe', '').strip() or None,
+        valor_fipe=f('valor_fipe') or None,
+        oferta_loja=f('oferta_loja'),
+        saldo_devedor=f('saldo_devedor'),
+        total_itens_venda=f('total_itens_venda'),
+        total_entrada=f('total_entrada'),
+        taxa_juros_am=f('taxa_juros_am'),
+        parcelas=int(f('parcelas')),
+        valor_parcela=f('valor_parcela'),
+        total_pago=f('total_pago'),
+        total_juros=f('total_juros'),
+        parcela_atual=f('parcela_atual') or None,
+    )
+    db.session.add(sim)
+    db.session.commit()
+    flash(f'Simulação de "{nome}" salva!', 'success')
+    return redirect(url_for('simulacoes_troca_carro'))
+
+@app.route('/pessoal/troca-carro/simulacoes')
+@login_required
+@super_admin_required
+def simulacoes_troca_carro():
+    u = get_current_user()
+    simulacoes = SimulacaoTrocaCarro.query.filter_by(usuario_id=u.id)\
+        .order_by(SimulacaoTrocaCarro.criado_em.desc()).all()
+    return render_template('gestao_pessoal_troca_carro_simulacoes.html', simulacoes=simulacoes)
+
+@app.route('/pessoal/troca-carro/simulacoes/<int:id>/notas', methods=['POST'])
+@login_required
+@super_admin_required
+def atualizar_notas_simulacao(id):
+    u = get_current_user()
+    sim = SimulacaoTrocaCarro.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    sim.notas = request.form.get('notas', '').strip() or None
+    db.session.commit()
+    flash('Anotação salva!', 'success')
+    return redirect(url_for('simulacoes_troca_carro'))
+
+@app.route('/pessoal/troca-carro/simulacoes/<int:id>/excluir', methods=['POST'])
+@login_required
+@super_admin_required
+def excluir_simulacao_troca_carro(id):
+    u = get_current_user()
+    sim = SimulacaoTrocaCarro.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    db.session.delete(sim)
+    db.session.commit()
+    flash('Simulação removida.', 'success')
+    return redirect(url_for('simulacoes_troca_carro'))
+
+def _preencher_revisao_form(r, u):
+    r.veiculo_id = int(request.form['veiculo_id'])
+    data_str = request.form.get('data')
+    r.data = datetime.strptime(data_str, '%Y-%m-%d').date() if data_str else date.today()
+    r.odometro = int(request.form.get('odometro') or 0)
+    r.motivo = request.form.get('motivo', 'rotina')
+    r.oficina = request.form.get('oficina', '').strip()
+    r.descricao = request.form.get('descricao', '').strip()
+    r.mao_de_obra = float((request.form.get('mao_de_obra') or '0').replace(',', '.'))
+    r.forma_pagamento = request.form.get('forma_pagamento', '').strip()
+    r.cartao_id = int(request.form['cartao_id']) if request.form.get('cartao_id') else None
+    r.parcela_total = int(request.form['parcela_total']) if request.form.get('parcela_total') else None
+
+    descs = request.form.getlist('item_desc[]')
+    qtds = request.form.getlist('item_qtd[]')
+    valores = request.form.getlist('item_valor[]')
+    origem_tipos = request.form.getlist('item_origem_tipo[]')
+    origem_notas = request.form.getlist('item_origem_nota[]')
+    origem_idxs = request.form.getlist('item_origem_idx[]')
+    itens = []
+    consumos = []  # [(origem_tipo, nota_id, idx), ...] -- peças escolhidas individualmente de notas/gastos
+    for i, desc in enumerate(descs):
+        if not desc.strip():
+            continue
+        qtd = float((qtds[i] if i < len(qtds) else '1').replace(',', '.') or 1)
+        valor_unit = float((valores[i] if i < len(valores) else '0').replace(',', '.') or 0)
+        itens.append({'descricao': desc.strip(), 'qtd': qtd, 'valor': round(qtd * valor_unit, 2)})
+        origem_tipo = origem_tipos[i] if i < len(origem_tipos) else ''
+        nota_id = origem_notas[i] if i < len(origem_notas) else ''
+        idx = origem_idxs[i] if i < len(origem_idxs) else ''
+        if origem_tipo and nota_id and idx != '':
+            consumos.append((origem_tipo, int(nota_id), int(idx)))
+    r._consumos_notas = consumos  # atributo transiente, lido pelas rotas após salvar
+    r.itens_json = json.dumps(itens, ensure_ascii=False) if itens else None
+    r._manutencoes_marcadas = request.form.getlist('manutencoes[]')  # idem
+    r.valor_total = round(r.mao_de_obra + sum(it['valor'] for it in itens), 2)
+    # Uma vez que o odômetro (e o resto) foi preenchido, a revisão deixa
+    # de ser "pendente" -- seja porque o usuário completou a nota
+    # importada direto, seja porque isso é uma revisão manual normal.
+    if r.odometro:
+        r.pendente = False
+
+    # Atualiza o KM do veículo se essa revisão for a mais recente (mais
+    # alta) que ele conhece -- assim o "km desde a última revisão" no
+    # resumo fica sempre em dia sem precisar editar o veículo à parte.
+    veiculo = VeiculoPessoal.query.get(r.veiculo_id)
+    if veiculo and (not veiculo.km_atual or r.odometro > veiculo.km_atual):
+        veiculo.km_atual = r.odometro
+
+def _salvar_manutencoes_marcadas(r, u):
+    """Recria os "carimbos" de manutenção recorrente (óleo do motor,
+    câmbio, etc.) ligados a essa revisão a partir dos checkboxes
+    marcados no form -- apaga os antigos primeiro pra editar funcionar
+    (desmarcar um item remove o carimbo dele)."""
+    ManutencaoRecorrente.query.filter_by(revisao_id=r.id).delete()
+    marcados = getattr(r, '_manutencoes_marcadas', [])
+    if not marcados:
+        return
+    veiculo = VeiculoPessoal.query.get(r.veiculo_id)
+    aplicaveis = {t['chave']: t for t in _tipos_manutencao_aplicaveis(veiculo)} if veiculo else {}
+    for chave in marcados:
+        cat = aplicaveis.get(chave)
+        if not cat:
+            continue
+        km_override = request.form.get(f'intervalo_km_{chave}', type=int)
+        intervalo_km = km_override if km_override and km_override != cat['km_padrao'] else None
+        db.session.add(ManutencaoRecorrente(
+            usuario_id=u.id, veiculo_id=r.veiculo_id, revisao_id=r.id,
+            tipo=chave, data=r.data, odometro=r.odometro, intervalo_km=intervalo_km))
+
+def _vincular_nota_pendente(r, u):
+    """Se o form trouxe `nota_origem_id`, essa revisão (nova ou em
+    edição) está "puxando" uma nota XML pendente pra dentro dela --
+    transfere a chave/arquivo da nota pra essa revisão (fica marcada
+    como vinda de XML, com o link pro arquivo original) e apaga o
+    registro solto, evitando duplicar o gasto no cartão/dashboard."""
+    nota_id = request.form.get('nota_origem_id', type=int)
+    if not nota_id or nota_id == r.id:
+        return
+    nota = RevisaoCarro.query.filter_by(id=nota_id, usuario_id=u.id, pendente=True).first()
+    if not nota:
+        return
+    chave = nota.chave_nfe
+    nota.chave_nfe = None  # libera a coluna unique antes de repassar
+    db.session.flush()
+    r.chave_nfe = chave
+    r.arquivo_xml = nota.arquivo_xml
+    r.origem = 'xml'
+    if not r.numero_nota:
+        r.numero_nota = nota.numero_nota
+    db.session.delete(nota)
+
+def _pecas_disponiveis_notas(u, veiculo_id):
+    """Lista achatada (peça a peça, não a nota inteira) de tudo que dá
+    pra puxar pra dentro de uma revisão -- duas fontes, com
+    comportamentos DIFERENTES ao usar (ver `_consumir_itens_de_notas`):
+    1) notas XML pendentes lançadas direto em Revisões (específicas
+       desse veículo) -- usar uma peça daqui REMOVE ela da nota
+       pendente (e a nota some se esvaziar), porque essas notas nunca
+       foram um registro "de verdade" por conta própria;
+    2) notas XML já importadas no módulo "Gastos com o Carro" (esse
+       módulo é mais antigo que Veículos/Revisões e não tem veiculo_id,
+       então aparece pra qualquer veículo do usuário) -- usar uma peça
+       daqui só COPIA a descrição/valor pra revisão; o lançamento
+       original em Gastos com o Carro continua intacto (ele já é um
+       gasto real, com histórico e cartão próprios).
+    Cada peça carrega de onde veio (`origem_tipo`)."""
+    pecas = []
+    notas_revisao = RevisaoCarro.query.filter_by(usuario_id=u.id, veiculo_id=veiculo_id, pendente=True)\
+        .order_by(RevisaoCarro.data.desc()).all()
+    for n in notas_revisao:
+        rotulo_nota = f"{n.data.strftime('%d/%m/%Y')} - {n.oficina or 'nota sem nome'}"
+        for idx, it in enumerate(n.itens()):
+            pecas.append({
+                'origem_tipo': 'revisao', 'nota_id': n.id, 'idx': idx,
+                'descricao': it.get('descricao', ''), 'qtd': it.get('qtd', 1) or 1,
+                'valor': it.get('valor', 0) or 0, 'nota_label': rotulo_nota,
+            })
+    gastos_xml = GastoCarro.query.filter_by(usuario_id=u.id, origem='xml')\
+        .filter(GastoCarro.itens_json.isnot(None)).order_by(GastoCarro.data.desc()).all()
+    for g in gastos_xml:
+        itens_g = g.itens()
+        if not itens_g:
+            continue
+        rotulo_nota = f"{g.data.strftime('%d/%m/%Y')} - {g.posto_estabelecimento or 'nota sem nome'} (Gastos com o Carro)"
+        for idx, it in enumerate(itens_g):
+            pecas.append({
+                'origem_tipo': 'gasto_carro', 'nota_id': g.id, 'idx': idx,
+                'descricao': it.get('descricao', ''), 'qtd': it.get('qtd', 1) or 1,
+                'valor': it.get('valor', 0) or 0, 'nota_label': rotulo_nota,
+            })
+    return pecas
+
+def _consumir_item_revisao_pendente(nota_id, idxs, u):
+    nota = RevisaoCarro.query.filter_by(id=nota_id, usuario_id=u.id, pendente=True).first()
+    if not nota:
+        return
+    restantes = [it for i, it in enumerate(nota.itens()) if i not in idxs]
+    nota.itens_json = json.dumps(restantes, ensure_ascii=False) if restantes else None
+    nota.valor_total = round((nota.mao_de_obra or 0) + sum(it.get('valor', 0) for it in restantes), 2)
+    if not restantes and not nota.mao_de_obra:
+        if nota.arquivo_xml:
+            caminho = os.path.join(app.config['UPLOAD_FOLDER'], 'revisoes_carro', nota.arquivo_xml)
+            try:
+                os.remove(caminho)
+            except OSError:
+                pass
+        db.session.delete(nota)
+
+def _consumir_itens_de_notas(consumos, u):
+    """Remove peça a peça os itens escolhidos das notas XML PENDENTES
+    de Revisões (as que ainda não viraram uma revisão de verdade) --
+    essas somem/encolhem porque nunca foram um registro "de verdade"
+    por conta própria, só um rascunho esperando virar revisão.
+
+    Peças que vieram de "Gastos com o Carro" (`origem_tipo ==
+    'gasto_carro'`) NÃO são tocadas aqui -- ver nota histórica abaixo."""
+    if not consumos:
+        return
+    por_origem = {}
+    for origem_tipo, nota_id, idx in consumos:
+        if origem_tipo != 'revisao':
+            continue  # gasto_carro é só cópia/referência, nunca mexe na fonte -- ver nota abaixo
+        por_origem.setdefault(nota_id, set()).add(idx)
+    for nota_id, idxs in por_origem.items():
+        _consumir_item_revisao_pendente(nota_id, idxs, u)
+
+# NOTA (2026-08-09): existiu aqui uma função `_consumir_item_gasto_carro`
+# que apagava/encolhia o lançamento em Gastos com o Carro sempre que uma
+# peça dele era usada numa Revisão -- pra "não contar o dinheiro duas
+# vezes". Na prática isso apagou de vez 11 notas fiscais reais e válidas
+# de Gastos com o Carro assim que o Arlindo usou o seletor pra montar
+# revisões de verdade (peças eram removidas da fonte uma a uma até a nota
+# inteira sumir). Foram restauradas de backup. Peças de Gastos com o Carro
+# NÃO são mais consumidas: usar uma delas numa revisão só COPIA a
+# descrição/valor pra lá, sem tocar no lançamento original -- ele continua
+# contando no cartão/relatórios do Carro normalmente. Isso pode fazer o
+# mesmo valor aparecer nos dois lugares (Carro e na revisão), mas isso é
+# só duplicação informativa nesses dois resumos -- o `_ocupado_cartao()`
+# só soma revisões que têm `cartao_id` próprio, e o item copiado pra
+# dentro de uma revisão não herda o cartão do gasto original, então não
+# duplica o limite do cartão de verdade. Diferente do caso de notas
+# pendentes de Revisões (acima), que continuam sendo consumidas -- essas
+# nunca foram um registro "de verdade" independente.
+
+def _notas_pendentes_disponiveis(u, veiculo_id, excluir_id=None):
+    """Notas XML pendentes desse veículo, no formato que o form de
+    revisão usa pra montar os botões de "puxar peças dessa nota"."""
+    q = RevisaoCarro.query.filter_by(usuario_id=u.id, veiculo_id=veiculo_id, pendente=True)
+    if excluir_id:
+        q = q.filter(RevisaoCarro.id != excluir_id)
+    notas = q.order_by(RevisaoCarro.data.desc()).all()
+    return [{
+        'id': n.id,
+        'data': n.data.strftime('%d/%m/%Y'),
+        'oficina': n.oficina or n.descricao or 'Nota sem descrição',
+        'mao_de_obra': n.mao_de_obra or 0,
+        'valor_total': n.valor_total or 0,
+        'forma_pagamento': n.forma_pagamento or '',
+        'cartao_id': n.cartao_id,
+        'parcela_total': n.parcela_total,
+        'itens': n.itens(),
+    } for n in notas]
+
+@app.route('/pessoal/revisoes/novo', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def novo_revisao():
+    u = get_current_user()
+    veiculos = VeiculoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(VeiculoPessoal.criado_em.desc()).all()
+    if not veiculos:
+        flash('Cadastre um veículo antes de lançar uma revisão.', 'warning')
+        return redirect(url_for('listar_veiculos'))
+    if request.method == 'POST':
+        r = RevisaoCarro(usuario_id=u.id, origem='manual')
+        _preencher_revisao_form(r, u)
+        db.session.add(r)
+        db.session.flush()  # precisa do r.id pros carimbos de manutenção recorrente
+        _salvar_manutencoes_marcadas(r, u)
+        _consumir_itens_de_notas(getattr(r, '_consumos_notas', []), u)
+        _vincular_nota_pendente(r, u)
+        db.session.commit()
+        flash('Revisão adicionada!', 'success')
+        return redirect(url_for('listar_revisoes', veiculo_id=r.veiculo_id))
+    veiculo_sel = request.args.get('veiculo_id', type=int) or veiculos[0].id
+    veiculo_obj_sel = next((v for v in veiculos if v.id == veiculo_sel), veiculos[0])
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(CartaoPessoal.nome).all()
+    pecas_sugeridas = _pecas_sugeridas_veiculo(u.id, veiculo_sel)
+    notas_disponiveis = _notas_pendentes_disponiveis(u, veiculo_sel)
+    pecas_notas = _pecas_disponiveis_notas(u, veiculo_sel)
+    nota_pre_id = request.args.get('usar_nota', type=int)
+    tipos_manutencao = _tipos_manutencao_aplicaveis(veiculo_obj_sel)
+    return render_template('form_revisao.html', revisao=None, veiculos=veiculos, veiculo_sel=veiculo_sel,
+        cartoes=cartoes, formas_pagamento=FORMAS_PAGAMENTO_CARRO, pecas_sugeridas=pecas_sugeridas,
+        notas_disponiveis=notas_disponiveis, pecas_notas=pecas_notas, nota_pre_id=nota_pre_id,
+        tipos_manutencao=tipos_manutencao, manutencoes_marcadas={},
+        hoje=date.today().strftime('%Y-%m-%d'))
+
+@app.route('/pessoal/revisoes/<int:id>/editar', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def editar_revisao(id):
+    u = get_current_user()
+    r = RevisaoCarro.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    veiculos = VeiculoPessoal.query.filter_by(usuario_id=u.id).order_by(VeiculoPessoal.ativo.desc(), VeiculoPessoal.criado_em.desc()).all()
+    if request.method == 'POST':
+        _preencher_revisao_form(r, u)
+        _salvar_manutencoes_marcadas(r, u)
+        _consumir_itens_de_notas(getattr(r, '_consumos_notas', []), u)
+        _vincular_nota_pendente(r, u)
+        db.session.commit()
+        flash('Revisão atualizada!', 'success')
+        return redirect(url_for('listar_revisoes', veiculo_id=r.veiculo_id))
+    cartoes = CartaoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(CartaoPessoal.nome).all()
+    pecas_sugeridas = _pecas_sugeridas_veiculo(u.id, r.veiculo_id)
+    notas_disponiveis = _notas_pendentes_disponiveis(u, r.veiculo_id, excluir_id=r.id)
+    pecas_notas = _pecas_disponiveis_notas(u, r.veiculo_id)
+    tipos_manutencao = _tipos_manutencao_aplicaveis(r.veiculo)
+    manutencoes_marcadas = {m.tipo: m.intervalo_km for m in ManutencaoRecorrente.query.filter_by(revisao_id=r.id).all()}
+    return render_template('form_revisao.html', revisao=r, veiculos=veiculos, veiculo_sel=r.veiculo_id,
+        cartoes=cartoes, formas_pagamento=FORMAS_PAGAMENTO_CARRO, pecas_sugeridas=pecas_sugeridas,
+        notas_disponiveis=notas_disponiveis, pecas_notas=pecas_notas, nota_pre_id=None,
+        tipos_manutencao=tipos_manutencao, manutencoes_marcadas=manutencoes_marcadas,
+        hoje=r.data.strftime('%Y-%m-%d'))
+
+@app.route('/pessoal/revisoes/<int:id>/pdf')
+@login_required
+@super_admin_required
+def revisao_pdf(id):
+    from pdf_generator import gerar_revisao_pdf
+    u = get_current_user()
+    r = RevisaoCarro.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    nomes_tipo = {t['chave']: t['nome'] for t in TIPOS_MANUTENCAO_RECORRENTE}
+    marcadas = ManutencaoRecorrente.query.filter_by(revisao_id=r.id).all()
+    manutencoes = [nomes_tipo.get(m.tipo, m.tipo) for m in marcadas]
+    buf = gerar_revisao_pdf(modelo_para_dict(r), modelo_para_dict(r.veiculo), r.itens(), manutencoes)
+    nome_arq = (r.veiculo.apelido or r.veiculo.modelo or 'veiculo').replace(' ', '_')
+    return send_file(buf, mimetype='application/pdf', as_attachment=False,
+                      download_name=f"Revisao_{nome_arq}_{r.data.strftime('%Y%m%d')}.pdf")
+
+@app.route('/pessoal/revisoes/<int:id>/excluir', methods=['POST'])
+@login_required
+@super_admin_required
+def excluir_revisao(id):
+    u = get_current_user()
+    r = RevisaoCarro.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    veiculo_id = r.veiculo_id
+    if r.arquivo_xml:
+        caminho = os.path.join(app.config['UPLOAD_FOLDER'], 'revisoes_carro', r.arquivo_xml)
+        try:
+            os.remove(caminho)
+        except OSError:
+            pass
+    db.session.delete(r)
+    db.session.commit()
+    flash('Revisão excluída!', 'success')
+    return redirect(url_for('listar_revisoes', veiculo_id=veiculo_id))
+
+@app.route('/pessoal/revisoes/importar-xml', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def importar_xml_revisao():
+    u = get_current_user()
+    veiculos = VeiculoPessoal.query.filter_by(usuario_id=u.id, ativo=True).order_by(VeiculoPessoal.criado_em.desc()).all()
+    if not veiculos:
+        flash('Cadastre um veículo antes de importar uma nota de revisão.', 'warning')
+        return redirect(url_for('listar_veiculos'))
+    if request.method == 'POST':
+        veiculo_id = int(request.form.get('veiculo_id') or veiculos[0].id)
+        arquivos = request.files.getlist('arquivos_xml')
+        importados, duplicados, com_erro = 0, 0, []
+        pasta = os.path.join(app.config['UPLOAD_FOLDER'], 'revisoes_carro')
+        os.makedirs(pasta, exist_ok=True)
+        for f in arquivos:
+            if not f or not f.filename:
+                continue
+            try:
+                conteudo = f.read()
+                dados = _parse_nfe_xml(conteudo)
+                if dados['chave_nfe'] and RevisaoCarro.query.filter_by(
+                        usuario_id=u.id, chave_nfe=dados['chave_nfe']).first():
+                    duplicados += 1
+                    continue
+                # Separa mão de obra dos itens que são peça de verdade,
+                # baseado em palavra-chave da descrição (mesma ideia do
+                # detector de combustível do módulo Carro).
+                pecas, mao_de_obra = [], 0.0
+                for it in dados['itens']:
+                    if any(p in it['descricao'].upper() for p in _PALAVRAS_MAO_DE_OBRA):
+                        mao_de_obra += it['valor']
+                    else:
+                        pecas.append(it)
+                nome_arquivo = f"{(dados['chave_nfe'] or uuid.uuid4().hex)}.xml"
+                with open(os.path.join(pasta, nome_arquivo), 'wb') as out:
+                    out.write(conteudo)
+                r = RevisaoCarro(
+                    usuario_id=u.id, veiculo_id=veiculo_id, origem='xml', motivo='rotina',
+                    data=dados['data'], odometro=0, oficina=dados['posto_estabelecimento'],
+                    descricao=dados['descricao'], mao_de_obra=round(mao_de_obra, 2),
+                    valor_total=dados['valor'], forma_pagamento=dados['forma_pagamento'],
+                    numero_nota=dados['numero_nota'], chave_nfe=dados['chave_nfe'],
+                    itens_json=json.dumps(pecas, ensure_ascii=False), arquivo_xml=nome_arquivo,
+                    pendente=True)
+                db.session.add(r)
+                db.session.commit()
+                importados += 1
+            except Exception as e:
+                db.session.rollback()
+                logger.exception(f'Erro importando XML de revisão "{f.filename}"')
+                com_erro.append(f'{f.filename}: {e}')
+                continue
+        msg = (f'{importados} nota(s) importada(s) -- elas ficam em "Notas Pendentes" até você '
+               f'puxar as peças pra uma revisão (nova ou existente) ou completar os dados direto nelas.')
+        if duplicados:
+            msg += f' {duplicados} já tinham sido importada(s) antes (ignoradas).'
+        if com_erro:
+            msg += f' {len(com_erro)} com erro: {"; ".join(com_erro[:3])}'
+        flash(msg, 'success' if importados else 'warning')
+        return redirect(url_for('listar_revisoes', veiculo_id=veiculo_id))
+    return render_template('importar_xml_revisao.html', veiculos=veiculos)
+
+
 # ─── ERROS ─────────────────────────────────────────────────────────────────────
 @app.errorhandler(404)
 def erro_404(e):
@@ -2990,7 +4571,7 @@ def erro_404(e):
 
 @app.errorhandler(500)
 def erro_500(e):
-    logger.error(f'Erro interno em {request.path}: {e}')
+    logger.exception(f'Erro interno em {request.path}')
     return render_template('erro_500.html'), 500
 
 
