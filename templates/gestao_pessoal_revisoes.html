@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}Gestão Pessoal — Revisões{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div><h1><i class="fas fa-screwdriver-wrench me-2" style="color:#f97316"></i>Revisões{% if veiculo_atual %} — {{ veiculo_atual.nome_exibicao() }}{% endif %}</h1>
+    <p>{{ revisoes|length }} revisões registradas</p></div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('listar_veiculos') }}" class="btn btn-nb"><i class="fas fa-car-side me-1"></i>Gerenciar Veículos</a>
+    {% if veiculo_atual %}
+    <a href="{{ url_for('resumo_revisoes', veiculo_id=veiculo_atual.id) }}" class="btn btn-nb"><i class="fas fa-clock-rotate-left me-1"></i>Resumo por Ano/Mês</a>
+    <a href="{{ url_for('importar_xml_revisao') }}" class="btn btn-nb"><i class="fas fa-file-import me-1"></i>Importar XML</a>
+    <a href="{{ url_for('novo_revisao', veiculo_id=veiculo_atual.id) }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Nova Revisão</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if not veiculos %}
+<div class="card"><div class="card-body text-center py-5">
+  <i class="fas fa-car-side fa-2x mb-3" style="opacity:.2"></i>
+  <p style="color:var(--nb-muted)">Você ainda não cadastrou nenhum veículo.</p>
+  <a href="{{ url_for('novo_veiculo') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Cadastrar Veículo</a>
+</div></div>
+{% else %}
+
+{% if veiculos|length > 1 %}
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  {% for v in veiculos %}
+  <a href="{{ url_for('listar_revisoes', veiculo_id=v.id) }}" class="btn btn-sm {{ 'btn-accent' if veiculo_atual.id==v.id else 'btn-nb' }}">{{ v.nome_exibicao() }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#ef4444"><div class="stat-val">R$ {{ "%.2f"|format(total_geral) }}</div><div class="stat-lbl">Total Investido</div><i class="fas fa-dollar-sign stat-icon"></i></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#f97316"><div class="stat-val">R$ {{ "%.2f"|format(total_mao_de_obra) }}</div><div class="stat-lbl">Mão de Obra</div><i class="fas fa-user-gear stat-icon"></i></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#3B82F6"><div class="stat-val">R$ {{ "%.2f"|format(total_pecas) }}</div><div class="stat-lbl">Peças</div><i class="fas fa-gears stat-icon"></i></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#10B981"><div class="stat-val">{{ qtd_rotina }} / {{ qtd_quebra }}</div><div class="stat-lbl">Rotina / Quebra</div><i class="fas fa-triangle-exclamation stat-icon"></i></div></div>
+</div>
+
+{% if pendentes %}
+<div class="card mb-4" style="border:1px dashed #f97316">
+  <div class="card-header d-flex justify-content-between align-items-center" style="color:#f97316">
+    <span><i class="fas fa-file-circle-exclamation me-1"></i>Notas Importadas Aguardando Vínculo ({{ pendentes|length }})</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:.8rem;color:var(--nb-muted)" class="mb-3">Essas notas já foram importadas (e já contam no cartão, se tinham cartão vinculado), mas ainda faltam o odômetro/motivo pra virarem uma revisão completa. Puxe as peças pra uma revisão nova, ou complete os dados direto nela.</p>
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Data</th><th>Oficina / Nota</th><th>Mão de Obra</th><th>Peças</th><th>Total</th><th>Ações</th></tr></thead>
+      <tbody>
+        {% for n in pendentes %}
+        <tr>
+          <td>{{ n.data.strftime('%d/%m/%Y') }}</td>
+          <td>{{ n.oficina or n.descricao or '—' }}</td>
+          <td>R$ {{ "%.2f"|format(n.mao_de_obra or 0) }}</td>
+          <td>R$ {{ "%.2f"|format(n.valor_pecas()) }}</td>
+          <td style="font-weight:700;color:#f97316">R$ {{ "%.2f"|format(n.valor_total) }}</td>
+          <td>
+            <a href="{{ url_for('novo_revisao', veiculo_id=veiculo_atual.id, usar_nota=n.id) }}" class="btn btn-sm btn-accent"><i class="fas fa-link me-1"></i>Vincular a Nova Revisão</a>
+            <a href="{{ url_for('editar_revisao', id=n.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-edit me-1"></i>Completar Direto</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if ultima %}
+<div class="card mb-4"><div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <div style="font-size:.72rem;color:var(--nb-muted);text-transform:uppercase;font-weight:700">Última Revisão</div>
+    <div style="font-weight:600">{{ ultima.data.strftime('%d/%m/%Y') }} — {{ "{:,}".format(ultima.odometro).replace(',', '.') }} km — {{ ultima.oficina or ultima.descricao or '—' }}</div>
+  </div>
+  {% if km_desde_ultima is not none %}
+  <div class="text-end">
+    <div style="font-size:.72rem;color:var(--nb-muted);text-transform:uppercase;font-weight:700">KM Rodados Desde Então</div>
+    <div style="font-size:1.2rem;font-weight:800;color:#f97316">{{ "{:,}".format(km_desde_ultima).replace(',', '.') }} km</div>
+  </div>
+  {% endif %}
+</div></div>
+{% endif %}
+
+{% if info_cambio %}
+<div class="card mb-4" style="border:1px solid rgba(59,130,246,.25)">
+  <div class="card-header" style="color:#3B82F6"><i class="fas fa-cog me-1"></i>Câmbio {{ info_cambio.nome }} — Óleo Recomendado</div>
+  <div class="card-body" style="font-size:.85rem">
+    {% if info_cambio.oleo_caixa %}<div class="mb-2"><b>Caixa de câmbio:</b> {{ info_cambio.oleo_caixa }}</div>{% endif %}
+    {% if info_cambio.oleo_atuador %}<div class="mb-2"><b>Atuador do robô:</b> {{ info_cambio.oleo_atuador }}</div>{% endif %}
+    {% if info_cambio.observacao %}<div class="mb-2" style="color:var(--nb-muted)"><i class="fas fa-circle-info me-1"></i>{{ info_cambio.observacao }}</div>{% endif %}
+    {% if info_cambio.fontes %}<div style="font-size:.7rem;color:var(--nb-muted)">Fontes consultadas: {{ info_cambio.fontes|join(', ') }} — confirme sempre com o manual do seu veículo e um mecânico de confiança antes de trocar.</div>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if status_manutencoes %}
+<div class="card mb-4">
+  <div class="card-header"><i class="fas fa-calendar-check me-1"></i>Status das Manutenções de Rotina</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Item</th><th>Última Vez</th><th>Próxima Prevista</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for it in status_manutencoes %}
+        <tr>
+          <td style="font-weight:500">{{ it.nome }}</td>
+          <td>
+            {% if it.ultimo %}{{ it.ultimo.data.strftime('%d/%m/%Y') }} — {{ "{:,}".format(it.ultimo.odometro).replace(',', '.') }} km
+            {% else %}<span style="color:var(--nb-muted)">nunca registrado</span>{% endif %}
+          </td>
+          <td>
+            {% if it.ultimo %}
+              {% if it.proxima_km %}{{ "{:,}".format(it.proxima_km).replace(',', '.') }} km{% endif %}
+              {% if it.proxima_km and it.proxima_data %} ou {% endif %}
+              {% if it.proxima_data %}{{ it.proxima_data.strftime('%m/%Y') }}{% endif %}
+              {% if it.km_restante is not none and it.km_restante > 0 %}<div style="font-size:.68rem;color:var(--nb-muted)">faltam {{ "{:,}".format(it.km_restante).replace(',', '.') }} km</div>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if it.status == 'vencido' %}<span class="status-badge s-recusada"><i class="fas fa-triangle-exclamation me-1"></i>Vencido</span>
+            {% elif it.status == 'atencao' %}<span class="status-badge s-standby"><i class="fas fa-clock me-1"></i>Se aproximando</span>
+            {% elif it.status == 'em_dia' %}<span class="status-badge s-aprovada"><i class="fas fa-check me-1"></i>Em dia</span>
+            {% else %}<span class="status-badge s-rascunho">—</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-body p-0">
+    {% if revisoes %}
+    <table class="table table-hover mb-0">
+      <thead><tr><th style="width:32px"></th><th>Data</th><th>KM</th><th>Motivo</th><th>Oficina / Descrição</th><th>Mão de Obra</th><th>Peças</th><th>Total</th><th>Parcela</th><th>Cartão</th><th>Ações</th></tr></thead>
+      <tbody>
+        {% for r in revisoes %}
+        {% set itens = r.itens() %}
+        {% set tem_detalhe = itens or manutencoes_por_revisao.get(r.id) %}
+        <tr {% if tem_detalhe %}style="cursor:pointer" onclick="toggleDetalheRevisao({{ r.id }})"{% endif %}>
+          <td class="text-center">{% if tem_detalhe %}<i id="seta-revisao-{{ r.id }}" class="fas fa-chevron-right" style="color:var(--nb-muted);transition:transform .15s"></i>{% endif %}</td>
+          <td>{{ r.data.strftime('%d/%m/%Y') }}</td>
+          <td>{{ "{:,}".format(r.odometro).replace(',', '.') if r.odometro else '—' }}</td>
+          <td>{% if r.motivo=='quebra' %}<span class="status-badge s-recusada"><i class="fas fa-triangle-exclamation me-1"></i>Quebra</span>{% else %}<span class="status-badge s-aprovada"><i class="fas fa-calendar-check me-1"></i>Rotina</span>{% endif %}</td>
+          <td style="font-weight:500">{{ r.oficina or r.descricao or '—' }}</td>
+          <td>R$ {{ "%.2f"|format(r.mao_de_obra or 0) }}</td>
+          <td>R$ {{ "%.2f"|format(r.valor_pecas()) }}</td>
+          <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(r.valor_total) }}</td>
+          <td>
+            {% if r.parcela_total and r.parcela_total > 1 %}
+            <span class="status-badge {{ 's-aprovada' if r.quitado() else 's-rascunho' }}">{{ r.parcela_atual() }}/{{ r.parcela_total }}</span>
+            <div style="font-size:.68rem;color:var(--nb-muted);margin-top:2px">R$ {{ "%.2f"|format(r.valor_parcela()) }}/fatura</div>
+            {% else %}—{% endif %}
+          </td>
+          <td>{% if r.cartao %}<span class="status-badge" style="background:{{ r.cartao.cor }};color:{{ r.cartao.cor|contraste }}">{{ r.cartao.nome }}</span>{% elif r.forma_pagamento == 'PIX' %}<span class="status-badge" style="background:#10B981;color:#ffffff">PIX</span>{% else %}—{% endif %}</td>
+          <td onclick="event.stopPropagation()">
+            <a href="{{ url_for('revisao_pdf', id=r.id) }}" target="_blank" class="btn btn-sm btn-nb" title="Baixar PDF"><i class="fas fa-file-pdf"></i></a>
+            <a href="{{ url_for('editar_revisao', id=r.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-edit"></i></a>
+            <form method="POST" action="{{ url_for('excluir_revisao', id=r.id) }}" class="d-inline" onsubmit="return confirm('Excluir esta revisão?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-nb text-danger"><i class="fas fa-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% set manutencoes_desta = manutencoes_por_revisao.get(r.id) %}
+        {% if itens or manutencoes_desta %}
+        <tr id="detalhe-revisao-{{ r.id }}" style="display:none">
+          <td></td>
+          <td colspan="10" style="padding:0">
+            <div style="background:var(--nb-surface-alt);padding:10px 16px;margin:4px 8px 10px;border-radius:8px">
+              {% if itens %}
+              <table class="table table-sm mb-0">
+                <thead><tr><th>Peça</th><th>Qtd</th><th>Valor</th></tr></thead>
+                <tbody>
+                  {% for it in itens %}
+                  <tr><td>{{ it.descricao }}</td><td>{{ it.qtd }}</td><td>R$ {{ "%.2f"|format(it.valor) }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
+              {% if manutencoes_desta %}
+              <div style="font-size:.78rem;{% if itens %}margin-top:8px{% endif %}"><b>Serviços de rotina registrados:</b> {{ manutencoes_desta|join(', ') }}</div>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-4" style="color:var(--nb-muted)">Nenhuma revisão registrada pra este veículo ainda</div>
+    {% endif %}
+  </div>
+</div>
+<script>
+function toggleDetalheRevisao(id){
+  const row = document.getElementById('detalhe-revisao-'+id);
+  const seta = document.getElementById('seta-revisao-'+id);
+  if (!row) return;
+  const aberto = row.style.display !== 'none';
+  row.style.display = aberto ? 'none' : '';
+  if (seta) seta.style.transform = aberto ? 'rotate(0deg)' : 'rotate(90deg)';
+}
+</script>
+{% endif %}
+{% endblock %}

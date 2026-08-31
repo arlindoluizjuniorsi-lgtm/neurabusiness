@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Importar XML — Revisões{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-file-import me-2" style="color:#f97316"></i>Importar Nota da Oficina (XML)</h1>
+<p>Envie um ou mais arquivos XML de NFe/NFC-e da oficina. A mão de obra é separada automaticamente das peças (por palavra-chave na descrição do item) -- confira depois. O odômetro não vem na nota, então é obrigatório preencher em cada uma depois de importar.</p></div>
+<form method="POST" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-4">
+    <div class="col-12 col-lg-7">
+      <div class="card"><div class="card-header"><i class="fas fa-file-code"></i>Arquivos XML</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">Veículo *</label>
+            <select name="veiculo_id" class="form-select" required>
+              {% for v in veiculos %}
+              <option value="{{ v.id }}">{{ v.nome_exibicao() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <input type="file" name="arquivos_xml" class="form-control" accept=".xml" multiple required>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-5">
+      <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+        <button type="submit" class="btn btn-accent"><i class="fas fa-upload me-2"></i>Importar</button>
+        <a href="{{ url_for('listar_revisoes') }}" class="btn btn-nb">Cancelar</a>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

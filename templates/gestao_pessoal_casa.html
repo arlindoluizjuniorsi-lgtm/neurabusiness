@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Gestão Pessoal — Casa{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div><h1><i class="fas fa-house-chimney me-2" style="color:#f97316"></i>Contas e Gastos da Casa</h1><p>{{ gastos|length }} lançamentos</p></div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('importar_xml_casa') }}" class="btn btn-nb"><i class="fas fa-file-import me-1"></i>Importar XML</a>
+    <a href="{{ url_for('novo_gasto_casa') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Novo Gasto</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-6"><div class="stat-card" style="--sc:#ef4444"><div class="stat-val">R$ {{ "%.2f"|format(total_geral) }}</div><div class="stat-lbl">Total Geral</div><i class="fas fa-dollar-sign stat-icon"></i></div></div>
+  <div class="col-12 col-md-6"><div class="stat-card" style="--sc:#3B82F6"><div class="stat-val">R$ {{ "%.2f"|format(total_parcelas_mes) }}</div><div class="stat-lbl">Parcelas do Mês no Cartão (compras parceladas)</div><i class="fas fa-credit-card stat-icon"></i></div></div>
+</div>
+
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  <a href="{{ url_for('listar_gastos_casa') }}" class="btn btn-sm {{ 'btn-accent' if not tipo_f else 'btn-nb' }}">Todos</a>
+  {% for t, lbl in rotulos.items() %}
+  <a href="{{ url_for('listar_gastos_casa', tipo=t) }}" class="btn btn-sm {{ 'btn-accent' if tipo_f==t else 'btn-nb' }}">{{ lbl }}{% if por_tipo.get(t) %} (R$ {{ "%.0f"|format(por_tipo[t]) }}){% endif %}</a>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    {% if gastos %}
+    <table class="table table-hover mb-0">
+      <thead><tr><th style="width:32px"></th><th>Data</th><th>Tipo</th><th>Descrição / Estabelecimento</th><th>Valor Total</th><th>Parcela</th><th>Cartão</th><th>Origem</th><th>Ações</th></tr></thead>
+      <tbody>
+        {% for g in gastos %}
+        {% set itens = g.itens() %}
+        <tr {% if itens %}style="cursor:pointer" onclick="toggleDetalheCasa({{ g.id }})"{% endif %}>
+          <td class="text-center">
+            {% if itens %}<i id="seta-casa-{{ g.id }}" class="fas fa-chevron-right" style="color:var(--nb-muted);transition:transform .15s"></i>{% endif %}
+          </td>
+          <td>{{ g.data.strftime('%d/%m/%Y') }}</td>
+          <td><span class="status-badge s-rascunho">{{ rotulos.get(g.tipo, g.tipo) }}</span></td>
+          <td style="font-weight:500">{{ g.descricao or g.estabelecimento or '—' }}</td>
+          <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(g.valor) }}</td>
+          <td>
+            {% if g.parcela_total and g.parcela_total > 1 %}
+            <span class="status-badge {{ 's-aprovada' if g.quitado() else 's-rascunho' }}">{{ g.parcela_atual() }}/{{ g.parcela_total }}</span>
+            <div style="font-size:.68rem;color:var(--nb-muted);margin-top:2px">R$ {{ "%.2f"|format(g.valor_parcela()) }}/fatura</div>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if g.cartao %}<span class="status-badge" style="background:{{ g.cartao.cor }};color:{{ g.cartao.cor|contraste }}">{{ g.cartao.nome }}</span>
+            {% elif g.forma_pagamento == 'PIX' %}<span class="status-badge" style="background:#10B981;color:#ffffff">PIX</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>{% if g.origem=='xml' %}<span class="status-badge s-enviada"><i class="fas fa-file-code me-1"></i>XML</span>{% else %}<span class="status-badge s-rascunho">Manual</span>{% endif %}</td>
+          <td onclick="event.stopPropagation()">
+            <a href="{{ url_for('editar_gasto_casa', id=g.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-edit"></i></a>
+            <form method="POST" action="{{ url_for('excluir_gasto_casa', id=g.id) }}" class="d-inline" onsubmit="return confirm('Excluir este gasto?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-nb text-danger"><i class="fas fa-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% if itens %}
+        <tr id="detalhe-casa-{{ g.id }}" style="display:none">
+          <td></td>
+          <td colspan="8" style="padding:0">
+            <div style="background:var(--nb-surface-alt);padding:10px 16px;margin:4px 8px 10px;border-radius:8px">
+              <table class="table table-sm mb-0">
+                <thead><tr><th>Item</th><th>Qtd</th><th>Valor</th></tr></thead>
+                <tbody>
+                  {% for it in itens %}
+                  <tr><td>{{ it.descricao }}</td><td>{{ it.qtd }}{{ ' ' + it.unidade if it.unidade }}</td><td>R$ {{ "%.2f"|format(it.valor) }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-4" style="color:var(--nb-muted)">Nenhum gasto da casa ainda — lance manualmente, item a item, ou importe um XML de NFe/NFC-e</div>
+    {% endif %}
+  </div>
+</div>
+<script>
+function toggleDetalheCasa(id){
+  const row = document.getElementById('detalhe-casa-'+id);
+  const seta = document.getElementById('seta-casa-'+id);
+  if (!row) return;
+  const aberto = row.style.display !== 'none';
+  row.style.display = aberto ? 'none' : '';
+  if (seta) seta.style.transform = aberto ? 'rotate(0deg)' : 'rotate(90deg)';
+}
+</script>
+{% endblock %}

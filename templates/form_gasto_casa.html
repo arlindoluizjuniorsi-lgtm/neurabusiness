@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{% if gasto %}Editar{% else %}Novo{% endif %} Gasto da Casa{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-house-chimney me-2" style="color:#f97316"></i>{% if gasto %}Editar{% else %}Novo{% endif %} Gasto da Casa</h1></div>
+<form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card"><div class="card-header"><i class="fas fa-house-chimney"></i>Dados do Gasto
+      {% if gasto and gasto.origem=='xml' %}<span class="status-badge s-enviada float-end"><i class="fas fa-file-code me-1"></i>Importado de XML</span>{% endif %}
+    </div>
+    <div class="card-body"><div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Tipo *</label>
+        <select name="tipo" class="form-select" required>
+          {% for val, lbl in rotulos.items() %}
+          <option value="{{ val }}" {% if gasto and gasto.tipo==val %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4"><label class="form-label">Data {% if gasto and gasto.parcela_total and gasto.parcela_total > 1 %}(1ª Parcela){% endif %} *</label><input type="date" name="data" class="form-control" value="{{ hoje }}" required></div>
+      <div class="col-md-4">
+        <label class="form-label">Valor Total (R$) *</label>
+        <input type="number" name="valor" id="valorInput" class="form-control" value="{{ gasto.valor if gasto else '' }}" step="0.01" min="0" required onchange="atualizarPreview()" oninput="atualizarPreview()">
+        <div class="form-text" id="previewParcela"></div>
+      </div>
+
+      <div class="col-12"><label class="form-label">Descrição</label><input type="text" name="descricao" class="form-control" value="{{ gasto.descricao if gasto else '' }}" placeholder="Ex: Compra do mês, Conserto do telhado..."></div>
+
+      <div class="col-md-4"><label class="form-label">Forma de Pagamento</label>
+        <select name="forma_pagamento" class="form-select">
+          <option value="">— Não informado —</option>
+          {% for fp in formas_pagamento %}
+          <option value="{{ fp }}" {% if gasto and gasto.forma_pagamento==fp %}selected{% endif %}>{{ fp }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Parcelas</label>
+        <input type="number" name="parcela_total" id="parcelaTotalInput" class="form-control" value="{{ gasto.parcela_total if gasto and gasto.parcela_total else '' }}" min="1" placeholder="1" onchange="atualizarPreview()" oninput="atualizarPreview()">
+      </div>
+      <div class="col-md-4"><label class="form-label">Estabelecimento</label><input type="text" name="estabelecimento" class="form-control" value="{{ gasto.estabelecimento if gasto else '' }}"></div>
+
+      <div class="col-12">
+        <label class="form-label">Cartão (se foi pago no cartão)</label>
+        <select name="cartao_id" class="form-select">
+          <option value="">— Não foi no cartão —</option>
+          {% for c in cartoes %}
+          <option value="{{ c.id }}" {% if gasto and gasto.cartao_id==c.id %}selected{% endif %}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text">Marcando um cartão, esse gasto passa a contar na fatura e no limite dele. Se for parcelado, a previsão aparece nas faturas seguintes até quitar.</div>
+      </div>
+
+      <div class="col-12">
+        <hr>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <label class="form-label mb-0">Itens da Compra (opcional)</label>
+          <button type="button" class="btn btn-sm btn-nb" onclick="addItemCasa()"><i class="fas fa-plus me-1"></i>Adicionar Item</button>
+        </div>
+        <div id="itens-casa-container"></div>
+        <div class="form-text">Se você listar os itens aqui, o Valor Total acima é calculado automaticamente pela soma deles.</div>
+      </div>
+    </div></div></div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('listar_gastos_casa') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+<script>
+let iIdxCasa = 0;
+function addItemCasa(desc='', qtd=1, valorUnit=0){
+  iIdxCasa++;
+  const d = document.createElement('div');
+  d.className = 'item-card';
+  d.id = 'ic-casa-' + iIdxCasa;
+  d.style.cssText = 'background:var(--nb-surface);border:1px solid var(--nb-border);border-radius:10px;padding:10px;margin-bottom:8px';
+  d.innerHTML = `<div class="row g-2 align-items-end">
+    <div class="col-12 col-md-5"><label style="font-size:.68rem;color:var(--nb-muted)">Descrição</label>
+      <input type="text" name="item_desc[]" class="form-control form-control-sm" value="${desc}" oninput="calcTotalCasa()"></div>
+    <div class="col-4 col-md-2"><label style="font-size:.68rem;color:var(--nb-muted)">Qtd</label>
+      <input type="number" name="item_qtd[]" class="form-control form-control-sm" value="${qtd}" min="0.01" step="0.01" oninput="calcTotalCasa()"></div>
+    <div class="col-4 col-md-2"><label style="font-size:.68rem;color:var(--nb-muted)">Valor Unit.</label>
+      <input type="number" name="item_valor[]" class="form-control form-control-sm" value="${valorUnit}" min="0" step="0.01" oninput="calcTotalCasa()"></div>
+    <div class="col-3 col-md-2"><label style="font-size:.68rem;color:var(--nb-muted)">Subtotal</label>
+      <div class="item-sub-casa form-control form-control-sm" style="background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.2);color:#10B981;font-weight:700;text-align:right">R$ 0,00</div>
+    </div>
+    <div class="col-1"><button type="button" onclick="document.getElementById('ic-casa-${iIdxCasa}').remove();calcTotalCasa()" style="background:none;border:none;color:#ef4444"><i class="fas fa-times"></i></button></div>
+  </div>`;
+  document.getElementById('itens-casa-container').appendChild(d);
+  calcTotalCasa();
+}
+
+function calcTotalCasa(){
+  const cards = document.querySelectorAll('#itens-casa-container .item-card');
+  let total = 0;
+  cards.forEach(c => {
+    const qtd = parseFloat(c.querySelector('[name="item_qtd[]"]').value) || 0;
+    const valor = parseFloat(c.querySelector('[name="item_valor[]"]').value) || 0;
+    const sub = qtd * valor;
+    c.querySelector('.item-sub-casa').textContent = 'R$ ' + sub.toLocaleString('pt-BR', {minimumFractionDigits:2});
+    total += sub;
+  });
+  const valorInput = document.getElementById('valorInput');
+  if (cards.length > 0){
+    valorInput.value = total.toFixed(2);
+    valorInput.readOnly = true;
+    valorInput.style.background = 'var(--nb-surface-alt)';
+  } else {
+    valorInput.readOnly = false;
+    valorInput.style.background = '';
+  }
+  atualizarPreview();
+}
+
+function atualizarPreview(){
+  const parcelas = parseInt(document.getElementById('parcelaTotalInput').value || '1', 10);
+  const valor = parseFloat(document.getElementById('valorInput').value || '0');
+  const preview = document.getElementById('previewParcela');
+  if (parcelas > 1 && valor > 0){
+    preview.textContent = `= R$ ${(valor/parcelas).toFixed(2)} por fatura, em ${parcelas}x`;
+  } else {
+    preview.textContent = '';
+  }
+}
+
+{% if gasto and gasto.itens() %}
+window.addEventListener('load', function(){
+  {% for it in gasto.itens() %}
+  addItemCasa({{ it.descricao|tojson }}, {{ it.qtd or 1 }}, {{ (it.valor / it.qtd) if it.qtd else it.valor }});
+  {% endfor %}
+});
+{% endif %}
+atualizarPreview();
+</script>
+{% endblock %}

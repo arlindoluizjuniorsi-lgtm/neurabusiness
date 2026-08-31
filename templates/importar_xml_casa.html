@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Importar XML — Gastos da Casa{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-file-import me-2" style="color:#f97316"></i>Importar XML de Nota Fiscal</h1>
+<p>Envie um ou mais arquivos XML de NFe/NFC-e (mercado, hortifruti, açougue, farmácia, loja...). Notas repetidas (mesma chave de acesso) são ignoradas automaticamente.</p></div>
+<form method="POST" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-4">
+    <div class="col-12 col-lg-7">
+      <div class="card"><div class="card-header"><i class="fas fa-file-code"></i>Arquivos XML</div>
+        <div class="card-body">
+          <input type="file" name="arquivos_xml" class="form-control" accept=".xml" multiple required>
+          <div class="form-text">Entra como "Outro" por padrão, com todos os itens da nota — depois é só ajustar a categoria (Mercado, Hortifruti, Açougue...) em Editar.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-5">
+      <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+        <button type="submit" class="btn btn-accent"><i class="fas fa-upload me-2"></i>Importar</button>
+        <a href="{{ url_for('listar_gastos_casa') }}" class="btn btn-nb">Cancelar</a>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

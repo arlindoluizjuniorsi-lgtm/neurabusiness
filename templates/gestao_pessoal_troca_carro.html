@@ -1,0 +1,638 @@
+{% extends "base.html" %}
+{% block title %}Gestão Pessoal — Troca de Carro{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div><h1><i class="fas fa-right-left me-2" style="color:#f97316"></i>Troca de Carro</h1>
+    <p>Consulta FIPE, itens pra vender e simulador de financiamento</p></div>
+  <div class="d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-nb" onclick="novaSimulacao()"><i class="fas fa-eraser me-1"></i>Nova Simulação</button>
+    <a href="{{ url_for('simulacoes_troca_carro') }}" class="btn btn-nb"><i class="fas fa-bookmark me-1"></i>Minhas Simulações</a>
+    <a href="{{ url_for('listar_veiculos') }}" class="btn btn-nb"><i class="fas fa-car-side me-1"></i>Meus Veículos</a>
+  </div>
+</div>
+
+{% if veiculo_atual %}
+<div class="alert" style="background:var(--nb-surface-alt);border:1px solid var(--nb-border);color:var(--nb-text);font-size:.85rem;">
+  <i class="fas fa-circle-info me-1" style="color:#f97316"></i>
+  Carro cadastrado atualmente: <strong>{{ veiculo_atual.nome_exibicao() }}</strong>{% if veiculo_atual.km_atual %} · {{ '{:,}'.format(veiculo_atual.km_atual).replace(',', '.') }} km{% endif %} —
+  use os campos abaixo pra achar ele (ou o equivalente) na tabela FIPE.
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <!-- ── Coluna esquerda: FIPE + itens a vender ── -->
+  <div class="col-lg-6">
+
+    <div class="card mb-3">
+      <div class="card-header"><i class="fas fa-magnifying-glass-dollar me-2" style="color:#f97316"></i>Quanto vale meu carro (FIPE)</div>
+      <div class="card-body">
+        <div class="row g-2 mb-2">
+          <div class="col-12">
+            <label class="form-label">Marca</label>
+            <select id="fipeMarca" class="form-select">
+              <option value="">Carregando marcas...</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Modelo</label>
+            <select id="fipeModelo" class="form-select" disabled>
+              <option value="">Selecione a marca primeiro</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Ano / Combustível</label>
+            <select id="fipeAno" class="form-select" disabled>
+              <option value="">Selecione o modelo primeiro</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="resultadoFipe" style="display:none;background:var(--nb-surface-alt);border-radius:10px;padding:14px 16px;margin-top:10px;">
+          <div style="font-size:.7rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.05em;">Valor na Tabela FIPE</div>
+          <div id="fipeValorTexto" style="font-size:1.6rem;font-weight:800;color:#f97316;font-family:'Barlow Condensed',sans-serif;">—</div>
+          <div id="fipeReferencia" style="font-size:.72rem;color:var(--nb-muted);"></div>
+
+          <hr style="border-color:var(--nb-border);margin:12px 0;">
+
+          <label class="form-label">Oferta esperada da loja pelo meu carro (R$)</label>
+          <input type="number" step="0.01" min="0" id="inputOferta" class="form-control mb-2" placeholder="0,00">
+          <div class="d-flex justify-content-between" style="font-size:.85rem;">
+            <span style="color:var(--nb-muted)">Margem estimada da loja</span>
+            <span><strong id="margemLoja">R$ 0,00</strong> <span id="margemPct" style="color:var(--nb-muted);font-size:.78rem;"></span></span>
+          </div>
+          <div style="font-size:.7rem;color:var(--nb-muted);margin-top:4px;">
+            A oferta já vem sugerida em 90% da FIPE (ponto de partida comum de mercado) -- ajuste pra o valor real que te ofereceram.
+          </div>
+
+          <hr style="border-color:var(--nb-border);margin:12px 0;">
+
+          <label class="form-label">Falta quitar do carro atual? (R$, deixe 0 se já é seu)</label>
+          <input type="number" step="0.01" min="0" id="inputSaldoDevedor" class="form-control mb-2" placeholder="0,00" value="0">
+          <div class="d-flex justify-content-between" style="font-size:.85rem;">
+            <span style="color:var(--nb-muted)">Valor líquido que sobra da troca</span>
+            <strong id="valorLiquidoTroca">R$ 0,00</strong>
+          </div>
+          <div id="avisoSaldoNegativo" style="display:none;font-size:.72rem;color:#ef4444;margin-top:4px;">
+            <i class="fas fa-triangle-exclamation me-1"></i>O que falta pagar é maior que a oferta -- sobra dívida, não entrada. Esse valor negativo não entra na conta de baixo.
+          </div>
+          <div style="font-size:.7rem;color:var(--nb-muted);margin-top:4px;">
+            A loja quita o financiamento restante primeiro -- só o que sobra depois disso vira entrada de verdade.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><i class="fas fa-tags me-2" style="color:#f97316"></i>Itens pra vender (entram na entrada)</div>
+      <div class="card-body">
+        <form id="formNovoItem" class="row g-2 mb-3">
+          <div class="col-7">
+            <input type="text" id="inputDescricaoItem" class="form-control" placeholder="Ex: Moto Honda CG 160" required>
+          </div>
+          <div class="col-3">
+            <input type="number" step="0.01" min="0.01" id="inputValorItem" class="form-control" placeholder="Valor" required>
+          </div>
+          <div class="col-2">
+            <button type="submit" class="btn btn-accent w-100"><i class="fas fa-plus"></i></button>
+          </div>
+        </form>
+        <div id="erroItem" class="text-danger mb-2" style="font-size:.8rem;display:none;"></div>
+
+        <div class="table-responsive" id="blocoTabelaItens" style="{{ 'display:none;' if not itens }}">
+          <table class="table table-sm mb-0">
+            <tbody id="listaItens">
+              {% for it in itens %}
+              <tr data-id="{{ it.id }}" data-valor="{{ it.valor }}">
+                <td>{{ it.descricao }}</td>
+                <td class="text-end" style="font-weight:700;color:#10B981;">R$ {{ "%.2f"|format(it.valor) }}</td>
+                <td style="width:40px;">
+                  <button type="button" class="btn btn-sm btn-nb btn-remover-item" title="Remover"><i class="fas fa-trash"></i></button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between mt-2" id="blocoTotalItens" style="font-size:.85rem;{{ 'display:none;' if not itens }}">
+          <span style="color:var(--nb-muted)">Total em itens</span>
+          <strong id="totalItensTexto" style="color:#10B981;">R$ {{ "%.2f"|format(total_itens) }}</strong>
+        </div>
+        <p id="msgSemItens" class="text-center mb-0" style="color:var(--nb-muted);font-size:.85rem;{{ 'display:none;' if itens }}">Nenhum item cadastrado ainda.</p>
+      </div>
+    </div>
+
+    <div class="card mb-3" style="border:1px solid #10B981;">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <span style="font-weight:700;"><i class="fas fa-piggy-bank me-2" style="color:#10B981"></i>Total disponível pra entrada</span>
+          <span id="totalEntrada" style="font-size:1.5rem;font-weight:800;color:#10B981;font-family:'Barlow Condensed',sans-serif;">R$ 0,00</span>
+        </div>
+        <div style="font-size:.72rem;color:var(--nb-muted);margin-top:4px;">Valor líquido do carro atual (oferta já descontado o que falta quitar) + soma dos itens acima</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Coluna direita: simulador de financiamento ── -->
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-calculator me-2" style="color:#f97316"></i>Simulador de Financiamento</div>
+      <div class="card-body">
+        <div class="row g-2 mb-2">
+          <div class="col-12">
+            <label class="form-label">Nome / modelo do carro novo</label>
+            <input type="text" id="inputNomeCarroNovo" class="form-control" placeholder="Ex: Corolla XEi 2023 na Fulano Motors">
+          </div>
+        </div>
+
+        <div class="row g-2 mb-2" style="background:var(--nb-surface-alt);border-radius:10px;padding:10px 8px 4px;">
+          <div class="col-12" style="font-size:.72rem;color:var(--nb-muted);text-transform:uppercase;letter-spacing:.05em;">
+            <i class="fas fa-magnifying-glass-dollar me-1"></i>Buscar valor de referência na FIPE (opcional)
+          </div>
+          <div class="col-12">
+            <select id="fipeMarcaNovo" class="form-select form-select-sm">
+              <option value="">Carregando marcas...</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <select id="fipeModeloNovo" class="form-select form-select-sm" disabled>
+              <option value="">Selecione a marca primeiro</option>
+            </select>
+          </div>
+          <div class="col-12 mb-2">
+            <select id="fipeAnoNovo" class="form-select form-select-sm" disabled>
+              <option value="">Selecione o modelo primeiro</option>
+            </select>
+          </div>
+          <div class="col-12 mb-2" id="fipeNovoResultado" style="display:none;font-size:.78rem;color:var(--nb-muted);">
+            Valor FIPE: <strong id="fipeNovoValorTexto" style="color:#f97316;"></strong> -- preenchido abaixo, edite se souber o valor real negociado.
+          </div>
+        </div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-12">
+            <label class="form-label">Valor do carro novo (R$)</label>
+            <input type="number" step="0.01" min="0" id="inputValorCarroNovo" class="form-control" placeholder="0,00">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Entrada (R$)</label>
+            <input type="number" step="0.01" min="0" id="inputEntrada" class="form-control" placeholder="0,00">
+            <div style="font-size:.7rem;color:var(--nb-muted);margin-top:3px;">Preenchida automaticamente com o total de entrada calculado ao lado -- pode ajustar.</div>
+          </div>
+          <div class="col-7">
+            <label class="form-label">Taxa de juros (% a.m.)</label>
+            <input type="number" step="0.01" min="0" id="inputTaxaJuros" class="form-control" value="2.54">
+            <div style="font-size:.7rem;color:var(--nb-muted);margin-top:3px;">Padrão: média de mercado (2,54% a.m.) -- edite se sua proposta for diferente.</div>
+          </div>
+          <div class="col-5">
+            <label class="form-label">Nº de Parcelas</label>
+            <input type="number" step="1" min="1" max="96" id="inputParcelas" class="form-control" value="48">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Parcela atual que você já paga (R$) <small class="fw-normal">(opcional, pra comparar)</small></label>
+            <input type="number" step="0.01" min="0" id="inputParcelaAtual" class="form-control" placeholder="0,00 se não tem financiamento hoje">
+          </div>
+        </div>
+
+        <div style="background:var(--nb-surface-alt);border-radius:10px;padding:12px 16px;margin-top:8px;">
+          <div class="d-flex justify-content-between" style="font-size:.85rem;">
+            <span style="color:var(--nb-muted)">Valor financiado</span>
+            <strong id="valorFinanciado">R$ 0,00</strong>
+          </div>
+        </div>
+
+        <div id="resultadoFinanciamento" style="display:none;margin-top:14px;">
+          <div class="text-center" style="background:linear-gradient(135deg,#f97316,#ea6c0a);border-radius:12px;padding:18px;">
+            <div style="font-size:.72rem;color:#0a0a0a;text-transform:uppercase;letter-spacing:.05em;font-weight:700;opacity:.8;">Parcela Mensal</div>
+            <div id="valorParcela" style="font-size:2.2rem;font-weight:800;color:#0a0a0a;font-family:'Barlow Condensed',sans-serif;line-height:1.1;">R$ 0,00</div>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-6">
+              <div class="stat-card" style="--sc:#ef4444;">
+                <div class="stat-val" style="font-size:1.3rem;" id="totalJuros">R$ 0,00</div>
+                <div class="stat-lbl">Total de Juros</div>
+                <i class="fas fa-percent stat-icon"></i>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="stat-card" style="--sc:#3B82F6;">
+                <div class="stat-val" style="font-size:1.3rem;" id="totalPago">R$ 0,00</div>
+                <div class="stat-lbl">Total Pago (c/ juros)</div>
+                <i class="fas fa-coins stat-icon"></i>
+              </div>
+            </div>
+          </div>
+
+          <div id="blocoComparacaoParcela" style="display:none;margin-top:10px;padding:12px 16px;border-radius:10px;">
+            <div class="d-flex justify-content-between align-items-center">
+              <span style="font-size:.82rem;color:var(--nb-muted);">Comparado com sua parcela atual</span>
+              <span id="diferencaParcela" style="font-size:1.15rem;font-weight:800;"></span>
+            </div>
+            <div id="diferencaParcelaDetalhe" style="font-size:.72rem;color:var(--nb-muted);margin-top:2px;"></div>
+          </div>
+
+          <form method="POST" action="{{ url_for('salvar_simulacao_troca_carro') }}" id="formSalvarSimulacao" class="mt-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="nome_carro_novo" id="hidNomeCarroNovo">
+            <input type="hidden" name="valor_carro_novo" id="hidValorCarroNovo">
+            <input type="hidden" name="carro_atual_fipe" id="hidCarroAtualFipe">
+            <input type="hidden" name="valor_fipe" id="hidValorFipe">
+            <input type="hidden" name="oferta_loja" id="hidOfertaLoja">
+            <input type="hidden" name="saldo_devedor" id="hidSaldoDevedor">
+            <input type="hidden" name="total_itens_venda" id="hidTotalItensVenda">
+            <input type="hidden" name="total_entrada" id="hidTotalEntrada">
+            <input type="hidden" name="taxa_juros_am" id="hidTaxaJurosAm">
+            <input type="hidden" name="parcelas" id="hidParcelas">
+            <input type="hidden" name="valor_parcela" id="hidValorParcela">
+            <input type="hidden" name="total_pago" id="hidTotalPago">
+            <input type="hidden" name="total_juros" id="hidTotalJuros">
+            <input type="hidden" name="parcela_atual" id="hidParcelaAtual">
+            <button type="submit" class="btn btn-accent w-100"><i class="fas fa-bookmark me-1"></i>Salvar Esta Simulação</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function fmtBRL(v) {
+  return (v || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+}
+
+let TOTAL_ITENS = {{ total_itens }};
+const CSRF_TOKEN = '{{ csrf_token() }}';
+// Precisa ser declarada AQUI, antes de qualquer coisa que possa chamar
+// calcularFinanciamento() -- "let" não é inicializada até a própria linha
+// rodar (zona morta temporal), e atualizarEntrada() já chama
+// calcularFinanciamento() logo no carregamento da página. Declarada lá
+// embaixo (perto da função), rodava DEPOIS dessa primeira chamada e
+// travava a página inteira com "Cannot access before initialization" --
+// travava tanto a calculadora (nunca registrava os listeners que vêm
+// depois no script) quanto os botões de item (o retorno do fetch chama
+// recalcularTotalItens -> calcularFinanciamento -> mesmo erro, por isso
+// aparecia "erro de conexão" mesmo com o item sendo salvo/removido de
+// verdade no banco).
+let ultimaSimulacao = null;
+
+// ── Itens pra vender: adicionar/remover sem recarregar a página, pra não
+// perder o que já foi digitado no simulador de FIPE/financiamento ──
+function recalcularTotalItens() {
+  let soma = 0;
+  document.querySelectorAll('#listaItens tr').forEach(tr => {
+    soma += parseFloat(tr.dataset.valor || 0);
+  });
+  TOTAL_ITENS = soma;
+  document.getElementById('totalItensTexto').textContent = fmtBRL(soma);
+  const temItens = document.querySelectorAll('#listaItens tr').length > 0;
+  document.getElementById('blocoTabelaItens').style.display = temItens ? '' : 'none';
+  document.getElementById('blocoTotalItens').style.display = temItens ? '' : 'none';
+  document.getElementById('msgSemItens').style.display = temItens ? 'none' : '';
+  atualizarEntrada();
+}
+
+function mostrarErroItem(msg) {
+  const el = document.getElementById('erroItem');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+document.getElementById('formNovoItem').addEventListener('submit', function (e) {
+  e.preventDefault();
+  document.getElementById('erroItem').style.display = 'none';
+  const inputDesc = document.getElementById('inputDescricaoItem');
+  const inputVal  = document.getElementById('inputValorItem');
+  const descricao = inputDesc.value.trim();
+  const valor     = parseFloat(inputVal.value);
+  if (!descricao || !valor || valor <= 0) {
+    mostrarErroItem('Preencha a descrição e um valor maior que zero.');
+    return;
+  }
+  const fd = new FormData();
+  fd.append('descricao', descricao);
+  fd.append('valor', valor);
+  fd.append('csrf_token', CSRF_TOKEN);
+  fetch('{{ url_for("novo_item_venda_troca") }}', {
+    method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'}
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) { mostrarErroItem(d.erro || 'Erro ao adicionar item.'); return; }
+    const tr = document.createElement('tr');
+    tr.dataset.id = d.id;
+    tr.dataset.valor = d.valor;
+    tr.innerHTML = `<td></td><td class="text-end" style="font-weight:700;color:#10B981;"></td>
+      <td style="width:40px;"><button type="button" class="btn btn-sm btn-nb btn-remover-item" title="Remover"><i class="fas fa-trash"></i></button></td>`;
+    tr.children[0].textContent = d.descricao;
+    tr.children[1].textContent = fmtBRL(d.valor);
+    document.getElementById('listaItens').appendChild(tr);
+    recalcularTotalItens();
+    inputDesc.value = ''; inputVal.value = '';
+    inputDesc.focus();
+  }).catch(() => mostrarErroItem('Erro de conexão ao adicionar item.'));
+});
+
+// Delegação de evento -- cobre também as linhas adicionadas depois via JS
+document.getElementById('listaItens').addEventListener('click', function (e) {
+  const btn = e.target.closest('.btn-remover-item');
+  if (!btn) return;
+  if (!confirm('Remover este item?')) return;
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  const fd = new FormData();
+  fd.append('csrf_token', CSRF_TOKEN);
+  fetch(`/pessoal/troca-carro/itens/${id}/excluir`, {
+    method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'}
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { tr.remove(); recalcularTotalItens(); }
+  }).catch(() => alert('Erro de conexão ao remover item.'));
+});
+
+// ── Consulta FIPE em cascata (marca -> modelo -> ano -> valor) ──
+const selMarca  = document.getElementById('fipeMarca');
+const selModelo = document.getElementById('fipeModelo');
+const selAno    = document.getElementById('fipeAno');
+const boxFipe   = document.getElementById('resultadoFipe');
+let valorFipeAtual = 0;
+
+fetch('{{ url_for("fipe_marcas") }}').then(r => r.json()).then(lista => {
+  selMarca.innerHTML = '<option value="">Selecione a marca...</option>';
+  if (lista.erro) { selMarca.innerHTML = '<option value="">Erro ao carregar marcas</option>'; return; }
+  lista.forEach(m => selMarca.add(new Option(m.nome, m.codigo)));
+}).catch(() => { selMarca.innerHTML = '<option value="">Erro ao carregar marcas</option>'; });
+
+selMarca.addEventListener('change', () => {
+  selModelo.innerHTML = '<option value="">Selecione...</option>';
+  selAno.innerHTML = '<option value="">Selecione o modelo primeiro</option>';
+  selModelo.disabled = true; selAno.disabled = true;
+  boxFipe.style.display = 'none';
+  if (!selMarca.value) return;
+  selModelo.innerHTML = '<option value="">Carregando...</option>';
+  fetch(`/pessoal/troca-carro/fipe/modelos/${selMarca.value}`).then(r => r.json()).then(lista => {
+    selModelo.innerHTML = '<option value="">Selecione o modelo...</option>';
+    lista.forEach(m => selModelo.add(new Option(m.nome, m.codigo)));
+    selModelo.disabled = false;
+  });
+});
+
+selModelo.addEventListener('change', () => {
+  selAno.innerHTML = '<option value="">Selecione...</option>';
+  selAno.disabled = true;
+  boxFipe.style.display = 'none';
+  if (!selModelo.value) return;
+  selAno.innerHTML = '<option value="">Carregando...</option>';
+  fetch(`/pessoal/troca-carro/fipe/anos/${selMarca.value}/${selModelo.value}`).then(r => r.json()).then(lista => {
+    selAno.innerHTML = '<option value="">Selecione o ano...</option>';
+    lista.forEach(a => selAno.add(new Option(a.nome, a.codigo)));
+    selAno.disabled = false;
+  });
+});
+
+selAno.addEventListener('change', () => {
+  if (!selAno.value) { boxFipe.style.display = 'none'; return; }
+  boxFipe.style.display = 'block';
+  document.getElementById('fipeValorTexto').textContent = 'Consultando...';
+  fetch(`/pessoal/troca-carro/fipe/valor/${selMarca.value}/${selModelo.value}/${selAno.value}`).then(r => r.json()).then(d => {
+    if (d.erro) {
+      document.getElementById('fipeValorTexto').textContent = 'Erro na consulta';
+      document.getElementById('fipeReferencia').textContent = d.erro;
+      return;
+    }
+    valorFipeAtual = d.preco || 0;
+    document.getElementById('fipeValorTexto').textContent = d.preco_texto || fmtBRL(valorFipeAtual);
+    document.getElementById('fipeReferencia').textContent =
+      `Tabela FIPE de ${d.mes_referencia || '—'} · Código ${d.codigo_fipe || '—'}`;
+    const inputOferta = document.getElementById('inputOferta');
+    if (!inputOferta.dataset.tocado) {
+      inputOferta.value = (valorFipeAtual * 0.9).toFixed(2);
+    }
+    atualizarMargem();
+  });
+});
+
+// ── Consulta FIPE do carro NOVO (opcional -- preenche valor/nome, editável depois) ──
+const selMarcaNovo  = document.getElementById('fipeMarcaNovo');
+const selModeloNovo = document.getElementById('fipeModeloNovo');
+const selAnoNovo    = document.getElementById('fipeAnoNovo');
+const boxFipeNovo   = document.getElementById('fipeNovoResultado');
+
+fetch('{{ url_for("fipe_marcas") }}').then(r => r.json()).then(lista => {
+  selMarcaNovo.innerHTML = '<option value="">Selecione a marca...</option>';
+  if (lista.erro) { selMarcaNovo.innerHTML = '<option value="">Erro ao carregar marcas</option>'; return; }
+  lista.forEach(m => selMarcaNovo.add(new Option(m.nome, m.codigo)));
+}).catch(() => { selMarcaNovo.innerHTML = '<option value="">Erro ao carregar marcas</option>'; });
+
+selMarcaNovo.addEventListener('change', () => {
+  selModeloNovo.innerHTML = '<option value="">Selecione...</option>';
+  selAnoNovo.innerHTML = '<option value="">Selecione o modelo primeiro</option>';
+  selModeloNovo.disabled = true; selAnoNovo.disabled = true;
+  boxFipeNovo.style.display = 'none';
+  if (!selMarcaNovo.value) return;
+  selModeloNovo.innerHTML = '<option value="">Carregando...</option>';
+  fetch(`/pessoal/troca-carro/fipe/modelos/${selMarcaNovo.value}`).then(r => r.json()).then(lista => {
+    selModeloNovo.innerHTML = '<option value="">Selecione o modelo...</option>';
+    lista.forEach(m => selModeloNovo.add(new Option(m.nome, m.codigo)));
+    selModeloNovo.disabled = false;
+  });
+});
+
+selModeloNovo.addEventListener('change', () => {
+  selAnoNovo.innerHTML = '<option value="">Selecione...</option>';
+  selAnoNovo.disabled = true;
+  boxFipeNovo.style.display = 'none';
+  if (!selModeloNovo.value) return;
+  selAnoNovo.innerHTML = '<option value="">Carregando...</option>';
+  fetch(`/pessoal/troca-carro/fipe/anos/${selMarcaNovo.value}/${selModeloNovo.value}`).then(r => r.json()).then(lista => {
+    selAnoNovo.innerHTML = '<option value="">Selecione o ano...</option>';
+    lista.forEach(a => selAnoNovo.add(new Option(a.nome, a.codigo)));
+    selAnoNovo.disabled = false;
+  });
+});
+
+selAnoNovo.addEventListener('change', () => {
+  if (!selAnoNovo.value) { boxFipeNovo.style.display = 'none'; return; }
+  boxFipeNovo.style.display = 'block';
+  document.getElementById('fipeNovoValorTexto').textContent = 'Consultando...';
+  fetch(`/pessoal/troca-carro/fipe/valor/${selMarcaNovo.value}/${selModeloNovo.value}/${selAnoNovo.value}`).then(r => r.json()).then(d => {
+    if (d.erro) {
+      document.getElementById('fipeNovoValorTexto').textContent = 'Erro na consulta';
+      return;
+    }
+    const preco = d.preco || 0;
+    document.getElementById('fipeNovoValorTexto').textContent = d.preco_texto || fmtBRL(preco);
+    document.getElementById('inputValorCarroNovo').value = preco.toFixed(2);
+    calcularFinanciamento();
+    const inputNome = document.getElementById('inputNomeCarroNovo');
+    if (!inputNome.value.trim()) {
+      inputNome.value = `${selMarcaNovo.options[selMarcaNovo.selectedIndex].text} ${selModeloNovo.options[selModeloNovo.selectedIndex].text} ${selAnoNovo.options[selAnoNovo.selectedIndex].text}`;
+    }
+  });
+});
+
+function atualizarMargem() {
+  const oferta = parseFloat(document.getElementById('inputOferta').value) || 0;
+  const margem = valorFipeAtual - oferta;
+  document.getElementById('margemLoja').textContent = fmtBRL(margem);
+  document.getElementById('margemPct').textContent = valorFipeAtual
+    ? `(${((margem / valorFipeAtual) * 100).toFixed(1)}% da FIPE)` : '';
+  atualizarValorLiquido();
+}
+document.getElementById('inputOferta').addEventListener('input', function () {
+  this.dataset.tocado = '1';
+  atualizarMargem();
+});
+
+function valorLiquidoTroca() {
+  const oferta = parseFloat(document.getElementById('inputOferta').value) || 0;
+  const saldoDevedor = parseFloat(document.getElementById('inputSaldoDevedor').value) || 0;
+  return oferta - saldoDevedor;
+}
+
+function atualizarValorLiquido() {
+  const liquido = valorLiquidoTroca();
+  const elLiquido = document.getElementById('valorLiquidoTroca');
+  elLiquido.textContent = fmtBRL(liquido);
+  elLiquido.style.color = liquido < 0 ? '#ef4444' : '';
+  document.getElementById('avisoSaldoNegativo').style.display = liquido < 0 ? 'block' : 'none';
+  atualizarEntrada();
+}
+document.getElementById('inputSaldoDevedor').addEventListener('input', atualizarValorLiquido);
+
+function atualizarEntrada() {
+  // Só o valor líquido da troca (oferta já descontado o que falta quitar)
+  // entra na entrada -- se tiver saldo devedor maior que a oferta, não
+  // soma nada (não faz sentido "entrada negativa"), mas o aviso acima já
+  // deixa claro que sobrou dívida, não crédito.
+  const liquido = Math.max(valorLiquidoTroca(), 0);
+  const totalEntrada = liquido + TOTAL_ITENS;
+  document.getElementById('totalEntrada').textContent = fmtBRL(totalEntrada);
+  const inputEntradaFin = document.getElementById('inputEntrada');
+  if (!inputEntradaFin.dataset.tocado) {
+    inputEntradaFin.value = totalEntrada.toFixed(2);
+    calcularFinanciamento();
+  }
+}
+// mostra o total de entrada (só itens, sem oferta ainda) assim que a página carrega
+atualizarEntrada();
+
+// ── Simulador de financiamento (Tabela Price) ──
+function calcularFinanciamento() {
+  const valorCarro = parseFloat(document.getElementById('inputValorCarroNovo').value) || 0;
+  const entrada    = parseFloat(document.getElementById('inputEntrada').value) || 0;
+  const taxaPct    = parseFloat(document.getElementById('inputTaxaJuros').value) || 0;
+  const parcelas   = parseInt(document.getElementById('inputParcelas').value) || 0;
+
+  const financiado = Math.max(valorCarro - entrada, 0);
+  document.getElementById('valorFinanciado').textContent = fmtBRL(financiado);
+
+  const resultado = document.getElementById('resultadoFinanciamento');
+  if (!parcelas || financiado <= 0) { resultado.style.display = 'none'; ultimaSimulacao = null; return; }
+
+  const i = taxaPct / 100;
+  const parcela = i === 0 ? (financiado / parcelas) : (financiado * i / (1 - Math.pow(1 + i, -parcelas)));
+  const totalPago  = parcela * parcelas;
+  const totalJuros = totalPago - financiado;
+
+  document.getElementById('valorParcela').textContent = fmtBRL(parcela);
+  document.getElementById('totalPago').textContent = fmtBRL(totalPago);
+  document.getElementById('totalJuros').textContent = fmtBRL(totalJuros);
+  resultado.style.display = 'block';
+
+  // Comparação com a parcela atual (opcional) -- quanto a mais/a menos
+  // por mês, e o total ao longo de todas as parcelas da simulação nova.
+  const parcelaAtual = parseFloat(document.getElementById('inputParcelaAtual').value) || 0;
+  const blocoComp = document.getElementById('blocoComparacaoParcela');
+  if (parcelaAtual > 0) {
+    const diferenca = parcela - parcelaAtual;
+    const diferencaTotal = diferenca * parcelas;
+    const sinal = diferenca >= 0 ? '+' : '-';
+    const cor = diferenca > 0 ? '#ef4444' : (diferenca < 0 ? '#10B981' : 'var(--nb-muted)');
+    document.getElementById('diferencaParcela').style.color = cor;
+    document.getElementById('diferencaParcela').textContent = `${sinal} ${fmtBRL(Math.abs(diferenca))}/mês`;
+    const termo = diferenca > 0 ? 'a mais' : (diferenca < 0 ? 'a menos' : 'igual à que você já paga');
+    document.getElementById('diferencaParcelaDetalhe').textContent = diferenca !== 0
+      ? `${termo} do que você paga hoje (R$ ${parcelaAtual.toFixed(2)}) -- ${fmtBRL(Math.abs(diferencaTotal))} ${termo} somando as ${parcelas} parcelas.`
+      : 'Fica exatamente igual ao que você já paga hoje.';
+    blocoComp.style.background = diferenca > 0 ? 'rgba(239,68,68,.08)' : (diferenca < 0 ? 'rgba(16,185,129,.08)' : 'var(--nb-surface-alt)');
+    blocoComp.style.display = 'block';
+  } else {
+    blocoComp.style.display = 'none';
+  }
+
+  ultimaSimulacao = {
+    valorCarro, entrada, taxaPct, parcelas, financiado, parcela, totalPago, totalJuros, parcelaAtual,
+  };
+}
+document.getElementById('inputEntrada').addEventListener('input', function () {
+  this.dataset.tocado = '1';
+  calcularFinanciamento();
+});
+document.getElementById('inputParcelaAtual').addEventListener('input', calcularFinanciamento);
+['inputValorCarroNovo', 'inputTaxaJuros', 'inputParcelas'].forEach(id => {
+  document.getElementById(id).addEventListener('input', calcularFinanciamento);
+});
+
+// ── Salvar simulação: só pode acontecer depois de calcular o
+// financiamento (senão não tem o que "fotografar") ──
+document.getElementById('formSalvarSimulacao').addEventListener('submit', function (e) {
+  const nome = document.getElementById('inputNomeCarroNovo').value.trim();
+  if (!nome) {
+    e.preventDefault();
+    alert('Dê um nome/modelo pro carro novo antes de salvar (ex: "Corolla XEi 2023 na Fulano Motors").');
+    document.getElementById('inputNomeCarroNovo').focus();
+    return;
+  }
+  if (!ultimaSimulacao) {
+    e.preventDefault();
+    alert('Preencha valor do carro, entrada, taxa e parcelas pra calcular o financiamento antes de salvar.');
+    return;
+  }
+  let carroFipe = '';
+  if (selMarca.value && selModelo.value && selAno.value) {
+    carroFipe = `${selMarca.options[selMarca.selectedIndex].text} ${selModelo.options[selModelo.selectedIndex].text} ${selAno.options[selAno.selectedIndex].text}`;
+  }
+  document.getElementById('hidNomeCarroNovo').value      = nome;
+  document.getElementById('hidValorCarroNovo').value     = ultimaSimulacao.valorCarro;
+  document.getElementById('hidCarroAtualFipe').value     = carroFipe;
+  document.getElementById('hidValorFipe').value          = valorFipeAtual || 0;
+  document.getElementById('hidOfertaLoja').value         = parseFloat(document.getElementById('inputOferta').value) || 0;
+  document.getElementById('hidSaldoDevedor').value       = parseFloat(document.getElementById('inputSaldoDevedor').value) || 0;
+  document.getElementById('hidTotalItensVenda').value    = TOTAL_ITENS;
+  document.getElementById('hidTotalEntrada').value       = ultimaSimulacao.entrada;
+  document.getElementById('hidTaxaJurosAm').value        = ultimaSimulacao.taxaPct;
+  document.getElementById('hidParcelas').value           = ultimaSimulacao.parcelas;
+  document.getElementById('hidValorParcela').value       = ultimaSimulacao.parcela;
+  document.getElementById('hidTotalPago').value          = ultimaSimulacao.totalPago;
+  document.getElementById('hidTotalJuros').value         = ultimaSimulacao.totalJuros;
+  document.getElementById('hidParcelaAtual').value       = ultimaSimulacao.parcelaAtual || 0;
+  // segue o submit normal (form tradicional, sem AJAX) -- redireciona
+  // pra tela de "Minhas Simulações" já mostrando a que acabou de salvar
+});
+
+// ── Nova simulação: limpa os campos preenchidos na tela (FIPE, oferta,
+// carro novo, financiamento) SEM apagar os itens pra vender salvos --
+// esses continuam disponíveis pra usar em quantas simulações quiser. ──
+function novaSimulacao() {
+  if (!confirm('Limpar os campos da simulação atual? (os itens pra vender salvos não são apagados)')) return;
+
+  selMarca.value = '';
+  selMarca.dispatchEvent(new Event('change'));
+  document.getElementById('inputOferta').value = '';
+  delete document.getElementById('inputOferta').dataset.tocado;
+  document.getElementById('inputSaldoDevedor').value = '0';
+  valorFipeAtual = 0;
+
+  selMarcaNovo.value = '';
+  selMarcaNovo.dispatchEvent(new Event('change'));
+  document.getElementById('inputNomeCarroNovo').value = '';
+  document.getElementById('inputValorCarroNovo').value = '';
+
+  document.getElementById('inputEntrada').value = '';
+  delete document.getElementById('inputEntrada').dataset.tocado;
+  document.getElementById('inputTaxaJuros').value = '2.54';
+  document.getElementById('inputParcelas').value = '48';
+
+  ultimaSimulacao = null;
+  document.getElementById('resultadoFinanciamento').style.display = 'none';
+  atualizarEntrada();
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+</script>
+{% endblock %}

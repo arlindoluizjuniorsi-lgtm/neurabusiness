@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{% if gasto %}Editar{% else %}Novo{% endif %} Lançamento{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-receipt me-2" style="color:#f97316"></i>{% if gasto %}Editar{% else %}Novo{% endif %} Lançamento</h1></div>
+<form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card"><div class="card-header"><i class="fas fa-receipt"></i>Dados do Lançamento</div>
+    <div class="card-body"><div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Tipo *</label>
+        <select name="tipo" id="tipoSel" class="form-select" onchange="atualizarCampos()" required>
+          <option value="fixo" {% if gasto and gasto.tipo=='fixo' %}selected{% endif %}>Gasto Fixo</option>
+          <option value="recorrente" {% if gasto and gasto.tipo=='recorrente' %}selected{% endif %}>Recorrente (cartão)</option>
+          <option value="avista" {% if gasto and gasto.tipo=='avista' %}selected{% endif %}>À Vista (cartão)</option>
+          <option value="parcelado" {% if gasto and gasto.tipo=='parcelado' %}selected{% endif %}>Parcelado (cartão)</option>
+        </select>
+      </div>
+      <div class="col-md-8"><label class="form-label">Descrição *</label><input type="text" name="descricao" class="form-control" value="{{ gasto.descricao if gasto else '' }}" required></div>
+
+      <div class="col-md-6" id="campoCartao"><label class="form-label">Cartão</label>
+        <select name="cartao_id" class="form-select">
+          <option value="">—</option>
+          {% for c in cartoes %}
+          <option value="{{ c.id }}" {% if gasto and gasto.cartao_id==c.id %}selected{% endif %}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+        {% if not cartoes %}<div class="form-text">Nenhum cartão cadastrado — <a href="{{ url_for('novo_cartao_pessoal') }}">criar um</a>.</div>{% endif %}
+      </div>
+
+      <div class="col-md-6"><label class="form-label" id="lblValor">Valor (R$) *</label><input type="number" name="valor" class="form-control" value="{{ gasto.valor if gasto else '' }}" step="0.01" min="0" required></div>
+
+      <div class="col-md-6" id="campoMesRef"><label class="form-label">Mês de Referência</label><input type="month" name="mes_referencia" class="form-control" value="{{ gasto.mes_referencia if gasto and gasto.mes_referencia else hoje }}"></div>
+
+      <div class="col-md-6" id="campoDataParcela"><label class="form-label">Data da 1ª Parcela</label><input type="date" name="data_primeira_parcela" class="form-control" value="{{ gasto.data_primeira_parcela.isoformat() if gasto and gasto.data_primeira_parcela else '' }}"></div>
+      <div class="col-md-6" id="campoParcelaTotal"><label class="form-label">Total de Parcelas</label><input type="number" name="parcela_total" class="form-control" value="{{ gasto.parcela_total if gasto and gasto.parcela_total else '' }}" min="1"></div>
+    </div></div></div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('listar_gastos_pessoais') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+<script>
+function atualizarCampos(){
+  const t = document.getElementById('tipoSel').value;
+  document.getElementById('campoCartao').style.display = (t==='fixo') ? 'none' : '';
+  document.getElementById('campoMesRef').style.display = (t==='avista') ? '' : 'none';
+  document.getElementById('campoDataParcela').style.display = (t==='parcelado') ? '' : 'none';
+  document.getElementById('campoParcelaTotal').style.display = (t==='parcelado') ? '' : 'none';
+  document.getElementById('lblValor').textContent = (t==='parcelado') ? 'Valor da Parcela (R$) *' : 'Valor (R$) *';
+}
+atualizarCampos();
+</script>
+{% endblock %}

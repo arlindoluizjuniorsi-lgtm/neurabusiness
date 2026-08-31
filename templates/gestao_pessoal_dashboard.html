@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Gestão Pessoal — Dashboard{% endblock %}
+{% block content %}
+{% set meses_nomes = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'] %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div><h1><i class="fas fa-wallet me-2" style="color:#f97316"></i>Gestão Pessoal</h1><p>{{ meses_nomes[mes_ref.month] }}/{{ mes_ref.year }}</p></div>
+  <div class="d-flex gap-2 align-items-center">
+    <a href="{{ url_for('dashboard_pessoal', mes=mes_prev) }}" class="btn btn-nb btn-sm"><i class="fas fa-chevron-left"></i></a>
+    <a href="{{ url_for('dashboard_pessoal', mes=mes_next) }}" class="btn btn-nb btn-sm"><i class="fas fa-chevron-right"></i></a>
+    <a href="{{ url_for('novo_gasto_pessoal') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Novo Lançamento</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#ef4444"><div class="stat-val">R$ {{ "%.2f"|format(total_geral) }}</div><div class="stat-lbl">Total do Mês</div><i class="fas fa-dollar-sign stat-icon"></i></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#f97316"><div class="stat-val">R$ {{ "%.2f"|format(total_fixos) }}</div><div class="stat-lbl">Gastos Fixos</div><i class="fas fa-house stat-icon"></i></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#3B82F6"><div class="stat-val">R$ {{ "%.2f"|format(total_cartoes) }}</div><div class="stat-lbl">Cartões</div><i class="fas fa-credit-card stat-icon"></i></div></div>
+  <div class="col-6 col-md-3"><div class="stat-card" style="--sc:#10B981"><div class="stat-val">R$ {{ "%.2f"|format(total_receitas) }}</div><div class="stat-lbl">Receitas do Mês</div><i class="fas fa-money-bill-wave stat-icon"></i></div></div>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-12"><div class="stat-card" style="--sc:#94a3b8"><div class="stat-val">R$ {{ "%.2f"|format(total_a_quitar) }}</div><div class="stat-lbl">Total Restante em Parcelamentos (todos os cartões, até o fim)</div><i class="fas fa-hourglass-half stat-icon"></i></div></div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <div style="font-size:.72rem;color:var(--nb-muted);text-transform:uppercase;font-weight:700;letter-spacing:.4px">Saldo do Mês (Receitas − Gastos)</div>
+      <div style="font-size:1.4rem;font-weight:800;font-family:'Space Grotesk',sans-serif;color:{{ '#10B981' if saldo >= 0 else '#ef4444' }}">
+        {{ 'R$ ' if saldo >= 0 else '-R$ ' }}{{ "%.2f"|format(saldo|abs) }}
+        {% if saldo >= 0 %}<span style="font-size:.8rem;font-weight:500;color:var(--nb-muted)">sobra</span>{% else %}<span style="font-size:.8rem;font-weight:500;color:var(--nb-muted)">falta conseguir</span>{% endif %}
+      </div>
+    </div>
+    <a href="{{ url_for('listar_rendas_pessoais') }}" class="btn btn-nb btn-sm"><i class="fas fa-money-bill-wave me-1"></i>Gerenciar Rendas</a>
+  </div>
+  {% if rendas_mes %}
+  <div class="card-body pt-0">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Renda</th><th>Valor</th></tr></thead>
+      <tbody>
+        {% for r in rendas_mes %}
+        <tr style="cursor:pointer" onclick="location.href='{{ url_for('editar_renda_pessoal', id=r.id) }}'">
+          <td style="font-weight:500">{{ r.descricao }}</td>
+          <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(r.valor) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card mb-3">
+      <div class="card-header"><i class="fas fa-house me-1"></i>Gastos Fixos Mensais</div>
+      <div class="card-body p-0">
+        {% if fixos %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Descrição</th><th>Valor</th></tr></thead>
+          <tbody>
+            {% for g in fixos %}
+            <tr style="cursor:pointer" onclick="location.href='{{ url_for('editar_gasto_pessoal', id=g.id) }}'">
+              <td style="font-weight:500">{{ g.descricao }}</td>
+              <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(g.valor) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-4" style="color:var(--nb-muted)">Nenhum gasto fixo cadastrado</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% for bloco in por_cartao %}
+  <div class="col-12 col-lg-6">
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="status-badge" style="background:{{ bloco.cartao.cor }};color:{{ bloco.cartao.cor|contraste }}"><i class="fas fa-credit-card me-1"></i>{{ bloco.cartao.nome }}</span>
+        <span style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(bloco.subtotal) }}</span>
+      </div>
+      {% if bloco.cartao.limite %}
+      <div class="px-3 pt-2">
+        <div class="progress" style="height:6px;background:var(--nb-surface-alt)">
+          <div class="progress-bar" role="progressbar" style="width:{{ bloco.perc }}%;background:{{ '#ef4444' if bloco.perc > 85 else '#f59e0b' if bloco.perc > 60 else '#10B981' }}"></div>
+        </div>
+        <div style="font-size:.68rem;color:var(--nb-muted);margin-top:2px">Ocupado R$ {{ "%.2f"|format(bloco.ocupado) }} de R$ {{ "%.2f"|format(bloco.cartao.limite) }} — livre R$ {{ "%.2f"|format(bloco.livre) }}</div>
+      </div>
+      {% endif %}
+      <div class="card-body p-0">
+        {% if not (bloco.avista or bloco.recorrentes or bloco.parcelados) %}
+        <div class="text-center py-4" style="color:var(--nb-muted)">Nenhum lançamento neste mês</div>
+        {% endif %}
+        {% if bloco.recorrentes %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th colspan="2" style="color:var(--nb-muted);font-size:.72rem;font-weight:600">RECORRENTES</th></tr></thead>
+          <tbody>
+            {% for g in bloco.recorrentes %}
+            <tr style="cursor:pointer" onclick="location.href='{{ url_for('editar_gasto_pessoal', id=g.id) }}'">
+              <td style="font-weight:500">{{ g.descricao }}</td>
+              <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(g.valor) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if bloco.avista %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th colspan="2" style="color:var(--nb-muted);font-size:.72rem;font-weight:600">À VISTA</th></tr></thead>
+          <tbody>
+            {% for g in bloco.avista %}
+            <tr style="cursor:pointer" onclick="location.href='{{ url_for('editar_gasto_pessoal', id=g.id) }}'">
+              <td style="font-weight:500">{{ g.descricao }}</td>
+              <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(g.valor) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if bloco.parcelados %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th style="color:var(--nb-muted);font-size:.72rem;font-weight:600">PARCELADOS</th><th></th><th></th><th style="color:var(--nb-muted);font-size:.72rem;font-weight:600">RESTA</th></tr></thead>
+          <tbody>
+            {% for g in bloco.parcelados %}
+            <tr style="cursor:pointer" onclick="location.href='{{ url_for('editar_gasto_pessoal', id=g.id) }}'">
+              <td style="font-weight:500">{{ g.descricao }}</td>
+              <td><span class="status-badge s-rascunho">{{ g.parcela_atual(mes_ref) }}/{{ g.parcela_total }}</span></td>
+              <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(g.valor) }}</td>
+              <td style="color:var(--nb-muted);font-size:.78rem">R$ {{ "%.2f"|format(g.valor_restante(mes_ref)) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if bloco.gastos_carro %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th style="color:var(--nb-muted);font-size:.72rem;font-weight:600"><i class="fas fa-car me-1"></i>CARRO</th><th></th><th></th></tr></thead>
+          <tbody>
+            {% for g in bloco.gastos_carro %}
+            <tr style="cursor:pointer" onclick="location.href='{{ url_for('editar_gasto_carro', id=g.id) }}'">
+              <td style="font-weight:500">{{ g.descricao or g.posto_estabelecimento }}</td>
+              <td>{% if g.parcela_total and g.parcela_total > 1 %}<span class="status-badge s-rascunho">{{ g.parcela_atual(mes_ref) }}/{{ g.parcela_total }}</span>{% endif %}</td>
+              <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(g.valor_parcela()) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if bloco.gastos_casa %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th style="color:var(--nb-muted);font-size:.72rem;font-weight:600"><i class="fas fa-house-chimney me-1"></i>CASA</th><th></th><th></th></tr></thead>
+          <tbody>
+            {% for g in bloco.gastos_casa %}
+            <tr style="cursor:pointer" onclick="location.href='{{ url_for('editar_gasto_casa', id=g.id) }}'">
+              <td style="font-weight:500">{{ g.descricao or g.estabelecimento }}</td>
+              <td>{% if g.parcela_total and g.parcela_total > 1 %}<span class="status-badge s-rascunho">{{ g.parcela_atual(mes_ref) }}/{{ g.parcela_total }}</span>{% endif %}</td>
+              <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(g.valor_parcela()) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if bloco.revisoes %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th style="color:var(--nb-muted);font-size:.72rem;font-weight:600"><i class="fas fa-screwdriver-wrench me-1"></i>REVISÕES</th><th></th><th></th></tr></thead>
+          <tbody>
+            {% for r in bloco.revisoes %}
+            <tr style="cursor:pointer" onclick="location.href='{{ url_for('editar_revisao', id=r.id) }}'">
+              <td style="font-weight:500">{{ r.oficina or r.descricao or (r.veiculo.nome_exibicao() if r.veiculo) }}</td>
+              <td>{% if r.parcela_total and r.parcela_total > 1 %}<span class="status-badge s-rascunho">{{ r.parcela_atual(mes_ref) }}/{{ r.parcela_total }}</span>{% endif %}</td>
+              <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(r.valor_parcela()) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Gestão Pessoal — Veículos{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div><h1><i class="fas fa-car-side me-2" style="color:#f97316"></i>Meus Veículos</h1><p>{{ veiculos|length }} cadastrados</p></div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('listar_revisoes') }}" class="btn btn-nb"><i class="fas fa-screwdriver-wrench me-1"></i>Ver Revisões</a>
+    <a href="{{ url_for('novo_veiculo') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Novo Veículo</a>
+  </div>
+</div>
+
+<div class="row g-3">
+  {% for v in veiculos %}
+  <div class="col-12 col-md-6 col-lg-4">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span style="font-weight:700">{{ v.nome_exibicao() }}</span>
+        {% if v.ativo %}<span class="status-badge s-aprovada">Ativo</span>{% else %}<span class="status-badge s-recusada">Inativo</span>{% endif %}
+      </div>
+      <div class="card-body">
+        <div style="font-size:.82rem;color:var(--nb-muted)">
+          {% if v.placa %}Placa: <strong style="color:var(--nb-text)">{{ v.placa }}</strong><br>{% endif %}
+          {% if v.cor %}Cor: {{ v.cor }}<br>{% endif %}
+          {% if v.combustivel %}Combustível: {{ v.combustivel|capitalize }}<br>{% endif %}
+          {% if v.km_atual %}KM Atual: <strong style="color:var(--nb-text)">{{ "{:,}".format(v.km_atual).replace(',', '.') }}</strong><br>{% endif %}
+        </div>
+        <div class="d-flex gap-2 mt-3">
+          <a href="{{ url_for('listar_revisoes', veiculo_id=v.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-screwdriver-wrench me-1"></i>Revisões</a>
+          <a href="{{ url_for('editar_veiculo', id=v.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-edit"></i></a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  {% if not veiculos %}
+  <div class="col-12"><div class="card"><div class="card-body text-center py-4" style="color:var(--nb-muted)">Nenhum veículo cadastrado ainda — cadastre pra começar a lançar revisões</div></div></div>
+  {% endif %}
+</div>
+{% endblock %}

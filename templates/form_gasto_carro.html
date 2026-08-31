@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}{% if gasto %}Editar{% else %}Novo{% endif %} Gasto com o Carro{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-car me-2" style="color:#f97316"></i>{% if gasto %}Editar{% else %}Novo{% endif %} Gasto com o Carro</h1></div>
+<form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card"><div class="card-header"><i class="fas fa-car"></i>Dados do Gasto
+      {% if gasto and gasto.origem=='xml' %}<span class="status-badge s-enviada float-end"><i class="fas fa-file-code me-1"></i>Importado de XML</span>{% endif %}
+    </div>
+    <div class="card-body"><div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Tipo *</label>
+        <select name="tipo" id="tipoSel" class="form-select" onchange="atualizarCampos()" required>
+          {% for val, lbl in [('combustivel','Combustível'),('manutencao','Manutenção'),('pedagio','Pedágio'),('multa','Multa'),('seguro','Seguro'),('ipva','IPVA'),('lavagem','Lavagem'),('acessorio','Acessório'),('outro','Outro')] %}
+          <option value="{{ val }}" {% if gasto and gasto.tipo==val %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4"><label class="form-label">Data {% if gasto and gasto.parcela_total and gasto.parcela_total > 1 %}(1ª Parcela){% endif %} *</label><input type="date" name="data" class="form-control" value="{{ hoje }}" required></div>
+      <div class="col-md-4">
+        <label class="form-label">Valor Total da Compra (R$) *</label>
+        <input type="number" name="valor" id="valorInput" class="form-control" value="{{ gasto.valor if gasto else '' }}" step="0.01" min="0" required onchange="atualizarCampos()" oninput="atualizarCampos()">
+        <div class="form-text" id="previewParcela"></div>
+      </div>
+
+      <div class="col-12"><label class="form-label">Descrição</label><input type="text" name="descricao" class="form-control" value="{{ gasto.descricao if gasto else '' }}" placeholder="Ex: Troca de óleo, Posto Ipiranga..."></div>
+
+      <div class="col-md-3"><label class="form-label">KM Atual</label><input type="number" name="km_atual" class="form-control" value="{{ gasto.km_atual if gasto and gasto.km_atual else '' }}" min="0"></div>
+      <div class="col-md-3" id="campoLitros"><label class="form-label">Litros</label><input type="number" name="litros" class="form-control" value="{{ gasto.litros if gasto and gasto.litros else '' }}" step="0.01" min="0"></div>
+      <div class="col-md-3" id="campoTanqueCheio">
+        <label class="form-label d-block">Tanque Cheio?</label>
+        <div class="form-check form-switch mt-1">
+          <input type="checkbox" name="tanque_cheio" id="tanqueCheioChk" class="form-check-input" {% if not gasto or gasto.tanque_cheio %}checked{% endif %} onchange="document.getElementById('lblTanqueCheio').textContent = this.checked ? 'Sim, encheu' : 'Não, foi parcial'">
+          <label class="form-check-label" id="lblTanqueCheio" for="tanqueCheioChk" style="font-size:.78rem">{% if not gasto or gasto.tanque_cheio %}Sim, encheu{% else %}Não, foi parcial{% endif %}</label>
+        </div>
+        <div class="form-text">Desmarque se foi um "top-off" preventivo (não tava vazio) — não distorce o cálculo de consumo.</div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Forma de Pagamento</label>
+        <select name="forma_pagamento" class="form-select">
+          <option value="">— Não informado —</option>
+          {% for fp in formas_pagamento %}
+          <option value="{{ fp }}" {% if gasto and gasto.forma_pagamento==fp %}selected{% endif %}>{{ fp }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Parcelas</label>
+        <input type="number" name="parcela_total" id="parcelaTotalInput" class="form-control" value="{{ gasto.parcela_total if gasto and gasto.parcela_total else '' }}" min="1" placeholder="1" onchange="atualizarCampos()" oninput="atualizarCampos()">
+      </div>
+
+      <div class="col-md-6"><label class="form-label">Posto / Estabelecimento</label><input type="text" name="posto_estabelecimento" class="form-control" value="{{ gasto.posto_estabelecimento if gasto else '' }}"></div>
+      <div class="col-md-6">
+        <label class="form-label">Cartão (se foi pago no cartão)</label>
+        <select name="cartao_id" class="form-select">
+          <option value="">— Não foi no cartão —</option>
+          {% for c in cartoes %}
+          <option value="{{ c.id }}" {% if gasto and gasto.cartao_id==c.id %}selected{% endif %}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text">Marcando um cartão, esse gasto passa a contar na fatura e no limite dele (tela de Cartões/Dashboard). Se for parcelado, a previsão aparece nas faturas seguintes até quitar.</div>
+      </div>
+
+      {% if gasto and gasto.itens() %}
+      <div class="col-12">
+        <label class="form-label">Itens da Nota</label>
+        <table class="table table-sm mb-0"><thead><tr><th>Descrição</th><th>Qtd</th><th>Un.</th><th>Valor</th></tr></thead><tbody>
+          {% for it in gasto.itens() %}
+          <tr><td>{{ it.descricao }}</td><td>{{ it.qtd }}</td><td>{{ it.unidade }}</td><td>R$ {{ "%.2f"|format(it.valor) }}</td></tr>
+          {% endfor %}
+        </tbody></table>
+      </div>
+      {% endif %}
+    </div></div></div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('listar_gastos_carro') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+<script>
+function atualizarCampos(){
+  const t = document.getElementById('tipoSel').value;
+  document.getElementById('campoLitros').style.display = (t==='combustivel') ? '' : 'none';
+  document.getElementById('campoTanqueCheio').style.display = (t==='combustivel') ? '' : 'none';
+  const parcelas = parseInt(document.getElementById('parcelaTotalInput').value || '1', 10);
+  const valor = parseFloat(document.getElementById('valorInput').value || '0');
+  const preview = document.getElementById('previewParcela');
+  if (parcelas > 1 && valor > 0) {
+    preview.textContent = `= R$ ${(valor/parcelas).toFixed(2)} por fatura, em ${parcelas}x`;
+  } else {
+    preview.textContent = '';
+  }
+}
+atualizarCampos();
+</script>
+{% endblock %}

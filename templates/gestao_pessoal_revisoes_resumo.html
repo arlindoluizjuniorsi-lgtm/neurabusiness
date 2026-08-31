@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Gestão Pessoal — Resumo de Revisões{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div><h1><i class="fas fa-clock-rotate-left me-2" style="color:#f97316"></i>Resumo de Revisões{% if veiculo_atual %} — {{ veiculo_atual.nome_exibicao() }}{% endif %}</h1>
+    <p>{{ total_revisoes }} revisão(ões), organizadas por ano e mês</p></div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('listar_revisoes', veiculo_id=veiculo_atual.id) if veiculo_atual else url_for('listar_revisoes') }}" class="btn btn-nb"><i class="fas fa-arrow-left me-1"></i>Voltar</a>
+    {% if veiculo_atual %}
+    <a href="{{ url_for('resumo_revisoes_pdf', veiculo_id=veiculo_atual.id) }}" target="_blank" class="btn btn-accent"><i class="fas fa-file-pdf me-1"></i>Baixar PDF</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if not veiculos %}
+<div class="card"><div class="card-body text-center py-5">
+  <i class="fas fa-car-side fa-2x mb-3" style="opacity:.2"></i>
+  <p style="color:var(--nb-muted)">Você ainda não cadastrou nenhum veículo.</p>
+  <a href="{{ url_for('novo_veiculo') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Cadastrar Veículo</a>
+</div></div>
+{% else %}
+
+{% if veiculos|length > 1 %}
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  {% for v in veiculos %}
+  <a href="{{ url_for('resumo_revisoes', veiculo_id=v.id) }}" class="btn btn-sm {{ 'btn-accent' if veiculo_atual.id==v.id else 'btn-nb' }}">{{ v.nome_exibicao() }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Cabeçalho do veículo -->
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="row g-3 text-center text-md-start">
+      <div class="col-6 col-md-3"><div style="font-size:.68rem;letter-spacing:.06em;color:var(--nb-muted);text-transform:uppercase;">Placa</div><div style="font-weight:700;">{{ veiculo_atual.placa or '—' }}</div></div>
+      <div class="col-6 col-md-3"><div style="font-size:.68rem;letter-spacing:.06em;color:var(--nb-muted);text-transform:uppercase;">Cor</div><div style="font-weight:700;">{{ veiculo_atual.cor or '—' }}</div></div>
+      <div class="col-6 col-md-3"><div style="font-size:.68rem;letter-spacing:.06em;color:var(--nb-muted);text-transform:uppercase;">Combustível</div><div style="font-weight:700;">{{ (veiculo_atual.combustivel or '—')|capitalize }}</div></div>
+      <div class="col-6 col-md-3"><div style="font-size:.68rem;letter-spacing:.06em;color:var(--nb-muted);text-transform:uppercase;">KM Atual</div><div style="font-weight:700;">{{ '{:,}'.format(veiculo_atual.km_atual).replace(',', '.') + ' km' if veiculo_atual.km_atual else '—' }}</div></div>
+    </div>
+  </div>
+</div>
+
+{% if not resumo %}
+<div class="card"><div class="card-body text-center py-5">
+  <i class="fas fa-screwdriver-wrench fa-2x mb-3" style="opacity:.2"></i>
+  <p style="color:var(--nb-muted)">Nenhuma revisão registrada pra este veículo ainda.</p>
+  <a href="{{ url_for('novo_revisao', veiculo_id=veiculo_atual.id) }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Registrar Revisão</a>
+</div></div>
+{% endif %}
+
+{% for bloco_ano in resumo %}
+<div class="mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-2" style="background:#0f172a;border-radius:10px;padding:10px 16px;">
+    <span style="color:#fff;font-weight:800;font-size:1.15rem;">{{ bloco_ano.ano }}</span>
+    <span style="color:#cbd5e1;font-size:.85rem;">{{ bloco_ano.total_no_ano }} revisão(ões)</span>
+  </div>
+
+  {% for bloco_mes in bloco_ano.meses %}
+  <div class="mb-3">
+    <div style="font-weight:700;color:#f97316;font-size:.9rem;margin:6px 0;">{{ bloco_mes.nome_mes }} de {{ bloco_ano.ano }}</div>
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th style="width:110px;">Data</th><th style="width:130px;">Odômetro</th><th>Revisão / Peça Trocada</th><th style="width:180px;">Oficina / Loja</th><th style="width:50px;"></th></tr></thead>
+          <tbody>
+            {% for rv in bloco_mes.revisoes %}
+            <tr>
+              <td>{{ rv.data.strftime('%d/%m/%Y') }}</td>
+              <td>{{ '{:,}'.format(rv.odometro).replace(',', '.') + ' km' if rv.odometro else '—' }}</td>
+              <td>
+                {% if rv.motivo == 'quebra' %}<span class="badge" style="background:rgba(239,68,68,.15);color:#ef4444;margin-right:6px;">Quebra</span>{% endif %}
+                {{ rv.servico }}
+              </td>
+              <td>{{ rv.oficina }}</td>
+              <td class="text-end"><a href="{{ url_for('revisao_pdf', id=rv.id) }}" target="_blank" class="btn btn-sm btn-nb" title="Baixar PDF desta revisão"><i class="fas fa-file-pdf"></i></a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Gestão Pessoal — Cartões{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div><h1><i class="fas fa-credit-card me-2" style="color:#f97316"></i>Cartões</h1><p>{{ resumo|length }} cartões</p></div>
+  <a href="{{ url_for('novo_cartao_pessoal') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Novo Cartão</a>
+</div>
+<div class="row g-3">
+  {% for r in resumo %}
+  <div class="col-12 col-md-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="status-badge" style="background:{{ r.cartao.cor }};color:{{ r.cartao.cor|contraste }}">{{ r.cartao.nome }}</span>
+        <div>
+          {% if r.cartao.ativo %}<span class="status-badge s-aprovada">Ativo</span>{% else %}<span class="status-badge s-recusada">Inativo</span>{% endif %}
+          <a href="{{ url_for('editar_cartao_pessoal', id=r.cartao.id) }}" class="btn btn-sm btn-nb ms-1"><i class="fas fa-edit"></i></a>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if r.cartao.limite %}
+        <div class="d-flex justify-content-between" style="font-size:.82rem">
+          <span>Ocupado: <strong style="color:#ef4444">R$ {{ "%.2f"|format(r.ocupado) }}</strong></span>
+          <span>Livre: <strong style="color:#10B981">R$ {{ "%.2f"|format(r.livre) }}</strong></span>
+        </div>
+        <div class="progress mt-2" style="height:8px;background:var(--nb-surface-alt)">
+          <div class="progress-bar" role="progressbar" style="width:{{ r.perc }}%;background:{{ '#ef4444' if r.perc > 85 else '#f59e0b' if r.perc > 60 else '#10B981' }}"></div>
+        </div>
+        <div class="mt-1" style="font-size:.72rem;color:var(--nb-muted)">Limite: R$ {{ "%.2f"|format(r.cartao.limite) }} — fecha dia {{ r.cartao.dia_fechamento }}</div>
+        {% else %}
+        <div style="font-size:.82rem;color:var(--nb-muted)">
+          Ocupado (compromissos abertos): <strong style="color:#ef4444">R$ {{ "%.2f"|format(r.ocupado) }}</strong><br>
+          Sem limite cadastrado — <a href="{{ url_for('editar_cartao_pessoal', id=r.cartao.id) }}">definir limite</a>.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  {% if not resumo %}
+  <div class="col-12"><div class="card"><div class="card-body text-center py-4" style="color:var(--nb-muted)">Nenhum cartão cadastrado</div></div></div>
+  {% endif %}
+</div>
+{% endblock %}

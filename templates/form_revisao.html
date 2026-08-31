@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}{% if revisao %}Editar{% else %}Nova{% endif %} Revisão{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-screwdriver-wrench me-2" style="color:#f97316"></i>{% if revisao %}Editar{% else %}Nova{% endif %} Revisão</h1></div>
+<datalist id="pecasDatalist">
+  {% for p in pecas_sugeridas %}<option value="{{ p }}">{% endfor %}
+</datalist>
+{% if notas_disponiveis %}
+<div class="card mb-3" style="border:1px dashed #f97316">
+  <div class="card-header" style="color:#f97316"><i class="fas fa-link me-1"></i>Puxar Peças de uma Nota Importada</div>
+  <div class="card-body">
+    <p style="font-size:.8rem;color:var(--nb-muted)" class="mb-2">Você tem nota(s) fiscal(is) de peças/oficina importadas pra este veículo e ainda sem revisão. Clique numa pra trazer as peças, mão de obra, forma de pagamento e cartão dela pra este formulário -- a nota solta é apagada e vira parte desta revisão.</p>
+    <div id="notasPendentesArea" class="d-flex flex-wrap gap-2">
+      {% for n in notas_disponiveis %}
+      <button type="button" class="btn btn-sm btn-nb" id="btn-nota-{{ n.id }}" onclick="usarNotaPendente({{ n.id }})">
+        <i class="fas fa-file-code me-1"></i>{{ n.data }} — {{ n.oficina }} — R$ {{ "%.2f"|format(n.valor_total) }}
+      </button>
+      {% endfor %}
+    </div>
+    <div id="notaVinculadaMsg" style="display:none;font-size:.8rem;color:#10B981;margin-top:8px">
+      <i class="fas fa-check-circle me-1"></i><span id="notaVinculadaTexto"></span>
+      <button type="button" class="btn btn-sm btn-link p-0 ms-2" onclick="desvincularNota()">desfazer</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+<form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="nota_origem_id" id="notaOrigemIdInput" value="">
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card"><div class="card-header"><i class="fas fa-screwdriver-wrench"></i>Dados da Revisão
+      {% if revisao and revisao.origem=='xml' %}<span class="status-badge s-enviada float-end"><i class="fas fa-file-code me-1"></i>Importado de XML</span>{% endif %}
+    </div>
+    <div class="card-body"><div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Veículo *</label>
+        <select name="veiculo_id" class="form-select" required>
+          {% for v in veiculos %}
+          <option value="{{ v.id }}" {% if (revisao and revisao.veiculo_id==v.id) or (not revisao and veiculo_sel==v.id) %}selected{% endif %}>{{ v.nome_exibicao() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3"><label class="form-label">Data *</label><input type="date" name="data" class="form-control" value="{{ hoje }}" required></div>
+      <div class="col-md-3"><label class="form-label">Odômetro (KM) *</label><input type="number" name="odometro" class="form-control" value="{{ revisao.odometro if revisao else '' }}" min="0" required></div>
+
+      <div class="col-md-4">
+        <label class="form-label">Motivo *</label>
+        <select name="motivo" class="form-select" required>
+          <option value="rotina" {% if not revisao or revisao.motivo=='rotina' %}selected{% endif %}>Revisão de Rotina</option>
+          <option value="quebra" {% if revisao and revisao.motivo=='quebra' %}selected{% endif %}>Quebra / Problema</option>
+        </select>
+      </div>
+      <div class="col-md-4"><label class="form-label">Oficina</label><input type="text" name="oficina" class="form-control" value="{{ revisao.oficina if revisao else '' }}"></div>
+      <div class="col-md-4">
+        <label class="form-label">Forma de Pagamento</label>
+        <select name="forma_pagamento" class="form-select">
+          <option value="">— Não informado —</option>
+          {% for fp in formas_pagamento %}
+          <option value="{{ fp }}" {% if revisao and revisao.forma_pagamento==fp %}selected{% endif %}>{{ fp }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-12"><label class="form-label">Descrição / Resumo</label><textarea name="descricao" class="form-control" rows="2" placeholder="Ex: Barulho na suspensão dianteira, troca preventiva de correia...">{{ revisao.descricao if revisao else '' }}</textarea></div>
+
+      <div class="col-md-4"><label class="form-label">Mão de Obra (R$)</label><input type="number" name="mao_de_obra" id="maoDeObraInput" class="form-control" value="{{ revisao.mao_de_obra if revisao else 0 }}" step="0.01" min="0" oninput="atualizarTotalRevisao()"></div>
+      <div class="col-md-4">
+        <label class="form-label">Parcelas</label>
+        <input type="number" name="parcela_total" id="parcelaTotalInput" class="form-control" value="{{ revisao.parcela_total if revisao and revisao.parcela_total else '' }}" min="1" placeholder="1" oninput="atualizarTotalRevisao()">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Cartão (se foi pago no cartão)</label>
+        <select name="cartao_id" class="form-select">
+          <option value="">— Não foi no cartão —</option>
+          {% for c in cartoes %}
+          <option value="{{ c.id }}" {% if revisao and revisao.cartao_id==c.id %}selected{% endif %}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12" id="previewParcelaRevisao" style="font-size:.78rem;color:var(--nb-muted)"></div>
+
+      <div class="col-12">
+        <hr>
+        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+          <label class="form-label mb-0">Peças Usadas</label>
+          <button type="button" class="btn btn-sm btn-nb" onclick="addItemRevisao()"><i class="fas fa-plus me-1"></i>Adicionar Peça Manual</button>
+        </div>
+        {% if pecas_notas %}
+        <div class="d-flex gap-2 align-items-center mb-2 flex-wrap" style="background:rgba(249,115,22,.06);border:1px solid rgba(249,115,22,.2);border-radius:8px;padding:8px 10px">
+          <i class="fas fa-file-code" style="color:#f97316"></i>
+          <select id="pecaNotaSelect" class="form-select form-select-sm" style="max-width:420px">
+            <option value="" selected disabled>Escolha uma peça de uma nota já importada...</option>
+            {% for p in pecas_notas %}
+            <option value="{{ p.origem_tipo }}:{{ p.nota_id }}:{{ p.idx }}">{{ p.descricao }} — R$ {{ "%.2f"|format(p.valor) }} (nota {{ p.nota_label }})</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="btn btn-sm btn-nb" onclick="adicionarPecaDaNota()"><i class="fas fa-arrow-right me-1"></i>Usar Esta Peça</button>
+          <div style="font-size:.68rem;color:var(--nb-muted);width:100%">Peças de "Gastos com o Carro" são copiadas pra cá -- o lançamento original continua lá, sem duplicar no limite do cartão.</div>
+        </div>
+        {% else %}
+        <div class="mb-2" style="font-size:.78rem;color:var(--nb-muted)"><i class="fas fa-circle-info me-1"></i>Nenhuma peça de nota importada disponível ainda (importe pela tela de Revisões ou de Gastos com o Carro).</div>
+        {% endif %}
+        <div class="mb-2">
+          {% for p in pecas_sugeridas[:12] %}
+          <span class="cat-chip" onclick="addItemRevisao('{{ p|replace("'", "\\'") }}')">+ {{ p }}</span>
+          {% endfor %}
+        </div>
+        <div id="itens-revisao-container"></div>
+        <div class="form-text">Digite manualmente, clique numa peça comum acima, ou selecione uma peça de uma nota já importada -- o autocompletar (ao digitar) também sugere peças que você já usou nesse carro.</div>
+      </div>
+
+      {% if tipos_manutencao %}
+      <div class="col-12">
+        <hr>
+        <label class="form-label mb-2">Manutenções de Rotina Feitas Nesta Revisão</label>
+        <div class="form-text mb-2">Marque o que foi trocado/feito agora -- o sistema guarda o KM/data e calcula sozinho quando será a próxima, com base no intervalo (editável) de cada item.</div>
+        <div class="row g-2">
+          {% for t in tipos_manutencao %}
+          <div class="col-md-6">
+            <div style="background:var(--nb-surface);border:1px solid var(--nb-border);border-radius:8px;padding:8px 10px">
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input manutencao-chk" id="mnt-{{ t.chave }}" name="manutencoes[]" value="{{ t.chave }}"
+                  {% if t.chave in manutencoes_marcadas %}checked{% endif %} onchange="toggleIntervaloManutencao('{{ t.chave }}')">
+                <label class="form-check-label" for="mnt-{{ t.chave }}">{{ t.nome }}</label>
+              </div>
+              <div id="intervalo-{{ t.chave }}" style="{% if t.chave not in manutencoes_marcadas %}display:none{% endif %};margin-top:4px">
+                <label style="font-size:.68rem;color:var(--nb-muted)">Próxima troca em quantos KM?</label>
+                <input type="number" name="intervalo_km_{{ t.chave }}" class="form-control form-control-sm" min="0"
+                  value="{{ manutencoes_marcadas.get(t.chave) or t.km_padrao }}">
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="col-12">
+        <div class="total-box mt-2" style="background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:14px;display:flex;justify-content-between;align-items:center">
+          <span style="font-weight:600">Valor Total da Revisão</span>
+          <span id="totalRevisaoDisplay" style="font-size:1.3rem;font-weight:800;color:#10B981">R$ {{ "%.2f"|format(revisao.valor_total if revisao else 0) }}</span>
+        </div>
+      </div>
+    </div></div></div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('listar_revisoes', veiculo_id=revisao.veiculo_id if revisao else veiculo_sel) }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+<script>
+const notasPendentesRevisao = {{ notas_disponiveis|tojson }};
+let notaVinculadaAtual = null;
+
+function usarNotaPendente(notaId){
+  const nota = notasPendentesRevisao.find(n => n.id === notaId);
+  if (!nota) return;
+  // Mão de obra e forma de pagamento/cartão só são sobrescritas se
+  // ainda estiverem vazias, pra não perder algo que o usuário já tinha
+  // digitado antes de decidir puxar a nota.
+  const maoDeObraEl = document.getElementById('maoDeObraInput');
+  if ((parseFloat(maoDeObraEl.value) || 0) === 0) maoDeObraEl.value = nota.mao_de_obra;
+  if (nota.forma_pagamento) {
+    const fp = document.querySelector('select[name="forma_pagamento"]');
+    if (fp && !fp.value) fp.value = nota.forma_pagamento;
+  }
+  if (nota.cartao_id) {
+    const cs = document.querySelector('select[name="cartao_id"]');
+    if (cs && !cs.value) cs.value = nota.cartao_id;
+  }
+  if (nota.parcela_total && !document.getElementById('parcelaTotalInput').value) {
+    document.getElementById('parcelaTotalInput').value = nota.parcela_total;
+  }
+  (nota.itens || []).forEach(it => {
+    addItemRevisao(it.descricao);
+    const container = document.getElementById('itens-revisao-container');
+    const last = container.lastElementChild;
+    const qtd = it.qtd || 1;
+    last.querySelector('[name="item_qtd[]"]').value = qtd;
+    last.querySelector('[name="item_valor[]"]').value = qtd ? (it.valor / qtd) : it.valor;
+  });
+  document.getElementById('notaOrigemIdInput').value = notaId;
+  notaVinculadaAtual = notaId;
+  const btn = document.getElementById('btn-nota-' + notaId);
+  if (btn) btn.style.display = 'none';
+  document.getElementById('notaVinculadaTexto').textContent = 'Peças de "' + nota.oficina + '" (' + nota.data + ') adicionadas -- essa nota vai ficar linkada a esta revisão ao salvar.';
+  document.getElementById('notaVinculadaMsg').style.display = 'block';
+  atualizarTotalRevisao();
+}
+
+function desvincularNota(){
+  if (notaVinculadaAtual) {
+    const btn = document.getElementById('btn-nota-' + notaVinculadaAtual);
+    if (btn) btn.style.display = '';
+  }
+  document.getElementById('notaOrigemIdInput').value = '';
+  notaVinculadaAtual = null;
+  document.getElementById('notaVinculadaMsg').style.display = 'none';
+}
+
+{% if nota_pre_id %}
+window.addEventListener('load', function(){ usarNotaPendente({{ nota_pre_id }}); });
+{% endif %}
+
+function toggleIntervaloManutencao(chave){
+  const el = document.getElementById('intervalo-' + chave);
+  const chk = document.getElementById('mnt-' + chave);
+  if (el) el.style.display = chk.checked ? '' : 'none';
+}
+
+const pecasNotasRevisao = {{ pecas_notas|tojson }};
+let iIdxRevisao = 0;
+function addItemRevisao(descPreenchida, origTipo, origNotaId, origIdx){
+  descPreenchida = (typeof descPreenchida === 'string') ? descPreenchida : '';
+  origTipo = (origTipo === undefined || origTipo === null) ? '' : origTipo;
+  origNotaId = (origNotaId === undefined || origNotaId === null) ? '' : origNotaId;
+  origIdx = (origIdx === undefined || origIdx === null) ? '' : origIdx;
+  iIdxRevisao++;
+  const d = document.createElement('div');
+  d.className = 'item-card';
+  d.id = 'ic-revisao-' + iIdxRevisao;
+  d.style.cssText = 'background:var(--nb-surface);border:1px solid var(--nb-border);border-radius:10px;padding:10px;margin-bottom:8px';
+  d.innerHTML = `<div class="row g-2 align-items-end">
+    <input type="hidden" name="item_origem_tipo[]" value="${origTipo}">
+    <input type="hidden" name="item_origem_nota[]" value="${origNotaId}">
+    <input type="hidden" name="item_origem_idx[]" value="${origIdx}">
+    <div class="col-12 col-md-6"><label style="font-size:.68rem;color:var(--nb-muted)">Peça / Serviço${origTipo !== '' ? ' <span style=\'color:#f97316\'><i class=\"fas fa-file-code\"></i> da nota</span>' : ''}</label>
+      <input type="text" name="item_desc[]" class="form-control form-control-sm" value="${descPreenchida}" list="pecasDatalist" oninput="atualizarTotalRevisao()"></div>
+    <div class="col-4 col-md-2"><label style="font-size:.68rem;color:var(--nb-muted)">Qtd</label>
+      <input type="number" name="item_qtd[]" class="form-control form-control-sm" value="1" min="0.01" step="0.01" oninput="atualizarTotalRevisao()"></div>
+    <div class="col-4 col-md-2"><label style="font-size:.68rem;color:var(--nb-muted)">Valor Unit.</label>
+      <input type="number" name="item_valor[]" class="form-control form-control-sm" value="0" min="0" step="0.01" oninput="atualizarTotalRevisao()"></div>
+    <div class="col-3 col-md-1"><label style="font-size:.68rem;color:var(--nb-muted)">Subtotal</label>
+      <div class="item-sub-revisao form-control form-control-sm" style="background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.2);color:#10B981;font-weight:700;text-align:right">R$ 0,00</div>
+    </div>
+    <div class="col-1"><button type="button" onclick="document.getElementById('ic-revisao-${iIdxRevisao}').remove();atualizarTotalRevisao()" style="background:none;border:none;color:#ef4444"><i class="fas fa-times"></i></button></div>
+  </div>`;
+  document.getElementById('itens-revisao-container').appendChild(d);
+  atualizarTotalRevisao();
+}
+
+function adicionarPecaDaNota(){
+  const sel = document.getElementById('pecaNotaSelect');
+  if (!sel || !sel.value) return;
+  const [origTipo, notaId, idx] = sel.value.split(':');
+  const peca = pecasNotasRevisao.find(p => p.origem_tipo === origTipo && String(p.nota_id) === notaId && String(p.idx) === idx);
+  if (!peca) return;
+  addItemRevisao(peca.descricao, peca.origem_tipo, peca.nota_id, peca.idx);
+  const container = document.getElementById('itens-revisao-container');
+  const last = container.lastElementChild;
+  const qtd = peca.qtd || 1;
+  last.querySelector('[name="item_qtd[]"]').value = qtd;
+  last.querySelector('[name="item_valor[]"]').value = qtd ? (peca.valor / qtd) : peca.valor;
+  atualizarTotalRevisao();
+  // tira a peça já usada da lista, pra não escolher a mesma duas vezes
+  sel.querySelector(`option[value="${sel.value}"]`).remove();
+  if (sel.options.length === 0) {
+    sel.closest('.d-flex').style.display = 'none';
+  }
+}
+
+function atualizarTotalRevisao(){
+  const cards = document.querySelectorAll('#itens-revisao-container .item-card');
+  let totalPecas = 0;
+  cards.forEach(c => {
+    const qtd = parseFloat(c.querySelector('[name="item_qtd[]"]').value) || 0;
+    const valor = parseFloat(c.querySelector('[name="item_valor[]"]').value) || 0;
+    const sub = qtd * valor;
+    c.querySelector('.item-sub-revisao').textContent = 'R$ ' + sub.toLocaleString('pt-BR', {minimumFractionDigits:2});
+    totalPecas += sub;
+  });
+  const maoDeObra = parseFloat(document.getElementById('maoDeObraInput').value) || 0;
+  const total = totalPecas + maoDeObra;
+  document.getElementById('totalRevisaoDisplay').textContent = 'R$ ' + total.toLocaleString('pt-BR', {minimumFractionDigits:2});
+
+  const parcelas = parseInt(document.getElementById('parcelaTotalInput').value || '1', 10);
+  const preview = document.getElementById('previewParcelaRevisao');
+  preview.textContent = (parcelas > 1 && total > 0) ? `= R$ ${(total/parcelas).toFixed(2)} por fatura, em ${parcelas}x` : '';
+}
+
+{% if revisao and revisao.itens() %}
+window.addEventListener('load', function(){
+  {% for it in revisao.itens() %}
+  addItemRevisao();
+  (function(){
+    const container = document.getElementById('itens-revisao-container');
+    const last = container.lastElementChild;
+    last.querySelector('[name="item_desc[]"]').value = {{ it.descricao|tojson }};
+    last.querySelector('[name="item_qtd[]"]').value = {{ it.qtd or 1 }};
+    last.querySelector('[name="item_valor[]"]').value = {{ (it.valor / it.qtd) if it.qtd else it.valor }};
+  })();
+  {% endfor %}
+  atualizarTotalRevisao();
+});
+{% endif %}
+atualizarTotalRevisao();
+</script>
+{% endblock %}

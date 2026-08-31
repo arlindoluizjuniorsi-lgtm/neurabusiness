@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{% if renda %}Editar{% else %}Nova{% endif %} Renda{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-money-bill-wave me-2" style="color:#f97316"></i>{% if renda %}Editar{% else %}Nova{% endif %} Renda</h1></div>
+<form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card"><div class="card-header"><i class="fas fa-money-bill-wave"></i>Dados da Renda</div>
+    <div class="card-body"><div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Tipo *</label>
+        <select name="tipo" id="tipoSel" class="form-select" onchange="atualizarCampos()" required>
+          <option value="fixa" {% if renda and renda.tipo=='fixa' %}selected{% endif %}>Fixa (todo mês)</option>
+          <option value="extra" {% if renda and renda.tipo=='extra' %}selected{% endif %}>Extra (só este mês)</option>
+        </select>
+      </div>
+      <div class="col-md-8"><label class="form-label">Descrição *</label><input type="text" name="descricao" class="form-control" value="{{ renda.descricao if renda else '' }}" placeholder="Ex: Salário dia 20" required></div>
+
+      <div class="col-md-6"><label class="form-label">Valor (R$) *</label><input type="number" name="valor" class="form-control" value="{{ renda.valor if renda else '' }}" step="0.01" min="0" required></div>
+
+      <div class="col-md-6" id="campoDia"><label class="form-label">Dia do Recebimento</label><input type="number" name="dia_recebimento" class="form-control" value="{{ renda.dia_recebimento if renda and renda.dia_recebimento else '' }}" min="1" max="31" placeholder="Ex: 20"></div>
+      <div class="col-md-6" id="campoMesRef"><label class="form-label">Mês de Referência</label><input type="month" name="mes_referencia" class="form-control" value="{{ renda.mes_referencia if renda and renda.mes_referencia else hoje }}"></div>
+    </div></div></div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('listar_rendas_pessoais') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+<script>
+function atualizarCampos(){
+  const t = document.getElementById('tipoSel').value;
+  document.getElementById('campoDia').style.display = (t==='fixa') ? '' : 'none';
+  document.getElementById('campoMesRef').style.display = (t==='extra') ? '' : 'none';
+}
+atualizarCampos();
+</script>
+{% endblock %}

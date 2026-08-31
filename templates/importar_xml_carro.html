@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Importar XML — Gastos com o Carro{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-file-import me-2" style="color:#f97316"></i>Importar XML de Nota Fiscal</h1>
+<p>Envie um ou mais arquivos XML de NFe/NFC-e (posto de gasolina, oficina, loja de peças...). Notas repetidas (mesma chave de acesso) são ignoradas automaticamente.</p></div>
+<form method="POST" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-4">
+    <div class="col-12 col-lg-7">
+      <div class="card"><div class="card-header"><i class="fas fa-file-code"></i>Arquivos XML</div>
+        <div class="card-body">
+          <input type="file" name="arquivos_xml" class="form-control" accept=".xml" multiple required>
+          <div class="form-text">O tipo é detectado automaticamente (se algum item da nota for gasolina/etanol/diesel, o lançamento já entra como "Combustível" com os litros preenchidos) — depois dá pra ajustar em Editar.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-5">
+      <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+        <button type="submit" class="btn btn-accent"><i class="fas fa-upload me-2"></i>Importar</button>
+        <a href="{{ url_for('listar_gastos_carro') }}" class="btn btn-nb">Cancelar</a>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

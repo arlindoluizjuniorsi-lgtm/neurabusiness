@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Gestão Pessoal — Rendas{% endblock %}
+{% block content %}
+{% set rotulos = {'fixa':'Fixa (todo mês)','extra':'Extra'} %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div><h1><i class="fas fa-money-bill-wave me-2" style="color:#f97316"></i>Rendas</h1><p>{{ rendas|length }} rendas cadastradas</p></div>
+  <a href="{{ url_for('nova_renda_pessoal') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Nova Renda</a>
+</div>
+<div class="card">
+  <div class="card-body p-0">
+    {% if rendas %}
+    <table class="table table-hover mb-0">
+      <thead><tr><th>Descrição</th><th>Tipo</th><th>Dia/Mês</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody>
+        {% for r in rendas %}
+        <tr>
+          <td style="font-weight:500">{{ r.descricao }}</td>
+          <td><span class="status-badge s-rascunho">{{ rotulos[r.tipo] }}</span></td>
+          <td>{% if r.tipo=='fixa' %}{% if r.dia_recebimento %}Dia {{ r.dia_recebimento }}{% else %}—{% endif %}{% else %}{{ r.mes_referencia or '—' }}{% endif %}</td>
+          <td style="font-weight:700;color:#10B981">R$ {{ "%.2f"|format(r.valor) }}</td>
+          <td>{% if r.ativo %}<span class="status-badge s-aprovada">Ativa</span>{% else %}<span class="status-badge s-recusada">Inativa</span>{% endif %}</td>
+          <td>
+            <a href="{{ url_for('editar_renda_pessoal', id=r.id) }}" class="btn btn-sm btn-nb"><i class="fas fa-edit"></i></a>
+            <form method="POST" action="{{ url_for('toggle_renda_pessoal', id=r.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-nb" title="{{ 'Reativar' if not r.ativo else 'Desativar' }}"><i class="fas {{ 'fa-rotate-left' if not r.ativo else 'fa-ban' }}"></i></button>
+            </form>
+            <form method="POST" action="{{ url_for('excluir_renda_pessoal', id=r.id) }}" class="d-inline" onsubmit="return confirm('Excluir esta renda?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-nb text-danger"><i class="fas fa-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-4" style="color:var(--nb-muted)">Nenhuma renda cadastrada — comece com "Salário dia 20", "Salário dia 05" e "Extra"</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

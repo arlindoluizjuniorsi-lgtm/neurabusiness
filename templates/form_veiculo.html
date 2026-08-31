@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{% if veiculo %}Editar{% else %}Novo{% endif %} Veículo{% endblock %}
+{% block content %}
+<div class="page-header"><h1><i class="fas fa-car-side me-2" style="color:#f97316"></i>{% if veiculo %}Editar{% else %}Novo{% endif %} Veículo</h1></div>
+<form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card"><div class="card-header"><i class="fas fa-car-side"></i>Dados do Veículo</div>
+    <div class="card-body"><div class="row g-3">
+      <div class="col-md-6"><label class="form-label">Apelido</label><input type="text" name="apelido" class="form-control" value="{{ veiculo.apelido if veiculo else '' }}" placeholder="Ex: Meu Onix"></div>
+      <div class="col-md-6"><label class="form-label">Placa</label><input type="text" name="placa" class="form-control" value="{{ veiculo.placa if veiculo else '' }}" placeholder="ABC1D23"></div>
+
+      <div class="col-md-6"><label class="form-label">Marca</label><input type="text" name="marca" class="form-control" value="{{ veiculo.marca if veiculo else '' }}" placeholder="Ex: Chevrolet"></div>
+      <div class="col-md-6"><label class="form-label">Modelo</label><input type="text" name="modelo" class="form-control" value="{{ veiculo.modelo if veiculo else '' }}" placeholder="Ex: Onix 1.0 Turbo"></div>
+
+      <div class="col-md-3"><label class="form-label">Ano Modelo</label><input type="number" name="ano_modelo" class="form-control" value="{{ veiculo.ano_modelo if veiculo and veiculo.ano_modelo else '' }}" min="1950" max="2100"></div>
+      <div class="col-md-3"><label class="form-label">Ano Fabricação</label><input type="number" name="ano_fabricacao" class="form-control" value="{{ veiculo.ano_fabricacao if veiculo and veiculo.ano_fabricacao else '' }}" min="1950" max="2100"></div>
+      <div class="col-md-3"><label class="form-label">Cor</label><input type="text" name="cor" class="form-control" value="{{ veiculo.cor if veiculo else '' }}"></div>
+      <div class="col-md-3"><label class="form-label">Combustível</label>
+        <select name="combustivel" class="form-select">
+          <option value="">—</option>
+          {% for val, lbl in [('flex','Flex'),('gasolina','Gasolina'),('etanol','Etanol'),('diesel','Diesel'),('eletrico','Elétrico'),('hibrido','Híbrido'),('gnv','GNV')] %}
+          <option value="{{ val }}" {% if veiculo and veiculo.combustivel==val %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-6"><label class="form-label">KM Atual</label><input type="number" name="km_atual" class="form-control" value="{{ veiculo.km_atual if veiculo and veiculo.km_atual else '' }}" min="0">
+        <div class="form-text">Atualizado automaticamente sempre que você lança uma revisão com KM maior que este.</div>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Tipo de Câmbio</label>
+        <select name="tipo_cambio" class="form-select">
+          <option value="">— Não informado —</option>
+          {% for val, lbl in [('manual','Manual'),('automatico','Automático (conversor)'),('cvt','CVT'),('dualogic','Automatizado (Dualogic)'),('outro','Outro')] %}
+          <option value="{{ val }}" {% if veiculo and veiculo.tipo_cambio==val %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text">Define quais itens de manutenção de rotina fazem sentido pra esse carro (ex: fluido do atuador do robô só aparece pro Dualogic) e a recomendação de óleo mostrada em Revisões.</div>
+      </div>
+      {% if veiculo %}
+      <div class="col-md-6"><div class="form-check mt-4">
+        <input type="checkbox" name="ativo" id="ativoChk" class="form-check-input" {% if veiculo.ativo %}checked{% endif %}>
+        <label class="form-check-label" for="ativoChk">Ativo (aparece nos seletores de veículo)</label>
+      </div></div>
+      {% endif %}
+    </div></div></div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="d-flex flex-column gap-2 mt-lg-4 pt-lg-2">
+      <button type="submit" class="btn btn-accent"><i class="fas fa-save me-2"></i>Salvar</button>
+      <a href="{{ url_for('listar_veiculos') }}" class="btn btn-nb">Cancelar</a>
+    </div>
+  </div>
+</div>
+</form>
+{% endblock %}
