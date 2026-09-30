@@ -257,6 +257,28 @@ def gerar_proposta_pdf(proposta, empresa, cliente, itens, etapas=None):
     story.append(t_cli)
     story.append(Spacer(1, 14))
 
+    # ── DIAGNOSTICO / ANALISE DO AMBIENTE (opcional -- só entra se preenchido) ──
+    analise = proposta.get('analise_ambiente', '')
+    if analise:
+        story.append(Paragraph('DIAGNOSTICO / ANALISE DO AMBIENTE', ParagraphStyle('secaotit_diag',
+            fontName='Helvetica-Bold', fontSize=10, textColor=colors.HexColor('#0a0a0a'), spaceAfter=6)))
+        story.append(HRFlowable(width='100%', thickness=1.2, color=COR_ACCENT, spaceAfter=8))
+        analise_html = '<br/>'.join(
+            f'<font size="8.5">{linha.strip()}</font>' for linha in analise.split('\n') if linha.strip()
+        )
+        t_analise = Table([[Paragraph(analise_html, ParagraphStyle('diagh', fontName='Helvetica', fontSize=8.5, leading=13))]],
+            colWidths=[largura_util])
+        t_analise.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.white),
+            ('BOX', (0,0), (-1,-1), 0.5, COR_BORDA),
+            ('LINEBEFORE', (0,0), (0,-1), 2.5, COR_ACCENT),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+            ('LEFTPADDING', (0,0), (-1,-1), 12),
+        ]))
+        story.append(t_analise)
+        story.append(Spacer(1, 14))
+
     # ── TITULO / DESCRICAO ──
     if proposta.get('titulo'):
         story.append(Paragraph(proposta['titulo'], styles['normal']))
@@ -343,10 +365,12 @@ def gerar_proposta_pdf(proposta, empresa, cliente, itens, etapas=None):
             story.append(Spacer(1, 5))
         story.append(Spacer(1, 10))
 
-    # ── FORMA DE PAGAMENTO + OBSERVACOES (2 colunas) ──
+    # ── FORMA DE PAGAMENTO ──
+    # OBS: "observacoes" NAO entra aqui de proposito -- é o campo marcado
+    # no formulário como "Observações Internas (não vai para o cliente)";
+    # esse PDF é o documento que o cliente recebe.
     fp = proposta.get('forma_pagamento', '') or 'A combinar'
     cond = proposta.get('condicoes', '')
-    obs  = proposta.get('observacoes', '')
 
     pag_html = f'<font color="#f97316" size="7.5"><b>FORMA DE PAGAMENTO</b></font><br/>'
     pag_html += f'<font size="8.5">{fp}</font>'
@@ -355,21 +379,12 @@ def gerar_proposta_pdf(proposta, empresa, cliente, itens, etapas=None):
             if linha.strip():
                 pag_html += f'<br/><font size="8">{linha}</font>'
 
-    obs_html = f'<font color="#f97316" size="7.5"><b>OBSERVACOES</b></font><br/>'
-    if obs:
-        linhas_obs = [l for l in obs.split('\n') if l.strip()]
-        obs_html += '<br/>'.join(f'<font size="8">{l}</font>' for l in linhas_obs)
-    else:
-        obs_html += f'<font size="8" color="#94a3b8">—</font>'
-
     col_pag = Paragraph(pag_html, ParagraphStyle('pagh', fontName='Helvetica', fontSize=8.5, leading=12))
-    col_obs = Paragraph(obs_html, ParagraphStyle('obsh', fontName='Helvetica', fontSize=8.5, leading=12))
 
-    t_info2 = Table([[col_pag, col_obs]], colWidths=[largura_util/2-4, largura_util/2-4])
+    t_info2 = Table([[col_pag]], colWidths=[largura_util])
     t_info2.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
-        ('BOX', (0,0), (0,-1), 0.5, COR_BORDA),
-        ('BOX', (1,0), (1,-1), 0.5, COR_BORDA),
+        ('BOX', (0,0), (-1,-1), 0.5, COR_BORDA),
         ('TOPPADDING', (0,0), (-1,-1), 10),
         ('BOTTOMPADDING', (0,0), (-1,-1), 10),
         ('LEFTPADDING', (0,0), (-1,-1), 12),
