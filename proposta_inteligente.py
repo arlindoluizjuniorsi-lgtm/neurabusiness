@@ -252,10 +252,12 @@ def _capa(E, emp, proposta, cliente, S):
     E.append(linha_accent())
     E.append(Spacer(1, 6*mm))
 
-    # Título da proposta
-    E.append(Paragraph('PROPOSTA COMERCIAL', S['capa_empresa']))
+    # Título do documento (Proposta / Orçamento / Cotação -- mesmo layout)
+    from models import TIPOS_DOCUMENTO_PROPOSTA
+    tipo_info = TIPOS_DOCUMENTO_PROPOSTA.get(proposta.get('tipo_proposta'), TIPOS_DOCUMENTO_PROPOSTA['proposta'])
+    E.append(Paragraph(tipo_info['titulo_pdf'], S['capa_empresa']))
     E.append(Spacer(1, 3*mm))
-    titulo = proposta.get('titulo','Proposta Comercial')
+    titulo = proposta.get('titulo', tipo_info['label'])
     E.append(Paragraph(titulo, S['capa_titulo']))
     E.append(Spacer(1, 4*mm))
     cli_nome = cliente.get('nome','') if cliente else ''
@@ -572,6 +574,9 @@ def gerar_proposta_inteligente(proposta: dict, empresa: dict,
             ex: [{'nome':'Opção 1','atributos':[('Wi-Fi','5'),('Preço','R$900')]}, ...]
         recomendacao: texto da recomendação técnica (opcional)
     """
+    from models import TIPOS_DOCUMENTO_PROPOSTA
+    tipo_info = TIPOS_DOCUMENTO_PROPOSTA.get(proposta.get('tipo_proposta'), TIPOS_DOCUMENTO_PROPOSTA['proposta'])
+
     buf = BytesIO()
 
     def make_canvas(filename, **kwargs):
@@ -582,7 +587,7 @@ def gerar_proposta_inteligente(proposta: dict, empresa: dict,
         buf, pagesize=A4,
         leftMargin=MARGIN, rightMargin=MARGIN,
         topMargin=20*mm, bottomMargin=18*mm,
-        title=f"Proposta {proposta.get('numero','')} — {empresa.get('fantasia','')}",
+        title=f"{tipo_info['label_curto']} {proposta.get('numero','')} — {empresa.get('fantasia','')}",
         author=empresa.get('fantasia','Creative')
     )
 
@@ -679,7 +684,7 @@ def gerar_proposta_inteligente(proposta: dict, empresa: dict,
         ip_ass   = proposta.get('assinatura_ip','')
 
         ass_data = Table([[
-            Paragraph('<b>PROPOSTA ASSINADA DIGITALMENTE</b>', S['rec']),
+            Paragraph(f"<b>{tipo_info['assinada_stamp']}</b>", S['rec']),
             Paragraph(
                 f'Assinado por: <b>{nome_ass}</b> | CPF: {cpf_ass}<br/>'
                 f'Data/Hora: {data_ass} | IP: {ip_ass}',

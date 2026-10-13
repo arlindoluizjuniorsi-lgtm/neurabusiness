@@ -6,6 +6,51 @@ import json
 
 db = SQLAlchemy()
 
+# Tipos de documento que a Proposta pode assumir -- mesmo modelo/fluxo/layout,
+# só muda o rótulo em tela, o título no PDF e o prefixo do número. Qualquer
+# valor fora dessas 3 chaves (ex: o antigo default "padrao", ou None) cai em
+# 'proposta' pelo fallback de Proposta.tipo_info() -- preserva o comportamento
+# de todo registro antigo, que foi criado antes desse campo existir de fato.
+TIPOS_DOCUMENTO_PROPOSTA = {
+    'proposta': {
+        'chave': 'proposta', 'label': 'Proposta Comercial', 'label_curto': 'Proposta',
+        'demonstrativo': 'esta proposta', 'novo_label': 'Nova Proposta',
+        'prefixo': 'NB', 'titulo_pdf': 'PROPOSTA COMERCIAL',
+        'titulo_itens_pdf': 'ITENS DA PROPOSTA',
+        'aprovada_titulo': 'Proposta Aprovada e Assinada!',
+        'valor_total_label': 'Valor Total da Proposta',
+        'aprovar_titulo': 'Aprovar e Assinar Proposta',
+        'aprovar_sub': 'Preencha seus dados para aprovar esta proposta com validade jurídica.',
+        'assinada_stamp': 'PROPOSTA ASSINADA DIGITALMENTE',
+        'footer': 'Este documento é válido como proposta comercial. A execução implica aceite das condições apresentadas.',
+    },
+    'orcamento': {
+        'chave': 'orcamento', 'label': 'Orçamento de Serviço', 'label_curto': 'Orçamento',
+        'demonstrativo': 'este orçamento', 'novo_label': 'Novo Orçamento',
+        'prefixo': 'ORC', 'titulo_pdf': 'ORÇAMENTO DE SERVIÇO',
+        'titulo_itens_pdf': 'ITENS DO ORÇAMENTO',
+        'aprovada_titulo': 'Orçamento Aprovado e Assinado!',
+        'valor_total_label': 'Valor Total do Orçamento',
+        'aprovar_titulo': 'Aprovar e Assinar Orçamento',
+        'aprovar_sub': 'Preencha seus dados para aprovar este orçamento com validade jurídica.',
+        'assinada_stamp': 'ORÇAMENTO ASSINADO DIGITALMENTE',
+        'footer': 'Este documento é válido como orçamento de serviço. A execução implica aceite das condições apresentadas.',
+    },
+    'cotacao': {
+        'chave': 'cotacao', 'label': 'Cotação', 'label_curto': 'Cotação',
+        'demonstrativo': 'esta cotação', 'novo_label': 'Nova Cotação',
+        'prefixo': 'COT', 'titulo_pdf': 'COTAÇÃO',
+        'titulo_itens_pdf': 'ITENS DA COTAÇÃO',
+        'aprovada_titulo': 'Cotação Aprovada e Assinada!',
+        'valor_total_label': 'Valor Total da Cotação',
+        'aprovar_titulo': 'Aprovar e Assinar Cotação',
+        'aprovar_sub': 'Preencha seus dados para aprovar esta cotação com validade jurídica.',
+        'assinada_stamp': 'COTAÇÃO ASSINADA DIGITALMENTE',
+        'footer': 'Este documento é válido como cotação de preços. O fornecimento/execução implica aceite das condições apresentadas.',
+    },
+}
+
+
 class Empresa(db.Model):
     __tablename__ = 'empresas'
     id           = db.Column(db.Integer, primary_key=True)
@@ -164,7 +209,11 @@ class Proposta(db.Model):
     titulo            = db.Column(db.String(200), nullable=False)
     cliente_id        = db.Column(db.Integer, db.ForeignKey('clientes.id'), nullable=False)
     status            = db.Column(db.String(20), default='rascunho')
-    tipo_proposta     = db.Column(db.String(20), default='padrao')
+    # Tipo de documento: 'proposta' (padrao) | 'orcamento' | 'cotacao' --
+    # ver TIPOS_DOCUMENTO_PROPOSTA. Registros antigos têm 'padrao' aqui
+    # (valor usado antes desse campo ganhar uso real); tipo_info() trata
+    # isso como 'proposta' automaticamente.
+    tipo_proposta     = db.Column(db.String(20), default='proposta')
     validade          = db.Column(db.Integer, default=15)
     observacoes       = db.Column(db.Text)
     condicoes         = db.Column(db.Text)
@@ -221,6 +270,12 @@ class Proposta(db.Model):
 
     anexos_projeto = db.relationship('AnexoProposta', backref='proposta', lazy=True, cascade='all, delete-orphan')
     etapas = db.relationship('EtapaProposta', backref='proposta', lazy=True, cascade='all, delete-orphan')
+
+    def tipo_info(self):
+        """Dict de rótulos/textos pro tipo de documento desse registro --
+        ver TIPOS_DOCUMENTO_PROPOSTA. Qualquer valor desconhecido (inclusive
+        o antigo "padrao") cai em 'proposta'."""
+        return TIPOS_DOCUMENTO_PROPOSTA.get(self.tipo_proposta) or TIPOS_DOCUMENTO_PROPOSTA['proposta']
 
 
 class ItemProposta(db.Model):

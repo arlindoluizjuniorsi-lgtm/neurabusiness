@@ -103,7 +103,7 @@ input[type=text]::placeholder{color:#475569}
       </div>
     </div>
     <div class="prop-numero">
-      <div class="prop-label">Proposta Comercial</div>
+      <div class="prop-label">{{ proposta.tipo_info().label }}</div>
       <div class="prop-num">{{ proposta.numero }}</div>
     </div>
   </div>
@@ -197,7 +197,7 @@ input[type=text]::placeholder{color:#475569}
 {% set extra = (proposta.custo_locomocao or 0)+(proposta.custo_alimentacao or 0)+(proposta.custo_outros or 0) %}
 <div class="total-box mb-4">
   <div>
-    <div class="total-lbl">Valor Total da Proposta</div>
+    <div class="total-lbl">{{ proposta.tipo_info().valor_total_label }}</div>
     {% if proposta.forma_pagamento %}<div style="font-size:.78rem;color:#64748b;margin-top:4px"><i class="fas fa-credit-card me-1"></i>{{ proposta.forma_pagamento }}</div>{% endif %}
   </div>
   <div class="total-val">R$ {{ "%.2f"|format(ns.total + extra) }}</div>
@@ -258,7 +258,7 @@ input[type=text]::placeholder{color:#475569}
 <div class="aprovacao {% if proposta.status == 'aprovada' %}assinado{% endif %}">
   {% if proposta.status == 'aprovada' %}
     <i class="fas fa-check-circle fa-2x mb-3" style="color:#10B981"></i>
-    <div style="font-size:1.1rem;font-weight:700;color:#10B981;margin-bottom:6px">Proposta Aprovada e Assinada!</div>
+    <div style="font-size:1.1rem;font-weight:700;color:#10B981;margin-bottom:6px">{{ proposta.tipo_info().aprovada_titulo }}</div>
     {% if proposta.aprovado_em %}
     <div style="font-size:.83rem;color:#94a3b8;margin-bottom:16px">Assinada em {{ proposta.aprovado_em|data }}. Entraremos em contato em breve.</div>
     {% endif %}
@@ -309,8 +309,8 @@ input[type=text]::placeholder{color:#475569}
     {% endif %}
   {% else %}
     <i class="fas fa-pen-nib fa-2x mb-3" style="color:#10B981"></i>
-    <div style="font-size:1rem;font-weight:700;color:#e2e8f0;margin-bottom:4px">Aprovar e Assinar Proposta</div>
-    <div style="font-size:.82rem;color:#94a3b8;margin-bottom:20px">Preencha seus dados para aprovar esta proposta com validade jurídica.</div>
+    <div style="font-size:1rem;font-weight:700;color:#e2e8f0;margin-bottom:4px">{{ proposta.tipo_info().aprovar_titulo }}</div>
+    <div style="font-size:.82rem;color:#94a3b8;margin-bottom:20px">{{ proposta.tipo_info().aprovar_sub }}</div>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}{% for cat,msg in messages %}<div class="alert alert-{{ cat }} mb-3" style="text-align:left;max-width:480px;margin:0 auto 12px">{{ msg }}</div>{% endfor %}{% endif %}
     {% endwith %}
@@ -331,7 +331,7 @@ input[type=text]::placeholder{color:#475569}
         </div>
         <div style="background:rgba(0,0,0,.2);border-radius:8px;padding:10px 14px;font-size:.72rem;color:#64748b;text-align:left;margin-bottom:16px;line-height:1.6">
           <i class="fas fa-shield-alt me-1" style="color:#10B981"></i>
-          Ao assinar, você declara ter lido e aceito esta proposta, autoriza a execução/instalação do serviço e concorda em firmar o contrato de prestação de serviços gerado a partir desta aprovação. Serão registrados nome, CPF, IP e data/hora, gerando um hash SHA-256 como prova jurídica conforme a <strong>Lei nº 14.063/2020</strong> e o <strong>Marco Civil da Internet</strong>.
+          Ao assinar, você declara ter lido e aceito {{ proposta.tipo_info().demonstrativo }}, autoriza a execução/instalação do serviço e concorda em firmar o contrato de prestação de serviços gerado a partir desta aprovação. Serão registrados nome, CPF, IP e data/hora, gerando um hash SHA-256 como prova jurídica conforme a <strong>Lei nº 14.063/2020</strong> e o <strong>Marco Civil da Internet</strong>.
         </div>
         <button type="submit" class="btn-aprovar" id="btnAssinar"><i class="fas fa-signature me-2"></i>Assinar e Pagar</button>
       </div>
@@ -343,7 +343,7 @@ input[type=text]::placeholder{color:#475569}
 <div class="footer-bar">
   <span>{{ empresa.fantasia if empresa else 'Creative' }}</span> |
   {% if empresa %}{{ empresa.cnpj }} | {{ empresa.telefone }} | {{ empresa.email }}{% endif %}<br>
-  <span style="color:#94a3b8;font-size:.68rem">Este documento é válido como proposta comercial. A execução implica aceite das condições apresentadas.</span>
+  <span style="color:#94a3b8;font-size:.68rem">{{ proposta.tipo_info().footer }}</span>
 </div>
 
 <script>

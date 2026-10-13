@@ -25,7 +25,7 @@
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
   <div>
-    <h1><i class="fas fa-file-invoice-dollar me-2" style="color:#00D4FF"></i>{% if proposta %}Editar {{ proposta.numero }}{% else %}Nova Proposta{% endif %}</h1>
+    <h1><i class="fas fa-file-invoice-dollar me-2" style="color:#00D4FF"></i>{% if proposta %}Editar {{ proposta.numero }}{% else %}{{ TIPOS_DOCUMENTO_PROPOSTA[tipo_inicial].novo_label }}{% endif %}</h1>
     <p><a href="{{ url_for('listar_propostas') }}" style="color:var(--nb-muted)">Propostas</a> › {% if proposta %}{{ proposta.numero }}{% else %}Nova{% endif %}</p>
   </div>
 </div>
@@ -50,6 +50,24 @@
       <div class="card">
         <div class="card-header"><i class="fas fa-file-alt"></i>Informações</div>
         <div class="card-body"><div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Tipo de documento</label>
+            {% if proposta %}
+            <div>
+              <span class="tipo-badge" style="background:rgba(0,212,255,.12);color:#00D4FF;padding:5px 12px;">{{ proposta.tipo_info().label }}</span>
+              <small class="d-block mt-1" style="color:var(--nb-muted)">O tipo não pode ser alterado depois de criado — clone pra gerar uma cópia de outro tipo.</small>
+            </div>
+            {% else %}
+            <div class="d-flex gap-2 flex-wrap">
+              {% for chave, info in TIPOS_DOCUMENTO_PROPOSTA.items() %}
+              <label class="estilo-card" style="flex:1;min-width:140px;padding:10px;{% if chave == tipo_inicial %}border-color:#00D4FF;background:rgba(0,212,255,.06);{% endif %}">
+                <input type="radio" name="tipo_proposta" value="{{ chave }}" {% if chave == tipo_inicial %}checked{% endif %} style="display:none" onchange="document.querySelectorAll('.estilo-card').forEach(e=>{e.style.borderColor='var(--nb-border)';e.style.background='transparent'}); this.closest('.estilo-card').style.borderColor='#00D4FF'; this.closest('.estilo-card').style.background='rgba(0,212,255,.06)';">
+                <div style="font-weight:700">{{ info.label_curto }}</div>
+              </label>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
           <div class="col-12">
             <label class="form-label">Título *</label>
             <input type="text" name="titulo" class="form-control" required value="{{ proposta.titulo if proposta else '' }}" placeholder="Ex: Instalação de sistema CFTV — Comércio João Silva">

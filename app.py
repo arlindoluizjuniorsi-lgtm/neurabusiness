@@ -24,7 +24,7 @@ from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     LicencaNeuraDesk, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk,
                     CartaoPessoal, GastoPessoal, RendaPessoal, GastoCarro, GastoCasa,
                     VeiculoPessoal, RevisaoCarro, ManutencaoRecorrente, ItemVendaTroca,
-                    SimulacaoTrocaCarro)
+                    SimulacaoTrocaCarro, TIPOS_DOCUMENTO_PROPOSTA)
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -665,27 +665,55 @@ def editar_cliente(id):
     return render_template('form_cliente.html', cliente=c, ultimas_propostas=ult)
 
 # ─── PROPOSTAS ─────────────────────────────────────────────────────────────────
+def _tipo_proposta_valido(valor):
+    """Normaliza o tipo de documento vindo do form -- qualquer coisa fora
+    das 3 chaves conhecidas cai em 'proposta' (não deixa form adulterado
+    criar um tipo inexistente)."""
+    return valor if valor in TIPOS_DOCUMENTO_PROPOSTA else 'proposta'
+
+
+def _gerar_numero_proposta(empresa_id, tipo_proposta):
+    """Gera o próximo número pro tipo de documento, com prefixo e sequência
+    próprios -- Proposta mantém a sequência/prefixo "NB-" de sempre (não
+    filtra por tipo, pra não resetar a contagem de quem já tem histórico);
+    Orçamento e Cotação são sequências novas e independentes."""
+    prefixo = TIPOS_DOCUMENTO_PROPOSTA[tipo_proposta]['prefixo']
+    if tipo_proposta == 'proposta':
+        count = Proposta.query.filter_by(empresa_id=empresa_id).count()
+    else:
+        count = Proposta.query.filter_by(empresa_id=empresa_id, tipo_proposta=tipo_proposta).count()
+    return f"{prefixo}-{datetime.now().strftime('%Y%m')}-{count+1:04d}"
+
+
 @app.route('/propostas')
 @login_required
 @empresa_required
 def listar_propostas():
     status = request.args.get('status','')
+    tipo   = request.args.get('tipo','')
     qry = Proposta.query.filter_by(empresa_id=eid())
     if status: qry = qry.filter_by(status=status)
+    if tipo == 'proposta':
+        # "proposta" cobre tambem o valor legado "padrao" (ver tipo_info) --
+        # registros criados antes desse campo ganhar uso real.
+        qry = qry.filter(db.or_(Proposta.tipo_proposta == 'proposta', Proposta.tipo_proposta == 'padrao', Proposta.tipo_proposta.is_(None)))
+    elif tipo:
+        qry = qry.filter_by(tipo_proposta=tipo)
     propostas = qry.order_by(Proposta.criado_em.desc()).all()
-    return render_template('propostas.html', propostas=propostas, status=status)
+    return render_template('propostas.html', propostas=propostas, status=status, tipo=tipo,
+                           TIPOS_DOCUMENTO_PROPOSTA=TIPOS_DOCUMENTO_PROPOSTA)
 
 @app.route('/propostas/nova', methods=['GET','POST'])
 @login_required
 @empresa_required
 def nova_proposta():
     if request.method == 'POST':
-        count  = Proposta.query.filter_by(empresa_id=eid()).count()
-        numero = f"NB-{datetime.now().strftime('%Y%m')}-{count+1:04d}"
+        tipo_proposta = _tipo_proposta_valido(request.form.get('tipo_proposta','proposta'))
+        numero = _gerar_numero_proposta(eid(), tipo_proposta)
         token  = uuid.uuid4().hex
         expira = datetime.now() + timedelta(days=int(request.form.get('validade',15)))
         p = Proposta(
-            empresa_id=eid(), numero=numero,
+            empresa_id=eid(), numero=numero, tipo_proposta=tipo_proposta,
             titulo=request.form.get('titulo',''),
             cliente_id=int(request.form.get('cliente_id')),
             validade=int(request.form.get('validade',15)),
@@ -731,17 +759,19 @@ def nova_proposta():
                     descricao=desc_e))
         db.session.commit()
         _notificar_proposta_criada_telegram(p)
-        flash(f'Proposta {numero} criada!','success')
+        flash(f'{TIPOS_DOCUMENTO_PROPOSTA[tipo_proposta]["label_curto"]} {numero} criada!','success')
         return redirect(url_for('ver_proposta', id=p.id))
     clientes  = Cliente.query.filter_by(empresa_id=eid()).order_by(Cliente.nome).all()
     produtos  = Produto.query.filter_by(empresa_id=eid(), ativo=True).order_by(Produto.nome).all()
     servicos  = Servico.query.filter_by(empresa_id=eid(), ativo=True).order_by(Servico.nome).all()
     catalogo  = CatalogoServico.query.filter_by(empresa_id=eid(), ativo=True).order_by(CatalogoServico.categoria, CatalogoServico.nome).all()
     cats_cat  = sorted(set(s.categoria for s in catalogo))
+    tipo_inicial = _tipo_proposta_valido(request.args.get('tipo', 'proposta'))
     return render_template('form_proposta.html', proposta=None,
                            clientes=clientes, produtos=produtos,
                            servicos=servicos, form_load_id=uuid.uuid4().hex,
-                           catalogo=catalogo, categorias_catalogo=cats_cat)
+                           catalogo=catalogo, categorias_catalogo=cats_cat,
+                           TIPOS_DOCUMENTO_PROPOSTA=TIPOS_DOCUMENTO_PROPOSTA, tipo_inicial=tipo_inicial)
 
 @app.route('/propostas/<int:id>')
 @login_required
@@ -831,7 +861,7 @@ def editar_proposta(id):
                     titulo=titulo, duracao_dias=int(dias or 1),
                     descricao=desc_e))
         db.session.commit()
-        flash('Proposta atualizada!','success')
+        flash(f'{p.tipo_info()["label_curto"]} atualizada!','success')
         return redirect(url_for('ver_proposta', id=p.id))
     clientes  = Cliente.query.filter_by(empresa_id=eid()).order_by(Cliente.nome).all()
     produtos  = Produto.query.filter_by(empresa_id=eid(), ativo=True).order_by(Produto.nome).all()
@@ -841,7 +871,8 @@ def editar_proposta(id):
     return render_template('form_proposta.html', proposta=p,
                            clientes=clientes, produtos=produtos,
                            servicos=servicos, form_load_id=uuid.uuid4().hex,
-                           catalogo=catalogo, categorias_catalogo=cats_cat)
+                           catalogo=catalogo, categorias_catalogo=cats_cat,
+                           TIPOS_DOCUMENTO_PROPOSTA=TIPOS_DOCUMENTO_PROPOSTA)
 
 
 
@@ -1062,7 +1093,7 @@ def proposta_pdf(id):
     buf = gerar_proposta_pdf(modelo_para_dict(p), modelo_para_dict(emp),
                              modelo_para_dict(p.cliente), itens, etapas=etapas)
     return send_file(buf, mimetype='application/pdf',
-                     download_name=f"Proposta_{p.numero.replace('-','_')}.pdf")
+                     download_name=f"{p.tipo_info()['label_curto']}_{p.numero.replace('-','_')}.pdf")
 
 
 @app.route('/propostas/<int:id>/pdf-inteligente')
@@ -1087,7 +1118,7 @@ def proposta_pdf_inteligente(id):
     p_dict['aprovado_em']     = p.aprovado_em
     buf = gerar_proposta_inteligente(p_dict, emp_dict, cli_dict, itens)
     return send_file(buf, mimetype='application/pdf', as_attachment=False,
-                     download_name=f"Proposta_{p.numero.replace('-','_')}.pdf")
+                     download_name=f"{p.tipo_info()['label_curto']}_{p.numero.replace('-','_')}.pdf")
 
 @app.route('/proposta/view/<token>')
 def proposta_publica(token):
@@ -1927,12 +1958,12 @@ def download_doc_publico(token, aid):
 @empresa_required
 def clonar_proposta(id):
     p = Proposta.query.filter_by(id=id, empresa_id=eid()).first_or_404()
-    count  = Proposta.query.filter_by(empresa_id=eid()).count()
-    numero = f"NB-{datetime.now().strftime('%Y%m')}-{count+1:04d}"
+    tipo_proposta = _tipo_proposta_valido(p.tipo_proposta)
+    numero = _gerar_numero_proposta(eid(), tipo_proposta)
     token  = uuid.uuid4().hex
     expira = datetime.now() + timedelta(days=p.validade or 15)
     nova = Proposta(
-        empresa_id=eid(), numero=numero,
+        empresa_id=eid(), numero=numero, tipo_proposta=tipo_proposta,
         titulo=f"{p.titulo} (Copia)",
         cliente_id=p.cliente_id,
         validade=p.validade,
@@ -1968,7 +1999,7 @@ def clonar_proposta(id):
             duracao_dias=etapa.duracao_dias,
             descricao=etapa.descricao or ''))
     db.session.commit()
-    flash(f'Proposta clonada como {numero}!', 'success')
+    flash(f'{TIPOS_DOCUMENTO_PROPOSTA[tipo_proposta]["label_curto"]} clonada como {numero}!', 'success')
     return redirect(url_for('ver_proposta', id=nova.id))
 
 # ─── CADASTRO PÚBLICO DE CLIENTE (sem login) ───────────────────────────────────

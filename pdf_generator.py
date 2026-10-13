@@ -180,9 +180,11 @@ def _cabecalho_creative(proposta, empresa, styles, largura_util):
     except:
         criado_fmt = datetime.now().strftime('%d/%m/%Y')
     validade = proposta.get('validade', 15)
+    from models import TIPOS_DOCUMENTO_PROPOSTA
+    titulo_doc = TIPOS_DOCUMENTO_PROPOSTA.get(proposta.get('tipo_proposta'), TIPOS_DOCUMENTO_PROPOSTA['proposta'])['titulo_pdf']
 
     col_dir = [
-        Paragraph('ORCAMENTO DE SERVICO',
+        Paragraph(titulo_doc,
             ParagraphStyle('tit', fontName='Helvetica-Bold', fontSize=13, textColor=colors.white, alignment=TA_RIGHT)),
         Paragraph(f'No {numero}',
             ParagraphStyle('num', fontName='Helvetica-Bold', fontSize=10, textColor=colors.HexColor('#f97316'), alignment=TA_RIGHT, spaceBefore=3)),
@@ -204,12 +206,14 @@ def _cabecalho_creative(proposta, empresa, styles, largura_util):
 
 
 def gerar_proposta_pdf(proposta, empresa, cliente, itens, etapas=None):
+    from models import TIPOS_DOCUMENTO_PROPOSTA
+    label_curto = TIPOS_DOCUMENTO_PROPOSTA.get(proposta.get('tipo_proposta'), TIPOS_DOCUMENTO_PROPOSTA['proposta'])['label_curto']
     buf = BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
         leftMargin=18*mm, rightMargin=18*mm,
         topMargin=0, bottomMargin=16*mm,
-        title=f"Proposta {proposta.get('numero','')}"
+        title=f"{label_curto} {proposta.get('numero','')}"
     )
     largura_util = A4[0] - 36*mm
     styles = get_styles()
