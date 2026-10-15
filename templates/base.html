@@ -162,6 +162,10 @@ body{background:var(--nb-bg);color:var(--nb-text);padding-top:58px;min-height:10
   <a href="{{ url_for('listar_os') }}" class="sb-item {% if request.endpoint in ['listar_os','ver_os','nova_os'] %}active{% endif %}">
     <i class="fas fa-tools"></i>Ordens de Serviço
   </a>
+  <div class="sb-lbl">Ferramentas</div>
+  <a href="{{ url_for('listar_assinaturas') }}" class="sb-item {% if 'assinatura' in (request.endpoint or '') %}active{% endif %}">
+    <i class="fas fa-signature"></i>Assinatura de Documentos
+  </a>
   {% if current_user and current_user.is_super_admin %}
   <div class="sb-lbl">Gestão Pessoal</div>
   <a href="{{ url_for('dashboard_pessoal') }}" class="sb-item {% if request.endpoint=='dashboard_pessoal' %}active{% endif %}">

@@ -13,3 +13,6 @@ flask-wtf
 flask-limiter
 lxml
 signxml
+pypdf==6.20.1
+pyHanko==0.37.0
+pypdfium2

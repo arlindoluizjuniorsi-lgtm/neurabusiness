@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{% block title %}Assinar — {{ doc.nome_arquivo }}{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <h4 class="mb-1" style="color:#f97316;"><i class="fas fa-signature me-2"></i>{{ doc.nome_arquivo }}</h4>
+  <small class="text-muted"><a href="{{ url_for('listar_assinaturas') }}" class="text-muted">Assinatura de Documentos</a> › Assinar</small>
+</div>
+
+<form method="POST" enctype="multipart/form-data" id="fAssinar">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="pagina" id="inpPagina" value="{{ doc.pagina or 1 }}">
+  <input type="hidden" name="pos_x_pct" id="inpPosX" value="{{ doc.pos_x_pct or '' }}">
+  <input type="hidden" name="pos_y_pct" id="inpPosY" value="{{ doc.pos_y_pct or '' }}">
+  <input type="hidden" name="largura_pct" id="inpLargura" value="{{ doc.largura_pct or 25 }}">
+  <input type="hidden" name="assinatura_canvas_png" id="inpCanvasPng" value="">
+
+  <div class="row g-3">
+    <!-- ── PRÉVIA DO PDF (arrastar pra posicionar) ── -->
+    <div class="col-12 col-lg-7">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <span><i class="fas fa-file-pdf me-1"></i>Arraste a caixa pra posicionar a assinatura</span>
+          {% if doc.num_paginas and doc.num_paginas > 1 %}
+          <select id="selPagina" class="form-select form-select-sm" style="width:auto;">
+            {% for p in range(1, doc.num_paginas + 1) %}
+            <option value="{{ p }}" {% if p == (doc.pagina or 1) %}selected{% endif %}>Página {{ p }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
+        </div>
+        <div class="card-body text-center" style="overflow:auto;max-height:75vh;">
+          <div id="previewWrap" style="position:relative;display:inline-block;">
+            <img id="imgPagina" src="{{ url_for('assinatura_pagina_png', id=doc.id, pagina=doc.pagina or 1) }}" style="max-width:100%;display:block;">
+            <div id="caixaAssinatura" style="position:absolute;border:2px dashed #f97316;background:rgba(249,115,22,.12);display:none;pointer-events:none;">
+              <img id="imgPreviewAssinatura" style="width:100%;height:100%;object-fit:contain;display:none;">
+            </div>
+          </div>
+        </div>
+        <div class="card-footer">
+          <label class="form-label small mb-1">Tamanho da assinatura (% da largura da página)</label>
+          <input type="range" id="sliderLargura" min="10" max="60" value="{{ doc.largura_pct or 25 }}" class="form-range">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── MÉTODO DE ASSINATURA ── -->
+    <div class="col-12 col-lg-5">
+      <div class="card">
+        <div class="card-header"><i class="fas fa-pen-nib me-1"></i>Método de assinatura</div>
+        <div class="card-body">
+          <div class="btn-group w-100 mb-3" role="group">
+            <input type="radio" class="btn-check" name="metodo" id="metodoSimples" value="simples" autocomplete="off" checked>
+            <label class="btn btn-outline-primary" for="metodoSimples">Eletrônica simples</label>
+            <input type="radio" class="btn-check" name="metodo" id="metodoIcp" value="icp_brasil" autocomplete="off">
+            <label class="btn btn-outline-primary" for="metodoIcp">Certificado ICP-Brasil</label>
+          </div>
+
+          <!-- ── SIMPLES ── -->
+          <div id="painelSimples">
+            <small class="text-muted d-block mb-2">Estampa a imagem da assinatura no PDF. Se preencher nome e/ou CPF abaixo, também acrescenta esses dados + data/IP e um hash do documento final como prova (Lei 14.063/2020). Deixando em branco, vai só a imagem.</small>
+            <div class="row g-2 mb-2">
+              <div class="col-7">
+                <label class="form-label small mb-1">Nome <small class="text-muted">(opcional)</small></label>
+                <input type="text" name="assinante_nome" class="form-control form-control-sm">
+              </div>
+              <div class="col-5">
+                <label class="form-label small mb-1">CPF <small class="text-muted">(opcional)</small></label>
+                <input type="text" name="assinante_cpf" class="form-control form-control-sm" placeholder="000.000.000-00">
+              </div>
+            </div>
+
+            <div class="btn-group w-100 mb-2" role="group" style="font-size:0.8rem;">
+              {% if current_user.assinatura_salva %}
+              <input type="radio" class="btn-check" name="origem_assinatura" id="origemSalva" value="salva" checked>
+              <label class="btn btn-sm btn-outline-secondary" for="origemSalva"><i class="fas fa-star me-1"></i>Salva</label>
+              <input type="radio" class="btn-check" name="origem_assinatura" id="origemDesenhar" value="desenhar">
+              <label class="btn btn-sm btn-outline-secondary" for="origemDesenhar">Desenhar</label>
+              {% else %}
+              <input type="radio" class="btn-check" name="origem_assinatura" id="origemDesenhar" value="desenhar" checked>
+              <label class="btn btn-sm btn-outline-secondary" for="origemDesenhar">Desenhar</label>
+              {% endif %}
+              <input type="radio" class="btn-check" name="origem_assinatura" id="origemArquivo" value="arquivo">
+              <label class="btn btn-sm btn-outline-secondary" for="origemArquivo">Enviar imagem</label>
+            </div>
+
+            {% if current_user.assinatura_salva %}
+            <div id="blocoSalva" class="text-center py-2" style="background:var(--nb-surface-alt);border-radius:6px;">
+              <img src="{{ url_for('minha_assinatura_salva_imagem') }}" style="max-height:70px;max-width:90%;">
+            </div>
+            {% endif %}
+            <div id="blocoDesenhar" style="display:none;">
+              <canvas id="canvasAssinatura" width="400" height="140" style="border:1px solid var(--nb-border);background:#fff;border-radius:6px;width:100%;touch-action:none;"></canvas>
+              <button type="button" id="btnLimparCanvas" class="btn btn-sm btn-outline-secondary mt-1"><i class="fas fa-eraser me-1"></i>Limpar</button>
+            </div>
+            <div id="blocoArquivo" style="display:none;">
+              <input type="file" id="inpArquivoImagem" name="assinatura_imagem" accept="image/png,image/jpeg" class="form-control form-control-sm">
+              <small class="text-muted d-block">PNG com fundo transparente funciona melhor.</small>
+            </div>
+            <div class="form-check mt-1" id="blocoSalvarPerfil">
+              <input type="checkbox" class="form-check-input" name="salvar_assinatura_perfil" id="chkSalvarPerfil">
+              <label class="form-check-label small" for="chkSalvarPerfil">Salvar essa assinatura no meu perfil pra próxima vez</label>
+            </div>
+          </div>
+
+          <!-- ── ICP-BRASIL ── -->
+          <div id="painelIcp" style="display:none;">
+            {% if cert %}
+              <div class="alert alert-secondary py-2" style="font-size:0.85rem;">
+                <i class="fas fa-id-card me-1"></i><b>{{ cert.titular_nome or cert.nome_arquivo }}</b>
+                {% if cert.valido_ate %}<br>Válido até {{ cert.valido_ate.strftime('%d/%m/%Y') }}
+                  {% if cert.expirado() %}<span class="badge bg-danger ms-1">Expirado</span>{% endif %}
+                {% endif %}
+              </div>
+              <label class="form-label small mb-1">Senha do certificado</label>
+              <input type="password" name="senha_certificado" class="form-control form-control-sm" placeholder="Digite a senha do seu certificado">
+              <small class="text-muted d-block mt-1">A senha é usada só agora, na hora de assinar — não fica salva.</small>
+            {% else %}
+              <div class="alert alert-warning py-2" style="font-size:0.85rem;">
+                Você ainda não cadastrou um certificado.
+                <a href="{{ url_for('certificado_assinatura') }}">Cadastrar agora</a>.
+              </div>
+            {% endif %}
+          </div>
+
+          <button type="submit" class="btn btn-accent w-100 mt-3"><i class="fas fa-signature me-1"></i>Assinar documento</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+
+<script>
+const docId = {{ doc.id }};
+const imgPagina = document.getElementById('imgPagina');
+const previewWrap = document.getElementById('previewWrap');
+const caixa = document.getElementById('caixaAssinatura');
+const imgPreview = document.getElementById('imgPreviewAssinatura');
+const inpPosX = document.getElementById('inpPosX');
+const inpPosY = document.getElementById('inpPosY');
+const inpLargura = document.getElementById('inpLargura');
+const inpPagina = document.getElementById('inpPagina');
+const sliderLargura = document.getElementById('sliderLargura');
+const selPagina = document.getElementById('selPagina');
+
+// Proporção altura/largura da caixa -- vira a proporção REAL da imagem
+// assim que o usuário desenha ou envia uma assinatura (setarProporcaoReal),
+// até lá fica um palpite (0.4) só pra dar uma noção de tamanho.
+let proporcaoCaixaAtual = 0.4;
+
+function setarPreviewAssinatura(dataUrl) {
+  if (!dataUrl) {
+    imgPreview.style.display = 'none';
+    imgPreview.removeAttribute('src');
+    proporcaoCaixaAtual = 0.4;
+    atualizaCaixaVisual();
+    return;
+  }
+  const medir = new Image();
+  medir.onload = function() {
+    proporcaoCaixaAtual = medir.naturalWidth ? (medir.naturalHeight / medir.naturalWidth) : 0.4;
+    imgPreview.src = dataUrl;
+    imgPreview.style.display = 'block';
+    atualizaCaixaVisual();
+  };
+  medir.src = dataUrl;
+}
+
+function atualizaCaixaVisual() {
+  const larguraPct = parseFloat(inpLargura.value) || 25;
+  const larguraPx = previewWrap.clientWidth * (larguraPct / 100);
+  const alturaPx = larguraPx * proporcaoCaixaAtual;
+  caixa.style.width = larguraPx + 'px';
+  caixa.style.height = alturaPx + 'px';
+  if (inpPosX.value !== '' && inpPosY.value !== '') {
+    const x = previewWrap.clientWidth * (parseFloat(inpPosX.value) / 100);
+    const y = previewWrap.clientHeight * (parseFloat(inpPosY.value) / 100);
+    caixa.style.left = x + 'px';
+    caixa.style.top = y + 'px';
+    caixa.style.display = 'block';
+  }
+}
+
+// ── Arrastar a caixa pra reposicionar (em vez de clicar pra "pular") ──
+caixa.style.pointerEvents = 'auto';
+caixa.style.cursor = 'move';
+let arrastando = false, arrasteOffsetX = 0, arrasteOffsetY = 0;
+
+function posClienteEv(ev) {
+  return ev.touches ? { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
+                     : { x: ev.clientX, y: ev.clientY };
+}
+function iniciarArraste(ev) {
+  arrastando = true;
+  const rect = caixa.getBoundingClientRect();
+  const p = posClienteEv(ev);
+  arrasteOffsetX = p.x - rect.left;
+  arrasteOffsetY = p.y - rect.top;
+  ev.preventDefault();
+}
+function moverArraste(ev) {
+  if (!arrastando) return;
+  const wrapRect = previewWrap.getBoundingClientRect();
+  const p = posClienteEv(ev);
+  let x = p.x - wrapRect.left - arrasteOffsetX;
+  let y = p.y - wrapRect.top - arrasteOffsetY;
+  const maxX = previewWrap.clientWidth - caixa.offsetWidth;
+  const maxY = previewWrap.clientHeight - caixa.offsetHeight;
+  x = Math.max(0, Math.min(x, Math.max(0, maxX)));
+  y = Math.max(0, Math.min(y, Math.max(0, maxY)));
+  caixa.style.left = x + 'px';
+  caixa.style.top = y + 'px';
+  inpPosX.value = (x / previewWrap.clientWidth * 100).toFixed(2);
+  inpPosY.value = (y / previewWrap.clientHeight * 100).toFixed(2);
+  ev.preventDefault();
+}
+function pararArraste() { arrastando = false; }
+caixa.addEventListener('mousedown', iniciarArraste);
+document.addEventListener('mousemove', moverArraste);
+document.addEventListener('mouseup', pararArraste);
+caixa.addEventListener('touchstart', iniciarArraste, {passive: false});
+document.addEventListener('touchmove', moverArraste, {passive: false});
+document.addEventListener('touchend', pararArraste);
+
+sliderLargura.addEventListener('input', function() {
+  inpLargura.value = sliderLargura.value;
+  atualizaCaixaVisual();
+});
+
+function garantePosicaoInicial() {
+  if (inpPosX.value === '' || inpPosY.value === '') {
+    inpPosX.value = '8';
+    inpPosY.value = '8';
+  }
+}
+garantePosicaoInicial();
+if (imgPagina.complete) { atualizaCaixaVisual(); } else { imgPagina.onload = atualizaCaixaVisual; }
+window.addEventListener('resize', atualizaCaixaVisual);
+
+if (selPagina) {
+  selPagina.addEventListener('change', function() {
+    inpPagina.value = selPagina.value;
+    inpPosX.value = '8'; inpPosY.value = '8';
+    imgPagina.src = `/assinaturas/${docId}/pagina/${selPagina.value}.png`;
+  });
+}
+
+// ── Método (simples / ICP-Brasil) ──
+const metodoSimples = document.getElementById('metodoSimples');
+const metodoIcp = document.getElementById('metodoIcp');
+const painelSimples = document.getElementById('painelSimples');
+const painelIcp = document.getElementById('painelIcp');
+function atualizaMetodo() {
+  painelSimples.style.display = metodoSimples.checked ? 'block' : 'none';
+  painelIcp.style.display = metodoIcp.checked ? 'block' : 'none';
+  // ICP-Brasil não usa imagem de assinatura (o carimbo é só texto, vem do
+  // certificado) -- some a prévia de imagem, mas mantém a caixa de posição.
+  if (metodoIcp.checked) { setarPreviewAssinatura(null); } else { atualizaOrigem(); }
+}
+metodoSimples.addEventListener('change', atualizaMetodo);
+metodoIcp.addEventListener('change', atualizaMetodo);
+
+// ── Origem da assinatura (salva / desenhar / enviar imagem) ──
+const origemSalva    = document.getElementById('origemSalva');
+const origemDesenhar = document.getElementById('origemDesenhar');
+const origemArquivo  = document.getElementById('origemArquivo');
+const blocoSalva     = document.getElementById('blocoSalva');
+const blocoDesenhar  = document.getElementById('blocoDesenhar');
+const blocoArquivo   = document.getElementById('blocoArquivo');
+const blocoSalvarPerfil = document.getElementById('blocoSalvarPerfil');
+const urlAssinaturaSalva = {{ (url_for('minha_assinatura_salva_imagem') if current_user.assinatura_salva else '')|tojson }};
+let ultimoArquivoDataUrl = null;
+function atualizaOrigem() {
+  const usaSalva = origemSalva && origemSalva.checked;
+  if (blocoSalva) blocoSalva.style.display = usaSalva ? 'block' : 'none';
+  blocoDesenhar.style.display = origemDesenhar.checked ? 'block' : 'none';
+  blocoArquivo.style.display = origemArquivo.checked ? 'block' : 'none';
+  blocoSalvarPerfil.style.display = usaSalva ? 'none' : 'block';
+  if (usaSalva) {
+    setarPreviewAssinatura(urlAssinaturaSalva);
+  } else if (origemDesenhar.checked) {
+    setarPreviewAssinatura(desenhouAlgo ? canvas.toDataURL('image/png') : null);
+  } else {
+    setarPreviewAssinatura(ultimoArquivoDataUrl);
+  }
+}
+if (origemSalva) origemSalva.addEventListener('change', atualizaOrigem);
+origemDesenhar.addEventListener('change', atualizaOrigem);
+origemArquivo.addEventListener('change', atualizaOrigem);
+
+// ── Canvas de assinatura (mouse + touch) -- prévia atualiza a cada traço ──
+const canvas = document.getElementById('canvasAssinatura');
+const ctx = canvas.getContext('2d');
+ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#111';
+let desenhando = false, desenhouAlgo = false;
+
+function posRelativa(ev) {
+  const rect = canvas.getBoundingClientRect();
+  const clientX = ev.touches ? ev.touches[0].clientX : ev.clientX;
+  const clientY = ev.touches ? ev.touches[0].clientY : ev.clientY;
+  return {
+    x: (clientX - rect.left) * (canvas.width / rect.width),
+    y: (clientY - rect.top) * (canvas.height / rect.height),
+  };
+}
+function iniciar(ev) { desenhando = true; const p = posRelativa(ev); ctx.beginPath(); ctx.moveTo(p.x, p.y); ev.preventDefault(); }
+function mover(ev) { if (!desenhando) return; const p = posRelativa(ev); ctx.lineTo(p.x, p.y); ctx.stroke(); desenhouAlgo = true; ev.preventDefault(); }
+function parar() {
+  if (desenhando && desenhouAlgo) { setarPreviewAssinatura(canvas.toDataURL('image/png')); }
+  desenhando = false;
+}
+canvas.addEventListener('mousedown', iniciar);
+canvas.addEventListener('mousemove', mover);
+canvas.addEventListener('mouseup', parar);
+canvas.addEventListener('mouseleave', parar);
+canvas.addEventListener('touchstart', iniciar);
+canvas.addEventListener('touchmove', mover);
+canvas.addEventListener('touchend', parar);
+
+document.getElementById('btnLimparCanvas').addEventListener('click', function() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  desenhouAlgo = false;
+  setarPreviewAssinatura(null);
+});
+
+// ── Upload de imagem pronta -- prévia assim que escolhe o arquivo ──
+document.getElementById('inpArquivoImagem').addEventListener('change', function(ev) {
+  const arquivo = ev.target.files[0];
+  if (!arquivo) { ultimoArquivoDataUrl = null; setarPreviewAssinatura(null); return; }
+  const leitor = new FileReader();
+  leitor.onload = function() {
+    ultimoArquivoDataUrl = leitor.result;
+    if (origemArquivo.checked) { setarPreviewAssinatura(ultimoArquivoDataUrl); }
+  };
+  leitor.readAsDataURL(arquivo);
+});
+
+// Estado inicial da prévia (reflete a origem já marcada por padrão -- "salva" se existir)
+atualizaOrigem();
+
+document.getElementById('fAssinar').addEventListener('submit', function(ev) {
+  if (inpPosX.value === '' || inpPosY.value === '') {
+    alert('Arraste a assinatura pro documento pra marcar onde ela vai ficar.');
+    ev.preventDefault();
+    return;
+  }
+  if (metodoSimples.checked && origemDesenhar.checked) {
+    if (!desenhouAlgo) {
+      alert('Desenhe sua assinatura no quadro, ou escolha "Enviar imagem".');
+      ev.preventDefault();
+      return;
+    }
+    document.getElementById('inpCanvasPng').value = canvas.toDataURL('image/png');
+  }
+});
+</script>
+{% endblock %}

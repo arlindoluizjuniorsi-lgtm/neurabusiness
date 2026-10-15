@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neura Assinador — {{ doc.nome_arquivo }}</title>
+<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  body{background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif;}
+  .cartao{background:#1a2332;border:1px solid #2a3647;border-radius:14px;padding:16px;}
+  .logo{color:#f97316;font-weight:800;}
+  .form-control, .form-select{background:#0f172a;border-color:#2a3647;color:#e2e8f0;}
+  .form-control:focus, .form-select:focus{background:#0f172a;border-color:#f97316;color:#e2e8f0;box-shadow:0 0 0 .2rem rgba(249,115,22,.2);}
+  .btn-laranja{background:#f97316;border-color:#f97316;color:#fff;font-weight:600;}
+  .btn-laranja:hover{background:#dd6614;border-color:#dd6614;color:#fff;}
+  .btn-check:checked + .btn-outline-laranja{background:#f97316;border-color:#f97316;color:#fff;}
+  .btn-outline-laranja{border-color:#2a3647;color:#cbd5e1;}
+  #previewWrap{position:relative;display:inline-block;cursor:default;touch-action:none;}
+  #imgPagina{max-width:100%;display:block;border-radius:8px;}
+  #caixaAssinatura{position:absolute;border:2px dashed #f97316;background:rgba(249,115,22,.12);display:none;cursor:move;}
+  #imgPreviewAssinatura{width:100%;height:100%;object-fit:contain;display:none;}
+  #canvasAssinatura{background:#fff;border-radius:6px;width:100%;touch-action:none;}
+</style>
+</head>
+<body>
+<div class="container py-3" style="max-width:600px;">
+  <div class="text-center mb-3">
+    <div class="logo"><i class="fas fa-signature me-2"></i>Neura Assinador</div>
+    <small class="text-secondary">{{ doc.nome_arquivo }}</small>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show">{{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <form method="POST" enctype="multipart/form-data" id="fAssinar">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="pagina" id="inpPagina" value="{{ doc.pagina or 1 }}">
+    <input type="hidden" name="pos_x_pct" id="inpPosX" value="{{ doc.pos_x_pct or '' }}">
+    <input type="hidden" name="pos_y_pct" id="inpPosY" value="{{ doc.pos_y_pct or '' }}">
+    <input type="hidden" name="largura_pct" id="inpLargura" value="{{ doc.largura_pct or 25 }}">
+    <input type="hidden" name="assinatura_canvas_png" id="inpCanvasPng" value="">
+
+    <div class="cartao mb-3">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <small class="text-secondary"><i class="fas fa-hand-pointer me-1"></i>Arraste a caixa pra posicionar</small>
+        {% if doc.num_paginas and doc.num_paginas > 1 %}
+        <select id="selPagina" class="form-select form-select-sm" style="width:auto;">
+          {% for p in range(1, doc.num_paginas + 1) %}
+          <option value="{{ p }}" {% if p == (doc.pagina or 1) %}selected{% endif %}>Pág. {{ p }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+      </div>
+      <div class="text-center" style="overflow:auto;max-height:60vh;">
+        <div id="previewWrap">
+          <img id="imgPagina" src="{{ url_for('assinador_publico_pagina_png', token=doc.token_publico, pagina=doc.pagina or 1) }}">
+          <div id="caixaAssinatura"><img id="imgPreviewAssinatura"></div>
+        </div>
+      </div>
+      <label class="form-label small mt-2 mb-1">Tamanho</label>
+      <input type="range" id="sliderLargura" min="10" max="60" value="{{ doc.largura_pct or 25 }}" class="form-range">
+    </div>
+
+    <div class="cartao mb-3">
+      <div class="btn-group w-100 mb-3" role="group">
+        <input type="radio" class="btn-check" name="metodo" id="metodoSimples" value="simples" autocomplete="off" checked>
+        <label class="btn btn-outline-laranja" for="metodoSimples">Eletrônica simples</label>
+        <input type="radio" class="btn-check" name="metodo" id="metodoIcp" value="icp_brasil" autocomplete="off">
+        <label class="btn btn-outline-laranja" for="metodoIcp">Certificado ICP-Brasil</label>
+      </div>
+
+      <div id="painelSimples">
+        <small class="text-secondary d-block mb-2">Estampa a imagem da assinatura no PDF. Se preencher nome e/ou CPF, também acrescenta esses dados + data/IP e um hash do documento final como prova (Lei 14.063/2020). Deixando em branco, vai só a imagem.</small>
+        <div class="row g-2 mb-2">
+          <div class="col-7">
+            <label class="form-label small mb-1">Nome <small class="text-secondary">(opcional)</small></label>
+            <input type="text" name="assinante_nome" class="form-control form-control-sm">
+          </div>
+          <div class="col-5">
+            <label class="form-label small mb-1">CPF <small class="text-secondary">(opcional)</small></label>
+            <input type="text" name="assinante_cpf" class="form-control form-control-sm" placeholder="000.000.000-00">
+          </div>
+        </div>
+
+        <div class="btn-group w-100 mb-2" role="group" style="font-size:0.8rem;">
+          <input type="radio" class="btn-check" name="origem_assinatura" id="origemDesenhar" value="desenhar" checked>
+          <label class="btn btn-sm btn-outline-laranja" for="origemDesenhar">Desenhar</label>
+          <input type="radio" class="btn-check" name="origem_assinatura" id="origemArquivo" value="arquivo">
+          <label class="btn btn-sm btn-outline-laranja" for="origemArquivo">Enviar imagem</label>
+        </div>
+
+        <div id="blocoDesenhar">
+          <canvas id="canvasAssinatura" width="400" height="140"></canvas>
+          <button type="button" id="btnLimparCanvas" class="btn btn-sm btn-outline-secondary mt-1"><i class="fas fa-eraser me-1"></i>Limpar</button>
+        </div>
+        <div id="blocoArquivo" style="display:none;">
+          <input type="file" id="inpArquivoImagem" name="assinatura_imagem" accept="image/png,image/jpeg" class="form-control form-control-sm">
+          <small class="text-secondary d-block">PNG com fundo transparente funciona melhor.</small>
+        </div>
+      </div>
+
+      <div id="painelIcp" style="display:none;">
+        <small class="text-secondary d-block mb-2">Seu certificado é usado só agora, pra assinar este documento — não fica salvo em lugar nenhum.</small>
+        <label class="form-label small mb-1">Arquivo do certificado (.pfx ou .p12)</label>
+        <input type="file" name="arquivo_certificado" accept=".pfx,.p12" class="form-control form-control-sm mb-2">
+        <label class="form-label small mb-1">Senha do certificado</label>
+        <input type="password" name="senha_certificado" class="form-control form-control-sm">
+      </div>
+
+      <button type="submit" class="btn btn-laranja w-100 mt-3 py-2"><i class="fas fa-signature me-1"></i>Assinar documento</button>
+    </div>
+  </form>
+
+  <div class="text-center" style="font-size:.7rem;color:#64748b;">
+    <i class="fas fa-shield-alt me-1"></i>Link válido por 24h, só pra este documento.
+  </div>
+</div>
+
+<script>
+const docToken = {{ doc.token_publico|tojson }};
+const imgPagina = document.getElementById('imgPagina');
+const previewWrap = document.getElementById('previewWrap');
+const caixa = document.getElementById('caixaAssinatura');
+const imgPreview = document.getElementById('imgPreviewAssinatura');
+const inpPosX = document.getElementById('inpPosX');
+const inpPosY = document.getElementById('inpPosY');
+const inpLargura = document.getElementById('inpLargura');
+const inpPagina = document.getElementById('inpPagina');
+const sliderLargura = document.getElementById('sliderLargura');
+const selPagina = document.getElementById('selPagina');
+
+let proporcaoCaixaAtual = 0.4;
+
+function setarPreviewAssinatura(dataUrl) {
+  if (!dataUrl) {
+    imgPreview.style.display = 'none';
+    imgPreview.removeAttribute('src');
+    proporcaoCaixaAtual = 0.4;
+    atualizaCaixaVisual();
+    return;
+  }
+  const medir = new Image();
+  medir.onload = function() {
+    proporcaoCaixaAtual = medir.naturalWidth ? (medir.naturalHeight / medir.naturalWidth) : 0.4;
+    imgPreview.src = dataUrl;
+    imgPreview.style.display = 'block';
+    atualizaCaixaVisual();
+  };
+  medir.src = dataUrl;
+}
+
+function atualizaCaixaVisual() {
+  const larguraPct = parseFloat(inpLargura.value) || 25;
+  const larguraPx = previewWrap.clientWidth * (larguraPct / 100);
+  const alturaPx = larguraPx * proporcaoCaixaAtual;
+  caixa.style.width = larguraPx + 'px';
+  caixa.style.height = alturaPx + 'px';
+  if (inpPosX.value !== '' && inpPosY.value !== '') {
+    const x = previewWrap.clientWidth * (parseFloat(inpPosX.value) / 100);
+    const y = previewWrap.clientHeight * (parseFloat(inpPosY.value) / 100);
+    caixa.style.left = x + 'px';
+    caixa.style.top = y + 'px';
+    caixa.style.display = 'block';
+  }
+}
+
+// ── Arrastar a caixa ──
+let arrastando = false, arrasteOffsetX = 0, arrasteOffsetY = 0;
+function posClienteEv(ev) {
+  return ev.touches ? { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
+                     : { x: ev.clientX, y: ev.clientY };
+}
+function iniciarArraste(ev) {
+  arrastando = true;
+  const rect = caixa.getBoundingClientRect();
+  const p = posClienteEv(ev);
+  arrasteOffsetX = p.x - rect.left;
+  arrasteOffsetY = p.y - rect.top;
+  ev.preventDefault();
+}
+function moverArraste(ev) {
+  if (!arrastando) return;
+  const wrapRect = previewWrap.getBoundingClientRect();
+  const p = posClienteEv(ev);
+  let x = p.x - wrapRect.left - arrasteOffsetX;
+  let y = p.y - wrapRect.top - arrasteOffsetY;
+  const maxX = previewWrap.clientWidth - caixa.offsetWidth;
+  const maxY = previewWrap.clientHeight - caixa.offsetHeight;
+  x = Math.max(0, Math.min(x, Math.max(0, maxX)));
+  y = Math.max(0, Math.min(y, Math.max(0, maxY)));
+  caixa.style.left = x + 'px';
+  caixa.style.top = y + 'px';
+  inpPosX.value = (x / previewWrap.clientWidth * 100).toFixed(2);
+  inpPosY.value = (y / previewWrap.clientHeight * 100).toFixed(2);
+  ev.preventDefault();
+}
+function pararArraste() { arrastando = false; }
+caixa.addEventListener('mousedown', iniciarArraste);
+document.addEventListener('mousemove', moverArraste);
+document.addEventListener('mouseup', pararArraste);
+caixa.addEventListener('touchstart', iniciarArraste, {passive: false});
+document.addEventListener('touchmove', moverArraste, {passive: false});
+document.addEventListener('touchend', pararArraste);
+
+sliderLargura.addEventListener('input', function() {
+  inpLargura.value = sliderLargura.value;
+  atualizaCaixaVisual();
+});
+
+function garantePosicaoInicial() {
+  if (inpPosX.value === '' || inpPosY.value === '') {
+    inpPosX.value = '8';
+    inpPosY.value = '8';
+  }
+}
+garantePosicaoInicial();
+if (imgPagina.complete) { atualizaCaixaVisual(); } else { imgPagina.onload = atualizaCaixaVisual; }
+window.addEventListener('resize', atualizaCaixaVisual);
+
+if (selPagina) {
+  selPagina.addEventListener('change', function() {
+    inpPagina.value = selPagina.value;
+    inpPosX.value = '8'; inpPosY.value = '8';
+    imgPagina.src = `/assinador/${docToken}/pagina/${selPagina.value}.png`;
+  });
+}
+
+// ── Método ──
+const metodoSimples = document.getElementById('metodoSimples');
+const metodoIcp = document.getElementById('metodoIcp');
+const painelSimples = document.getElementById('painelSimples');
+const painelIcp = document.getElementById('painelIcp');
+function atualizaMetodo() {
+  painelSimples.style.display = metodoSimples.checked ? 'block' : 'none';
+  painelIcp.style.display = metodoIcp.checked ? 'block' : 'none';
+  if (metodoIcp.checked) { setarPreviewAssinatura(null); } else { atualizaOrigem(); }
+}
+metodoSimples.addEventListener('change', atualizaMetodo);
+metodoIcp.addEventListener('change', atualizaMetodo);
+
+// ── Origem (desenhar / enviar imagem) ──
+const origemDesenhar = document.getElementById('origemDesenhar');
+const origemArquivo = document.getElementById('origemArquivo');
+const blocoDesenhar = document.getElementById('blocoDesenhar');
+const blocoArquivo = document.getElementById('blocoArquivo');
+let ultimoArquivoDataUrl = null;
+function atualizaOrigem() {
+  blocoDesenhar.style.display = origemDesenhar.checked ? 'block' : 'none';
+  blocoArquivo.style.display = origemArquivo.checked ? 'block' : 'none';
+  if (origemDesenhar.checked) {
+    setarPreviewAssinatura(desenhouAlgo ? canvas.toDataURL('image/png') : null);
+  } else {
+    setarPreviewAssinatura(ultimoArquivoDataUrl);
+  }
+}
+origemDesenhar.addEventListener('change', atualizaOrigem);
+origemArquivo.addEventListener('change', atualizaOrigem);
+
+// ── Canvas ──
+const canvas = document.getElementById('canvasAssinatura');
+const ctx = canvas.getContext('2d');
+ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#111';
+let desenhando = false, desenhouAlgo = false;
+
+function posRelativa(ev) {
+  const rect = canvas.getBoundingClientRect();
+  const clientX = ev.touches ? ev.touches[0].clientX : ev.clientX;
+  const clientY = ev.touches ? ev.touches[0].clientY : ev.clientY;
+  return {
+    x: (clientX - rect.left) * (canvas.width / rect.width),
+    y: (clientY - rect.top) * (canvas.height / rect.height),
+  };
+}
+function iniciar(ev) { desenhando = true; const p = posRelativa(ev); ctx.beginPath(); ctx.moveTo(p.x, p.y); ev.preventDefault(); }
+function mover(ev) { if (!desenhando) return; const p = posRelativa(ev); ctx.lineTo(p.x, p.y); ctx.stroke(); desenhouAlgo = true; ev.preventDefault(); }
+function parar() {
+  if (desenhando && desenhouAlgo) { setarPreviewAssinatura(canvas.toDataURL('image/png')); }
+  desenhando = false;
+}
+canvas.addEventListener('mousedown', iniciar);
+canvas.addEventListener('mousemove', mover);
+canvas.addEventListener('mouseup', parar);
+canvas.addEventListener('mouseleave', parar);
+canvas.addEventListener('touchstart', iniciar);
+canvas.addEventListener('touchmove', mover);
+canvas.addEventListener('touchend', parar);
+
+document.getElementById('btnLimparCanvas').addEventListener('click', function() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  desenhouAlgo = false;
+  setarPreviewAssinatura(null);
+});
+
+document.getElementById('inpArquivoImagem').addEventListener('change', function(ev) {
+  const arquivo = ev.target.files[0];
+  if (!arquivo) { ultimoArquivoDataUrl = null; setarPreviewAssinatura(null); return; }
+  const leitor = new FileReader();
+  leitor.onload = function() {
+    ultimoArquivoDataUrl = leitor.result;
+    if (origemArquivo.checked) { setarPreviewAssinatura(ultimoArquivoDataUrl); }
+  };
+  leitor.readAsDataURL(arquivo);
+});
+
+atualizaOrigem();
+
+document.getElementById('fAssinar').addEventListener('submit', function(ev) {
+  if (inpPosX.value === '' || inpPosY.value === '') {
+    alert('Marque no documento onde a assinatura vai ficar.');
+    ev.preventDefault();
+    return;
+  }
+  if (metodoSimples.checked && origemDesenhar.checked) {
+    if (!desenhouAlgo) {
+      alert('Desenhe sua assinatura no quadro, ou escolha "Enviar imagem".');
+      ev.preventDefault();
+      return;
+    }
+    document.getElementById('inpCanvasPng').value = canvas.toDataURL('image/png');
+  }
+});
+</script>
+</body>
+</html>

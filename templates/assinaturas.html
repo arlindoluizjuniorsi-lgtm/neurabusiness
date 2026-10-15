@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Assinatura de Documentos — NeuraBusiness{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <div>
+    <h1><i class="fas fa-signature me-2"></i>Assinatura de Documentos</h1>
+    <p>Suba um PDF, marque onde fica a assinatura e assine eletronicamente ou com seu certificado ICP-Brasil.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('minha_assinatura_salva') }}" class="btn btn-sm btn-nb">
+      <i class="fas fa-pen-nib me-1"></i>{{ 'Minha assinatura salva' if current_user.assinatura_salva else 'Salvar minha assinatura' }}
+    </a>
+    <a href="{{ url_for('certificado_assinatura') }}" class="btn btn-sm btn-nb">
+      <i class="fas fa-id-card me-1"></i>{{ 'Meu certificado' if cert else 'Cadastrar certificado ICP-Brasil' }}
+    </a>
+    <a href="{{ url_for('nova_assinatura') }}" class="btn btn-sm btn-accent">
+      <i class="fas fa-plus me-1"></i>Novo documento
+    </a>
+  </div>
+</div>
+
+{% if cert %}
+<div class="alert alert-info py-2 mb-3" style="font-size:0.85rem;">
+  <i class="fas fa-id-card me-1"></i>Certificado cadastrado: <b>{{ cert.titular_nome or cert.nome_arquivo }}</b>
+  {% if cert.valido_ate %} — válido até {{ cert.valido_ate.strftime('%d/%m/%Y') }}
+    {% if cert.expirado() %}<span class="badge bg-danger ms-1">Expirado</span>{% endif %}
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Documento</th>
+          <th>Método</th>
+          <th>Status</th>
+          <th>Enviado em</th>
+          <th class="text-end">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in documentos %}
+        <tr>
+          <td><b>{{ d.nome_arquivo }}</b>{% if d.num_paginas %}<br><small class="text-muted">{{ d.num_paginas }} página(s)</small>{% endif %}</td>
+          <td style="font-size:0.82rem;">
+            {% if d.metodo == 'icp_brasil' %}<span class="badge bg-info text-dark">ICP-Brasil</span>
+            {% elif d.metodo == 'simples' %}<span class="badge bg-secondary">Eletrônica simples</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td>
+            {% if d.status == 'assinado' %}<span class="badge bg-success">Assinado</span>
+            {% elif d.status == 'erro' %}<span class="badge bg-danger" title="{{ d.erro_msg }}">Erro</span>
+            {% else %}<span class="badge bg-warning text-dark">Pendente</span>{% endif %}
+          </td>
+          <td class="text-muted" style="font-size:0.82rem;">{{ d.criado_em.strftime('%d/%m/%Y %H:%M') if d.criado_em else '' }}</td>
+          <td class="text-end">
+            {% if d.status != 'assinado' %}
+            <a href="{{ url_for('assinar_documento', id=d.id) }}" class="btn btn-sm btn-outline-primary" title="Assinar"><i class="fas fa-signature"></i></a>
+            {% endif %}
+            <a href="{{ url_for('baixar_assinatura', id=d.id, tipo='original') }}" class="btn btn-sm btn-outline-secondary" title="Baixar original"><i class="fas fa-file-pdf"></i></a>
+            {% if d.status == 'assinado' %}
+            <a href="{{ url_for('baixar_assinatura', id=d.id, tipo='assinado') }}" class="btn btn-sm btn-outline-success" title="Baixar assinado"><i class="fas fa-file-circle-check"></i></a>
+            {% endif %}
+            <form method="POST" action="{{ url_for('excluir_assinatura', id=d.id) }}" class="d-inline" onsubmit="return confirm('Excluir \'{{ d.nome_arquivo }}\'?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-4">Nenhum documento enviado ainda.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

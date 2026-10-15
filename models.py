@@ -100,6 +100,11 @@ class Usuario(db.Model):
     is_super_admin = db.Column(db.Boolean, default=False)
     ativo          = db.Column(db.Boolean, default=True)
     criado_em      = db.Column(db.DateTime, default=datetime.now)
+    # Assinatura (imagem) salva do usuário -- pro módulo de Assinatura de
+    # Documentos reaproveitar sem precisar desenhar/enviar de novo a cada
+    # vez (ver DocumentoAssinatura).
+    assinatura_salva          = db.Column(db.LargeBinary, nullable=True)
+    assinatura_salva_mimetype = db.Column(db.String(20), nullable=True)
 
     empresas_acesso = db.relationship('UsuarioEmpresa', backref='usuario', lazy=True)
 
@@ -1047,4 +1052,88 @@ class SimulacaoTrocaCarro(db.Model):
     parcela_atual        = db.Column(db.Float)
 
     notas               = db.Column(db.Text)  # espaço livre pra anotar depois como foi ("comprei em X", "desisti porque Y")
+
+
+# ============================================================
+# ASSINATURA DE DOCUMENTOS -- módulo migrado do NeuraDesk (upload de PDF,
+# assinatura eletrônica simples por imagem+hash ou criptográfica real
+# ICP-Brasil via certificado pessoal do usuário, PAdES/CMS). Inclui também
+# o "Neura Assinador", versão pública sem login (ver app.py).
+# ============================================================
+
+class CertificadoDigitalUsuario(db.Model):
+    """Certificado ICP-Brasil (A1, arquivo .pfx/.p12) de UM usuário --
+    usado só por ele pra assinar documentos no módulo de Assinatura de
+    Documentos (ver DocumentoAssinatura). O arquivo fica cifrado em
+    repouso (Fernet, mesma chave/esquema já usado por Integracao --
+    ver _fernet_integracoes). A SENHA do certificado NUNCA é guardada
+    aqui -- cada assinatura exige digitá-la de novo, só em memória, pra
+    não manter uma segunda cópia da chave de assinatura jurídica da
+    pessoa salva no servidor."""
+    __tablename__ = 'certificados_digitais_usuario'
+
+    id              = db.Column(db.Integer, primary_key=True)
+    usuario_id      = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False, unique=True)
+    nome_arquivo    = db.Column(db.String(200))
+    arquivo_cifrado = db.Column(db.Text, nullable=False)  # bytes do .pfx, Fernet
+    titular_nome    = db.Column(db.String(200))
+    titular_documento = db.Column(db.String(30))  # CPF/CNPJ extraído do certificado, se disponível
+    emissor         = db.Column(db.String(200))
+    valido_de       = db.Column(db.DateTime)
+    valido_ate      = db.Column(db.DateTime)
+    criado_em       = db.Column(db.DateTime, default=datetime.now)
+
+    usuario = db.relationship('Usuario', backref=db.backref('certificado_digital', uselist=False, cascade='all, delete-orphan'))
+
+    def set_arquivo(self, dados_bytes):
+        self.arquivo_cifrado = _fernet_integracoes().encrypt(dados_bytes).decode()
+
+    def get_arquivo(self):
+        return _fernet_integracoes().decrypt(self.arquivo_cifrado.encode())
+
+    def expirado(self):
+        return bool(self.valido_ate) and self.valido_ate < datetime.now()
+
+
+class DocumentoAssinatura(db.Model):
+    """PDF enviado ao módulo de Assinatura de Documentos pra receber uma
+    assinatura -- eletrônica SIMPLES (hash SHA-256 + nome/CPF/IP/data) ou
+    criptográfica ICP-BRASIL (certificado pessoal do próprio usuário,
+    embutida de verdade no PDF via PAdES/CMS -- ver pyhanko).
+
+    usuario_id é NULL pros documentos do "Neura Assinador" -- a versão
+    pública, sem login, acessível por link/token (ver token_publico).
+    Nesse caso o certificado ICP-Brasil (se usado) também não fica
+    salvo em lugar nenhum -- é enviado junto na hora de assinar e
+    descartado depois, já que não existe usuário dono pra guardá-lo."""
+    __tablename__ = 'documentos_assinatura'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    usuario_id  = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
+    token_publico = db.Column(db.String(64), unique=True, nullable=True)
+    nome_arquivo = db.Column(db.String(200), nullable=False)
+    metodo      = db.Column(db.String(20))             # 'simples' | 'icp_brasil'
+    status      = db.Column(db.String(20), default='pendente')  # pendente | assinado | erro
+    arquivo_original = db.Column(db.String(300))       # caminho relativo (pasta privada, não-static)
+    arquivo_assinado  = db.Column(db.String(300))
+    num_paginas = db.Column(db.Integer)
+    pagina      = db.Column(db.Integer, default=1)      # página (1-based) onde a assinatura foi colocada
+    # Posição em % da página (0-100), convertida pra pontos PDF na hora de assinar --
+    # assim independe do zoom/tamanho da prévia renderizada na tela.
+    pos_x_pct   = db.Column(db.Float)
+    pos_y_pct   = db.Column(db.Float)
+    largura_pct = db.Column(db.Float, default=25.0)
+    # Assinatura eletrônica simples
+    assinante_nome = db.Column(db.String(200))
+    assinante_cpf  = db.Column(db.String(20))
+    assinante_ip   = db.Column(db.String(45))
+    hash_sha256    = db.Column(db.String(64))
+    # Assinatura ICP-Brasil
+    certificado_titular  = db.Column(db.String(200))
+    certificado_validade = db.Column(db.DateTime)
+    erro_msg    = db.Column(db.Text)
+    criado_em   = db.Column(db.DateTime, default=datetime.now)
+    assinado_em = db.Column(db.DateTime)
+
+    usuario = db.relationship('Usuario', backref=db.backref('documentos_assinatura', lazy=True, cascade='all, delete-orphan'))
     criado_em           = db.Column(db.DateTime, default=datetime.now)

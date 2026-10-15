@@ -11,7 +11,8 @@ from email.mime.text import MIMEText
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-import os, json, uuid, base64, subprocess, smtplib, logging
+from werkzeug.utils import secure_filename
+import os, json, uuid, base64, subprocess, smtplib, logging, io, time, threading
 import xml.etree.ElementTree as ET
 from logging.handlers import RotatingFileHandler
 
@@ -24,7 +25,8 @@ from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     LicencaNeuraDesk, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk,
                     CartaoPessoal, GastoPessoal, RendaPessoal, GastoCarro, GastoCasa,
                     VeiculoPessoal, RevisaoCarro, ManutencaoRecorrente, ItemVendaTroca,
-                    SimulacaoTrocaCarro, TIPOS_DOCUMENTO_PROPOSTA)
+                    SimulacaoTrocaCarro, TIPOS_DOCUMENTO_PROPOSTA,
+                    CertificadoDigitalUsuario, DocumentoAssinatura)
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -65,6 +67,12 @@ ALLOWED_IMG    = {'png','jpg','jpeg','gif','webp'}
 ALLOWED_ANEXOS = {'png','jpg','jpeg','pdf','gif','webp'}
 EMPRESAS_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads', 'empresas')
 ANEXOS_FOLDER   = os.path.join(os.path.dirname(__file__), 'static', 'uploads', 'anexos')
+# Fora de static/ de propósito -- static/uploads é servido direto pelo
+# Flask sem passar por login_required nenhum. PDFs e assinaturas (às
+# vezes de documentos sensíveis, inclusive do Neura Assinador público)
+# não podem ficar expostos assim.
+PASTA_ASSINATURAS = os.path.join(os.path.dirname(__file__), 'dados_privados', 'assinaturas')
+os.makedirs(PASTA_ASSINATURAS, exist_ok=True)
 
 # ─── FILTROS DE TEMPLATE ───────────────────────────────────────────────────────
 @app.template_filter('data')
@@ -174,6 +182,17 @@ def super_admin_required(f):
 
 def eid():
     return session.get('empresa_id')
+
+def _ip_cliente_real():
+    """IP de verdade de quem fez a requisição, por trás do nginx. Mesmo
+    padrão já usado em todo lugar que grava assinatura_ip (propostas,
+    contratos) -- X-Forwarded-For pode vir com vários IPs separados por
+    vírgula (cada proxy no caminho acrescenta o seu); o primeiro da
+    lista é o do cliente original."""
+    ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr or '')
+    if ip and ',' in ip:
+        ip = ip.split(',')[0].strip()
+    return ip
 
 # ─── SEED INICIAL ──────────────────────────────────────────────────────────────
 def seed_inicial():
@@ -4593,6 +4612,632 @@ def importar_xml_revisao():
         flash(msg, 'success' if importados else 'warning')
         return redirect(url_for('listar_revisoes', veiculo_id=veiculo_id))
     return render_template('importar_xml_revisao.html', veiculos=veiculos)
+
+
+# ─── ASSINATURA DE DOCUMENTOS ───────────────────────────────────────────────────
+# Migrado do NeuraDesk (upload de PDF, assinatura eletrônica simples por
+# imagem+hash ou criptográfica real ICP-Brasil via certificado pessoal do
+# usuário). Dois métodos de assinatura:
+#   'simples'    -- estampa a imagem da assinatura (desenhada ou enviada)
+#                   + nome/CPF/IP/data (só se preenchidos), e calcula hash
+#                   SHA-256 do PDF final como prova (Lei 14.063/2020) --
+#                   mesmo padrão já usado na assinatura de proposta.
+#   'icp_brasil' -- assinatura criptográfica real (PAdES/CMS) com o
+#                   certificado pessoal (.pfx/.p12) do próprio usuário,
+#                   via pyHanko. Cada usuário só assina com o SEU
+#                   certificado (ver CertificadoDigitalUsuario) -- a senha
+#                   do certificado nunca é salva, só usada em memória na
+#                   hora de assinar.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _caminho_assinatura_fs(nome_fs):
+    return os.path.join(PASTA_ASSINATURAS, nome_fs)
+
+
+def _pdf_tamanho_pagina(caminho, pagina_idx):
+    """(largura_pt, altura_pt, num_paginas) da página (0-based) de um PDF."""
+    from pypdf import PdfReader
+    reader = PdfReader(caminho)
+    pagina_idx = max(0, min(pagina_idx, len(reader.pages) - 1))
+    pag = reader.pages[pagina_idx]
+    return float(pag.mediabox.width), float(pag.mediabox.height), len(reader.pages)
+
+
+def _retangulo_assinatura(doc, largura_pt, altura_pt, proporcao_altura=0.4):
+    """Converte a posição clicada na prévia (% da página, origem no topo,
+    como no CSS/tela) pro sistema de coordenadas do PDF (origem embaixo).
+    pos_x_pct/pos_y_pct marcam o canto SUPERIOR ESQUERDO da caixa da
+    assinatura; largura_pct define a largura da caixa como % da largura
+    da página -- a altura é derivada (imagem) ou fixa (ICP, sem imagem)."""
+    largura_sig = largura_pt * (doc.largura_pct or 25.0) / 100.0
+    altura_sig  = largura_sig * proporcao_altura
+    x0 = largura_pt * (doc.pos_x_pct or 0) / 100.0
+    y1 = altura_pt * (1 - (doc.pos_y_pct or 0) / 100.0)
+    y0 = y1 - altura_sig
+    return x0, y0, x0 + largura_sig, y1, largura_sig, altura_sig
+
+
+def _assinar_pdf_simples(doc, imagem_bytes, nome, cpf, ip):
+    """Assinatura eletrônica simples -- ver cabeçalho da seção."""
+    try:
+        import hashlib
+        from pypdf import PdfReader, PdfWriter
+        from reportlab.pdfgen import canvas as rl_canvas
+        from reportlab.lib.utils import ImageReader
+
+        caminho_original = _caminho_assinatura_fs(doc.arquivo_original)
+        reader = PdfReader(caminho_original)
+        pagina_idx = max(0, min((doc.pagina or 1) - 1, len(reader.pages) - 1))
+        largura_pt = float(reader.pages[pagina_idx].mediabox.width)
+        altura_pt  = float(reader.pages[pagina_idx].mediabox.height)
+
+        img = ImageReader(io.BytesIO(imagem_bytes))
+        iw, ih = img.getSize()
+        proporcao = (ih / iw) if iw else 0.4
+        x0, y0, x1, y1, largura_sig, altura_sig = _retangulo_assinatura(
+            doc, largura_pt, altura_pt, proporcao_altura=proporcao)
+
+        agora = datetime.now()
+        overlay_buf = io.BytesIO()
+        c = rl_canvas.Canvas(overlay_buf, pagesize=(largura_pt, altura_pt))
+        c.drawImage(img, x0, y0, width=largura_sig, height=altura_sig, mask='auto')
+        # Só estampa o rodapé de identificação (nome/CPF/data/IP) se o
+        # usuário realmente preencheu nome ou CPF -- deixando os dois em
+        # branco, vai só a imagem da assinatura, sem texto nenhum.
+        if nome or cpf:
+            c.setFont('Helvetica', 6)
+            c.setFillColorRGB(0.2, 0.2, 0.2)
+            texto_nome = f'Assinado eletronicamente por {nome}' if nome else 'Assinado eletronicamente'
+            c.drawString(x0, y0 - 9, texto_nome + (f' -- CPF {cpf}' if cpf else ''))
+            c.drawString(x0, y0 - 16, f'{agora.strftime("%d/%m/%Y %H:%M:%S")} -- IP {ip}')
+        c.save()
+        overlay_buf.seek(0)
+        overlay_reader = PdfReader(overlay_buf)
+
+        writer = PdfWriter()
+        for i, pagina in enumerate(reader.pages):
+            if i == pagina_idx:
+                pagina.merge_page(overlay_reader.pages[0])
+            writer.add_page(pagina)
+
+        nome_fs_assinado = f'{doc.id}_assinado.pdf'
+        caminho_assinado = _caminho_assinatura_fs(nome_fs_assinado)
+        with open(caminho_assinado, 'wb') as f:
+            writer.write(f)
+
+        with open(caminho_assinado, 'rb') as f:
+            doc.hash_sha256 = hashlib.sha256(f.read()).hexdigest()
+        doc.arquivo_assinado = nome_fs_assinado
+        doc.assinante_nome = nome
+        doc.assinante_cpf  = cpf
+        doc.assinante_ip   = ip
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def _assinar_pdf_icp_brasil(doc, pfx_bytes, senha_cert, titular_fallback=None, validade_conhecida=None):
+    """Assinatura criptográfica (PAdES/CMS) com certificado ICP-Brasil, via
+    pyHanko -- ver cabeçalho da seção. Recebe os BYTES do .pfx direto (não
+    um registro salvo) pra servir tanto o fluxo logado (certificado salvo
+    em CertificadoDigitalUsuario) quanto o Neura Assinador público
+    (certificado enviado junto na própria requisição, nunca persistido)."""
+    try:
+        from pyhanko.sign import signers, fields, PdfSignatureMetadata
+        from pyhanko.sign.fields import SigFieldSpec
+        from pyhanko.sign.signers.pdf_signer import PdfSigner
+        from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+        from pyhanko.stamp import TextStampStyle
+
+        signer = signers.SimpleSigner.load_pkcs12_data(
+            pfx_bytes, other_certs=set(), passphrase=senha_cert.encode())
+        if signer is None:
+            return False, 'Não consegui abrir o certificado -- senha incorreta ou arquivo inválido.'
+
+        titular_nome = titular_fallback
+        try:
+            subj = signer.signing_cert.subject.native
+            cn = subj.get('common_name')
+            if cn:
+                titular_nome = cn.split(':')[0].strip()
+        except Exception:
+            pass
+
+        caminho_original = _caminho_assinatura_fs(doc.arquivo_original)
+        with open(caminho_original, 'rb') as f:
+            pdf_bytes = f.read()
+
+        largura_pt, altura_pt, num_paginas = _pdf_tamanho_pagina(caminho_original, (doc.pagina or 1) - 1)
+        pagina_idx = max(0, min((doc.pagina or 1) - 1, num_paginas - 1))
+        x0, y0, x1, y1, _, _ = _retangulo_assinatura(doc, largura_pt, altura_pt, proporcao_altura=0.22)
+
+        w = IncrementalPdfFileWriter(io.BytesIO(pdf_bytes))
+        campo_nome = f'AssinaturaNeuraBusiness{doc.id}'
+        fields.append_signature_field(
+            w, SigFieldSpec(campo_nome, on_page=pagina_idx, box=(x0, y0, x1, y1)))
+
+        meta = PdfSignatureMetadata(field_name=campo_nome, reason='Assinatura de documento',
+                                     location='NeuraBusiness')
+        stamp_style = TextStampStyle(stamp_text='Assinado digitalmente por %(signer)s\n%(ts)s')
+        pdf_signer = PdfSigner(meta, signer=signer, stamp_style=stamp_style)
+
+        out_buf = io.BytesIO()
+        pdf_signer.sign_pdf(w, output=out_buf,
+                             appearance_text_params={'signer': titular_nome or 'Assinante'})
+
+        nome_fs_assinado = f'{doc.id}_assinado.pdf'
+        caminho_assinado = _caminho_assinatura_fs(nome_fs_assinado)
+        with open(caminho_assinado, 'wb') as f:
+            f.write(out_buf.getvalue())
+
+        doc.arquivo_assinado = nome_fs_assinado
+        doc.certificado_titular  = titular_nome
+        doc.certificado_validade = validade_conhecida
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+@app.route('/assinaturas')
+@login_required
+@empresa_required
+def listar_assinaturas():
+    u = get_current_user()
+    documentos = DocumentoAssinatura.query.filter_by(usuario_id=u.id)\
+        .order_by(DocumentoAssinatura.criado_em.desc()).all()
+    cert = CertificadoDigitalUsuario.query.filter_by(usuario_id=u.id).first()
+    return render_template('assinaturas.html', documentos=documentos, cert=cert)
+
+
+@app.route('/assinaturas/nova', methods=['GET', 'POST'])
+@login_required
+@empresa_required
+def nova_assinatura():
+    u = get_current_user()
+    if request.method == 'POST':
+        arquivo = request.files.get('arquivo')
+        if not arquivo or not arquivo.filename or not arquivo.filename.lower().endswith('.pdf'):
+            flash('Selecione um arquivo PDF.', 'warning')
+            return redirect(url_for('nova_assinatura'))
+        doc = DocumentoAssinatura(usuario_id=u.id,
+                                   nome_arquivo=secure_filename(arquivo.filename) or 'documento.pdf',
+                                   status='pendente', pagina=1, largura_pct=25.0)
+        db.session.add(doc)
+        db.session.flush()
+        nome_fs = f'{doc.id}_original.pdf'
+        caminho = _caminho_assinatura_fs(nome_fs)
+        arquivo.save(caminho)
+        try:
+            _, _, num_paginas = _pdf_tamanho_pagina(caminho, 0)
+        except Exception as e:
+            db.session.delete(doc)
+            db.session.commit()
+            os.remove(caminho)
+            flash(f'Não consegui ler esse PDF: {e}', 'danger')
+            return redirect(url_for('nova_assinatura'))
+        doc.arquivo_original = nome_fs
+        doc.num_paginas = num_paginas
+        db.session.commit()
+        return redirect(url_for('assinar_documento', id=doc.id))
+    return render_template('form_nova_assinatura.html')
+
+
+@app.route('/assinaturas/<int:id>/pagina/<int:pagina>.png')
+@login_required
+@empresa_required
+def assinatura_pagina_png(id, pagina):
+    u = get_current_user()
+    doc = DocumentoAssinatura.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    import pypdfium2 as pdfium
+    caminho = _caminho_assinatura_fs(doc.arquivo_original)
+    pdf = pdfium.PdfDocument(caminho)
+    idx = max(0, min(pagina - 1, len(pdf) - 1))
+    pag = pdf[idx]
+    bitmap = pag.render(scale=1.5)
+    pil_img = bitmap.to_pil()
+    pdf.close()
+    buf = io.BytesIO()
+    pil_img.save(buf, format='PNG')
+    buf.seek(0)
+    return send_file(buf, mimetype='image/png')
+
+
+@app.route('/assinaturas/<int:id>/assinar', methods=['GET', 'POST'])
+@login_required
+@empresa_required
+def assinar_documento(id):
+    u = get_current_user()
+    doc = DocumentoAssinatura.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    if doc.status == 'assinado':
+        flash('Esse documento já foi assinado.', 'info')
+        return redirect(url_for('listar_assinaturas'))
+
+    if request.method == 'POST':
+        doc.pagina      = request.form.get('pagina', type=int) or 1
+        doc.pos_x_pct   = request.form.get('pos_x_pct', type=float)
+        doc.pos_y_pct   = request.form.get('pos_y_pct', type=float)
+        doc.largura_pct = request.form.get('largura_pct', type=float) or 25.0
+        metodo = request.form.get('metodo', '')
+        db.session.commit()
+
+        if doc.pos_x_pct is None or doc.pos_y_pct is None:
+            flash('Clique no documento pra marcar onde a assinatura vai ficar.', 'warning')
+            return redirect(url_for('assinar_documento', id=id))
+
+        if metodo == 'simples':
+            origem = request.form.get('origem_assinatura', '')
+            imagem_bytes = None
+            mimetype_enviado = None
+            if origem == 'salva':
+                if not u.assinatura_salva:
+                    flash('Você não tem uma assinatura salva no perfil.', 'warning')
+                    return redirect(url_for('assinar_documento', id=id))
+                imagem_bytes = u.assinatura_salva
+            else:
+                assinatura_canvas = request.form.get('assinatura_canvas_png', '')
+                if assinatura_canvas.startswith('data:image'):
+                    imagem_bytes = base64.b64decode(assinatura_canvas.split(',', 1)[1])
+                    mimetype_enviado = 'image/png'
+                elif request.files.get('assinatura_imagem') and request.files['assinatura_imagem'].filename:
+                    arq_img = request.files['assinatura_imagem']
+                    mimetype_enviado = arq_img.mimetype or 'image/png'
+                    imagem_bytes = arq_img.read()
+            if not imagem_bytes:
+                flash('Desenhe, envie ou escolha uma assinatura salva.', 'warning')
+                return redirect(url_for('assinar_documento', id=id))
+            if request.form.get('salvar_assinatura_perfil') == 'on' and origem != 'salva':
+                u.assinatura_salva = imagem_bytes
+                u.assinatura_salva_mimetype = mimetype_enviado or 'image/png'
+            nome = request.form.get('assinante_nome', '').strip()
+            cpf  = request.form.get('assinante_cpf', '').strip()
+            ok, erro = _assinar_pdf_simples(doc, imagem_bytes, nome, cpf, _ip_cliente_real())
+        elif metodo == 'icp_brasil':
+            cert = CertificadoDigitalUsuario.query.filter_by(usuario_id=u.id).first()
+            if not cert:
+                flash('Você ainda não tem um certificado cadastrado.', 'warning')
+                return redirect(url_for('certificado_assinatura'))
+            senha_cert = request.form.get('senha_certificado', '')
+            if not senha_cert:
+                flash('Digite a senha do certificado.', 'warning')
+                return redirect(url_for('assinar_documento', id=id))
+            ok, erro = _assinar_pdf_icp_brasil(doc, cert.get_arquivo(), senha_cert,
+                                                titular_fallback=cert.titular_nome,
+                                                validade_conhecida=cert.valido_ate)
+        else:
+            flash('Escolha um método de assinatura.', 'warning')
+            return redirect(url_for('assinar_documento', id=id))
+
+        if ok:
+            doc.metodo = metodo
+            doc.status = 'assinado'
+            doc.assinado_em = datetime.now()
+            db.session.commit()
+            logger.info(f'Documento de assinatura #{doc.id} ("{doc.nome_arquivo}") assinado por {u.usuario} ({metodo})')
+            flash('Documento assinado com sucesso!', 'success')
+            return redirect(url_for('listar_assinaturas'))
+        else:
+            doc.status = 'erro'
+            doc.erro_msg = erro
+            db.session.commit()
+            flash(f'Erro ao assinar: {erro}', 'danger')
+            return redirect(url_for('assinar_documento', id=id))
+
+    cert = CertificadoDigitalUsuario.query.filter_by(usuario_id=u.id).first()
+    return render_template('assinar_documento.html', doc=doc, cert=cert)
+
+
+@app.route('/assinaturas/<int:id>/arquivo/<tipo>')
+@login_required
+@empresa_required
+def baixar_assinatura(id, tipo):
+    u = get_current_user()
+    doc = DocumentoAssinatura.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    nome_fs = doc.arquivo_assinado if tipo == 'assinado' else doc.arquivo_original
+    if not nome_fs:
+        abort(404)
+    caminho = _caminho_assinatura_fs(nome_fs)
+    if not os.path.isfile(caminho):
+        abort(404)
+    nome_download = f"{'assinado' if tipo == 'assinado' else 'original'}_{doc.nome_arquivo}"
+    return send_file(caminho, mimetype='application/pdf', as_attachment=True, download_name=nome_download)
+
+
+@app.route('/assinaturas/<int:id>/excluir', methods=['POST'])
+@login_required
+@empresa_required
+def excluir_assinatura(id):
+    u = get_current_user()
+    doc = DocumentoAssinatura.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    for nome_fs in (doc.arquivo_original, doc.arquivo_assinado):
+        if nome_fs:
+            caminho = _caminho_assinatura_fs(nome_fs)
+            if os.path.isfile(caminho):
+                os.remove(caminho)
+    db.session.delete(doc)
+    db.session.commit()
+    flash('Documento removido.', 'success')
+    return redirect(url_for('listar_assinaturas'))
+
+
+@app.route('/assinaturas/certificado', methods=['GET', 'POST'])
+@login_required
+@empresa_required
+def certificado_assinatura():
+    u = get_current_user()
+    cert = CertificadoDigitalUsuario.query.filter_by(usuario_id=u.id).first()
+    if request.method == 'POST':
+        arquivo = request.files.get('arquivo_certificado')
+        senha = request.form.get('senha_certificado', '')
+        if not arquivo or not arquivo.filename:
+            flash('Selecione o arquivo do certificado (.pfx ou .p12).', 'warning')
+            return redirect(url_for('certificado_assinatura'))
+        if not senha:
+            flash('Digite a senha do certificado pra confirmar que ele é válido.', 'warning')
+            return redirect(url_for('certificado_assinatura'))
+        dados = arquivo.read()
+        try:
+            import re
+            from cryptography.hazmat.primitives.serialization import pkcs12
+            _, certificado, _ = pkcs12.load_key_and_certificates(dados, senha.encode())
+            if certificado is None:
+                raise ValueError('Arquivo não contém certificado.')
+            subject = certificado.subject.rfc4514_string()
+            cn = ''
+            for parte in certificado.subject:
+                if parte.oid._name == 'commonName':
+                    cn = parte.value
+                    break
+            titular_nome = cn.split(':')[0].strip() if cn else subject
+            doc_match = re.search(r':(\d{11}|\d{14})', cn) if cn else None
+            titular_documento = doc_match.group(1) if doc_match else None
+            emissor = certificado.issuer.rfc4514_string()
+            valido_de  = certificado.not_valid_before_utc.replace(tzinfo=None)
+            valido_ate = certificado.not_valid_after_utc.replace(tzinfo=None)
+        except Exception as e:
+            flash(f'Não consegui abrir esse certificado -- confira o arquivo e a senha. ({e})', 'danger')
+            return redirect(url_for('certificado_assinatura'))
+
+        if not cert:
+            cert = CertificadoDigitalUsuario(usuario_id=u.id)
+            db.session.add(cert)
+        cert.nome_arquivo = secure_filename(arquivo.filename)
+        cert.set_arquivo(dados)
+        cert.titular_nome = titular_nome
+        cert.titular_documento = titular_documento
+        cert.emissor = emissor
+        cert.valido_de = valido_de
+        cert.valido_ate = valido_ate
+        db.session.commit()
+        logger.info(f'Certificado ICP-Brasil cadastrado por {u.usuario} ({titular_nome})')
+        flash('Certificado cadastrado! A senha não fica salva -- você vai digitar de novo a cada assinatura.', 'success')
+        return redirect(url_for('listar_assinaturas'))
+    return render_template('certificado_assinatura.html', cert=cert)
+
+
+@app.route('/assinaturas/certificado/excluir', methods=['POST'])
+@login_required
+@empresa_required
+def excluir_certificado_assinatura():
+    u = get_current_user()
+    cert = CertificadoDigitalUsuario.query.filter_by(usuario_id=u.id).first_or_404()
+    db.session.delete(cert)
+    db.session.commit()
+    flash('Certificado removido.', 'success')
+    return redirect(url_for('listar_assinaturas'))
+
+
+@app.route('/assinaturas/minha-assinatura', methods=['GET', 'POST'])
+@login_required
+@empresa_required
+def minha_assinatura_salva():
+    u = get_current_user()
+    if request.method == 'POST':
+        arquivo = request.files.get('arquivo_assinatura')
+        if not arquivo or not arquivo.filename:
+            flash('Selecione uma imagem (PNG ou JPG) da sua assinatura.', 'warning')
+            return redirect(url_for('minha_assinatura_salva'))
+        mimetype = arquivo.mimetype or 'image/png'
+        if mimetype not in ('image/png', 'image/jpeg'):
+            flash('Envie uma imagem PNG ou JPG.', 'warning')
+            return redirect(url_for('minha_assinatura_salva'))
+        u.assinatura_salva = arquivo.read()
+        u.assinatura_salva_mimetype = mimetype
+        db.session.commit()
+        flash('Assinatura salva no seu perfil! Agora é só escolher "Usar assinatura salva" ao assinar um documento.', 'success')
+        return redirect(url_for('listar_assinaturas'))
+    return render_template('minha_assinatura_salva.html')
+
+
+@app.route('/assinaturas/minha-assinatura/imagem')
+@login_required
+@empresa_required
+def minha_assinatura_salva_imagem():
+    u = get_current_user()
+    if not u.assinatura_salva:
+        abort(404)
+    return send_file(io.BytesIO(u.assinatura_salva),
+                      mimetype=u.assinatura_salva_mimetype or 'image/png')
+
+
+@app.route('/assinaturas/minha-assinatura/remover', methods=['POST'])
+@login_required
+@empresa_required
+def remover_minha_assinatura_salva():
+    u = get_current_user()
+    u.assinatura_salva = None
+    u.assinatura_salva_mimetype = None
+    db.session.commit()
+    flash('Assinatura salva removida do seu perfil.', 'success')
+    return redirect(url_for('listar_assinaturas'))
+
+
+# ============================================================
+# NEURA ASSINADOR -- versão PÚBLICA (sem login) do módulo de Assinatura
+# de Documentos, pra abrir e assinar rápido pelo celular, sem precisar
+# logar no sistema inteiro. Qualquer um com o link pode subir um PDF e
+# assinar (imagem/hash ou certificado ICP-Brasil). Documentos aqui não
+# têm dono (usuario_id NULL) -- identificados só pelo token da URL, e
+# apagados automaticamente depois de 24h (ver _loop_limpeza_assinador_publico).
+#
+# No método ICP-Brasil aqui, o certificado é enviado JUNTO na própria
+# requisição de assinar (upload + senha) e nunca fica salvo em lugar
+# nenhum -- não existe usuário dono pra guardá-lo com segurança.
+# ============================================================
+
+@app.route('/assinador', methods=['GET', 'POST'])
+@limiter.limit('20 per hour')
+def assinador_publico():
+    if request.method == 'POST':
+        arquivo = request.files.get('arquivo')
+        if not arquivo or not arquivo.filename or not arquivo.filename.lower().endswith('.pdf'):
+            flash('Selecione um arquivo PDF.', 'warning')
+            return redirect(url_for('assinador_publico'))
+        token = uuid.uuid4().hex
+        doc = DocumentoAssinatura(usuario_id=None, token_publico=token,
+                                   nome_arquivo=secure_filename(arquivo.filename) or 'documento.pdf',
+                                   status='pendente', pagina=1, largura_pct=25.0)
+        db.session.add(doc)
+        db.session.flush()
+        nome_fs = f'pub_{doc.id}_original.pdf'
+        caminho = _caminho_assinatura_fs(nome_fs)
+        arquivo.save(caminho)
+        try:
+            _, _, num_paginas = _pdf_tamanho_pagina(caminho, 0)
+        except Exception as e:
+            db.session.delete(doc)
+            db.session.commit()
+            os.remove(caminho)
+            flash(f'Não consegui ler esse PDF: {e}', 'danger')
+            return redirect(url_for('assinador_publico'))
+        doc.arquivo_original = nome_fs
+        doc.num_paginas = num_paginas
+        db.session.commit()
+        return redirect(url_for('assinador_publico_assinar', token=token))
+    return render_template('assinador_publico.html')
+
+
+@app.route('/assinador/<token>/pagina/<int:pagina>.png')
+@limiter.limit('60 per hour')
+def assinador_publico_pagina_png(token, pagina):
+    doc = DocumentoAssinatura.query.filter_by(token_publico=token, usuario_id=None).first_or_404()
+    import pypdfium2 as pdfium
+    caminho = _caminho_assinatura_fs(doc.arquivo_original)
+    pdf = pdfium.PdfDocument(caminho)
+    idx = max(0, min(pagina - 1, len(pdf) - 1))
+    pag = pdf[idx]
+    bitmap = pag.render(scale=1.5)
+    pil_img = bitmap.to_pil()
+    pdf.close()
+    buf = io.BytesIO()
+    pil_img.save(buf, format='PNG')
+    buf.seek(0)
+    return send_file(buf, mimetype='image/png')
+
+
+@app.route('/assinador/<token>', methods=['GET', 'POST'])
+@limiter.limit('20 per hour')
+def assinador_publico_assinar(token):
+    doc = DocumentoAssinatura.query.filter_by(token_publico=token, usuario_id=None).first_or_404()
+    if doc.status == 'assinado':
+        return render_template('assinador_publico_sucesso.html', doc=doc)
+
+    if request.method == 'POST':
+        doc.pagina      = request.form.get('pagina', type=int) or 1
+        doc.pos_x_pct   = request.form.get('pos_x_pct', type=float)
+        doc.pos_y_pct   = request.form.get('pos_y_pct', type=float)
+        doc.largura_pct = request.form.get('largura_pct', type=float) or 25.0
+        metodo = request.form.get('metodo', '')
+        db.session.commit()
+
+        if doc.pos_x_pct is None or doc.pos_y_pct is None:
+            flash('Marque no documento onde a assinatura vai ficar.', 'warning')
+            return redirect(url_for('assinador_publico_assinar', token=token))
+
+        if metodo == 'simples':
+            imagem_bytes = None
+            assinatura_canvas = request.form.get('assinatura_canvas_png', '')
+            if assinatura_canvas.startswith('data:image'):
+                imagem_bytes = base64.b64decode(assinatura_canvas.split(',', 1)[1])
+            elif request.files.get('assinatura_imagem') and request.files['assinatura_imagem'].filename:
+                imagem_bytes = request.files['assinatura_imagem'].read()
+            if not imagem_bytes:
+                flash('Desenhe ou envie uma imagem da sua assinatura.', 'warning')
+                return redirect(url_for('assinador_publico_assinar', token=token))
+            nome = request.form.get('assinante_nome', '').strip()
+            cpf  = request.form.get('assinante_cpf', '').strip()
+            ok, erro = _assinar_pdf_simples(doc, imagem_bytes, nome, cpf, _ip_cliente_real())
+        elif metodo == 'icp_brasil':
+            arq_cert = request.files.get('arquivo_certificado')
+            senha_cert = request.form.get('senha_certificado', '')
+            if not arq_cert or not arq_cert.filename:
+                flash('Envie o arquivo do seu certificado (.pfx ou .p12).', 'warning')
+                return redirect(url_for('assinador_publico_assinar', token=token))
+            if not senha_cert:
+                flash('Digite a senha do certificado.', 'warning')
+                return redirect(url_for('assinador_publico_assinar', token=token))
+            pfx_bytes = arq_cert.read()
+            ok, erro = _assinar_pdf_icp_brasil(doc, pfx_bytes, senha_cert)
+        else:
+            flash('Escolha um método de assinatura.', 'warning')
+            return redirect(url_for('assinador_publico_assinar', token=token))
+
+        if ok:
+            doc.metodo = metodo
+            doc.status = 'assinado'
+            doc.assinado_em = datetime.now()
+            db.session.commit()
+            return redirect(url_for('assinador_publico_assinar', token=token))
+        else:
+            doc.status = 'erro'
+            doc.erro_msg = erro
+            db.session.commit()
+            flash(f'Erro ao assinar: {erro}', 'danger')
+            return redirect(url_for('assinador_publico_assinar', token=token))
+
+    return render_template('assinador_publico_form.html', doc=doc)
+
+
+@app.route('/assinador/<token>/baixar/<tipo>')
+@limiter.limit('30 per hour')
+def assinador_publico_baixar(token, tipo):
+    doc = DocumentoAssinatura.query.filter_by(token_publico=token, usuario_id=None).first_or_404()
+    nome_fs = doc.arquivo_assinado if tipo == 'assinado' else doc.arquivo_original
+    if not nome_fs:
+        abort(404)
+    caminho = _caminho_assinatura_fs(nome_fs)
+    if not os.path.isfile(caminho):
+        abort(404)
+    nome_download = f"{'assinado' if tipo == 'assinado' else 'original'}_{doc.nome_arquivo}"
+    return send_file(caminho, mimetype='application/pdf', as_attachment=True, download_name=nome_download)
+
+
+def _loop_limpeza_assinador_publico():
+    """Apaga documentos do Neura Assinador (público, sem login) depois de
+    24h -- não tem usuário dono pra gerenciar/limpar sozinho, e é um
+    endpoint público, então não pode acumular pra sempre."""
+    while True:
+        try:
+            with app.app_context():
+                limite = datetime.now() - timedelta(hours=24)
+                antigos = DocumentoAssinatura.query.filter(
+                    DocumentoAssinatura.usuario_id.is_(None),
+                    DocumentoAssinatura.criado_em < limite).all()
+                for doc in antigos:
+                    for nome_fs in (doc.arquivo_original, doc.arquivo_assinado):
+                        if nome_fs:
+                            caminho = _caminho_assinatura_fs(nome_fs)
+                            if os.path.isfile(caminho):
+                                os.remove(caminho)
+                    db.session.delete(doc)
+                if antigos:
+                    db.session.commit()
+                    logger.info(f'[ASSINADOR] {len(antigos)} documento(s) público(s) antigo(s) removido(s).')
+        except Exception as e:
+            logger.exception(f'[ASSINADOR] Erro na limpeza: {e}')
+        time.sleep(3600)  # confere a cada hora
+
+_t_limpeza_assinador_publico = threading.Thread(target=_loop_limpeza_assinador_publico, daemon=True, name='LimpezaAssinadorPublico')
+_t_limpeza_assinador_publico.start()
 
 
 # ─── ERROS ─────────────────────────────────────────────────────────────────────
