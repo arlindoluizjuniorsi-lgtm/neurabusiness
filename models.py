@@ -1138,17 +1138,37 @@ class DocumentoAssinatura(db.Model):
     usuario = db.relationship('Usuario', backref=db.backref('documentos_assinatura', lazy=True, cascade='all, delete-orphan'))
 
 
+class ContaEscaneamento(db.Model):
+    """Conta pública (self-signup, pelo link /escanear-publico) só pro
+    módulo "Escanear Documentos" externo -- sem ligação nenhuma com o
+    sistema de usuários/empresas interno do NeuraBusiness. Qualquer um
+    cria a própria conta (email+senha) e os documentos ficam só dela."""
+    __tablename__ = 'contas_escaneamento'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    nome       = db.Column(db.String(150))
+    email      = db.Column(db.String(200), unique=True, nullable=False)
+    senha_hash = db.Column(db.String(300), nullable=False)
+    ativo      = db.Column(db.Boolean, default=True)
+    criado_em  = db.Column(db.DateTime, default=datetime.now)
+
+
 class DocumentoEscaneado(db.Model):
     """PDF gerado pelo módulo "Escanear Documentos" -- fotos tiradas pela
     câmera do celular (ou enviadas de um arquivo), recortadas/endireitadas
     na hora no próprio navegador (usuário ajusta os 4 cantos, sem precisar
     de IA/OpenCV) e juntadas num único PDF. "pasta" é só texto livre
     digitado na hora de salvar -- organiza a listagem, não é uma
-    hierarquia de verdade."""
+    hierarquia de verdade.
+
+    Pertence a exatamente UM dos dois donos possíveis: usuario_id (staff
+    interno do NeuraBusiness) OU conta_publica_id (conta criada pelo link
+    público) -- nunca os dois, nunca nenhum."""
     __tablename__ = 'documentos_escaneados'
 
-    id           = db.Column(db.Integer, primary_key=True)
-    usuario_id   = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    id               = db.Column(db.Integer, primary_key=True)
+    usuario_id       = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
+    conta_publica_id = db.Column(db.Integer, db.ForeignKey('contas_escaneamento.id'), nullable=True)
     pasta        = db.Column(db.String(100), nullable=False, default='Geral')
     nome_arquivo = db.Column(db.String(200), nullable=False)
     arquivo      = db.Column(db.String(300), nullable=False)   # caminho relativo na pasta privada
@@ -1156,4 +1176,5 @@ class DocumentoEscaneado(db.Model):
     criado_em    = db.Column(db.DateTime, default=datetime.now)
 
     usuario = db.relationship('Usuario', backref=db.backref('documentos_escaneados', lazy=True, cascade='all, delete-orphan'))
+    conta_publica = db.relationship('ContaEscaneamento', backref=db.backref('documentos', lazy=True, cascade='all, delete-orphan'))
     criado_em           = db.Column(db.DateTime, default=datetime.now)

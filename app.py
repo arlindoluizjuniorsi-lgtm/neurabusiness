@@ -26,7 +26,8 @@ from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CartaoPessoal, GastoPessoal, RendaPessoal, GastoCarro, GastoCasa,
                     VeiculoPessoal, RevisaoCarro, ManutencaoRecorrente, ItemVendaTroca,
                     SimulacaoTrocaCarro, TIPOS_DOCUMENTO_PROPOSTA,
-                    CertificadoDigitalUsuario, DocumentoAssinatura, DocumentoEscaneado)
+                    CertificadoDigitalUsuario, DocumentoAssinatura, DocumentoEscaneado,
+                    ContaEscaneamento)
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -158,6 +159,23 @@ def empresa_required(f):
     def dec(*a, **kw):
         if 'empresa_id' not in session:
             return redirect(url_for('login'))
+        return f(*a, **kw)
+    return dec
+
+# ─── CONTA PÚBLICA (Escanear Documentos externo) ───────────────────────────────
+# Sessão própria (session['conta_publica_id']), sem nenhuma relação com
+# user_id/empresa_id do staff interno -- de propósito, pra uma conta
+# pública nunca conseguir ver nada do sistema interno, nem o inverso.
+def get_conta_publica():
+    if 'conta_publica_id' not in session:
+        return None
+    return ContaEscaneamento.query.filter_by(id=session['conta_publica_id'], ativo=True).first()
+
+def conta_publica_required(f):
+    @wraps(f)
+    def dec(*a, **kw):
+        if not get_conta_publica():
+            return redirect(url_for('escanear_publico_entrar'))
         return f(*a, **kw)
     return dec
 
@@ -5356,6 +5374,184 @@ def excluir_documento_escaneado(id):
     if restantes:
         return redirect(url_for('listar_documentos_escaneados', pasta=pasta))
     return redirect(url_for('listar_pastas_escaneadas'))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ESCANEAR DOCUMENTOS -- LINK PÚBLICO (self-signup, sem relação com o staff
+# interno do NeuraBusiness). Mesmo motor de recorte/PDF de cima, mas com
+# conta própria (email+senha) e um limite de documentos por conta pra não
+# virar hospedagem de arquivo de graça pra qualquer um da internet.
+# ─────────────────────────────────────────────────────────────────────────────
+LIMITE_DOCS_CONTA_PUBLICA = 50
+
+
+@app.route('/escanear-publico')
+def escanear_publico_raiz():
+    if get_conta_publica():
+        return redirect(url_for('escanear_publico_pastas'))
+    return redirect(url_for('escanear_publico_entrar'))
+
+
+@app.route('/escanear-publico/cadastro', methods=['GET', 'POST'])
+@limiter.limit('10 per hour')
+def escanear_publico_cadastro():
+    if get_conta_publica():
+        return redirect(url_for('escanear_publico_pastas'))
+    if request.method == 'POST':
+        nome = (request.form.get('nome') or '').strip()[:150]
+        email = (request.form.get('email') or '').strip().lower()[:200]
+        senha = request.form.get('senha') or ''
+        if not email or '@' not in email:
+            flash('Informe um e-mail válido.', 'warning')
+            return redirect(url_for('escanear_publico_cadastro'))
+        if len(senha) < 6:
+            flash('A senha precisa ter pelo menos 6 caracteres.', 'warning')
+            return redirect(url_for('escanear_publico_cadastro'))
+        if ContaEscaneamento.query.filter_by(email=email).first():
+            flash('Já existe uma conta com esse e-mail.', 'warning')
+            return redirect(url_for('escanear_publico_cadastro'))
+        conta = ContaEscaneamento(nome=nome or None, email=email,
+                                   senha_hash=generate_password_hash(senha))
+        db.session.add(conta)
+        db.session.commit()
+        session.clear()
+        session['conta_publica_id'] = conta.id
+        return redirect(url_for('escanear_publico_pastas'))
+    return render_template('escanear_publico_cadastro.html')
+
+
+@app.route('/escanear-publico/entrar', methods=['GET', 'POST'])
+@limiter.limit('20 per hour')
+def escanear_publico_entrar():
+    if get_conta_publica():
+        return redirect(url_for('escanear_publico_pastas'))
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip().lower()
+        senha = request.form.get('senha') or ''
+        conta = ContaEscaneamento.query.filter_by(email=email, ativo=True).first()
+        if not conta or not check_password_hash(conta.senha_hash, senha):
+            flash('E-mail ou senha incorretos.', 'danger')
+            return redirect(url_for('escanear_publico_entrar'))
+        session.clear()
+        session['conta_publica_id'] = conta.id
+        return redirect(url_for('escanear_publico_pastas'))
+    return render_template('escanear_publico_entrar.html')
+
+
+@app.route('/escanear-publico/sair')
+def escanear_publico_sair():
+    session.pop('conta_publica_id', None)
+    return redirect(url_for('escanear_publico_entrar'))
+
+
+@app.route('/escanear-publico/pastas')
+@conta_publica_required
+def escanear_publico_pastas():
+    conta = get_conta_publica()
+    linhas = db.session.query(
+        DocumentoEscaneado.pasta,
+        func.count(DocumentoEscaneado.id),
+        func.max(DocumentoEscaneado.criado_em),
+    ).filter_by(conta_publica_id=conta.id).group_by(DocumentoEscaneado.pasta)\
+     .order_by(func.max(DocumentoEscaneado.criado_em).desc()).all()
+    pastas = [{'nome': nome, 'total': total, 'ultimo': ultimo} for nome, total, ultimo in linhas]
+    total_docs = DocumentoEscaneado.query.filter_by(conta_publica_id=conta.id).count()
+    return render_template('escanear_publico_pastas.html', conta=conta, pastas=pastas,
+                            total_docs=total_docs, limite=LIMITE_DOCS_CONTA_PUBLICA)
+
+
+@app.route('/escanear-publico/pasta/<pasta>')
+@conta_publica_required
+def escanear_publico_pasta(pasta):
+    conta = get_conta_publica()
+    documentos = DocumentoEscaneado.query.filter_by(conta_publica_id=conta.id, pasta=pasta)\
+        .order_by(DocumentoEscaneado.criado_em.desc()).all()
+    if not documentos:
+        abort(404)
+    return render_template('escanear_publico_documentos.html', conta=conta, pasta=pasta, documentos=documentos)
+
+
+@app.route('/escanear-publico/novo')
+@conta_publica_required
+def escanear_publico_novo():
+    conta = get_conta_publica()
+    pastas_existentes = [p[0] for p in db.session.query(DocumentoEscaneado.pasta)
+                         .filter_by(conta_publica_id=conta.id).distinct().order_by(DocumentoEscaneado.pasta).all()]
+    pasta_sugerida = request.args.get('pasta', '')
+    total_docs = DocumentoEscaneado.query.filter_by(conta_publica_id=conta.id).count()
+    if total_docs >= LIMITE_DOCS_CONTA_PUBLICA:
+        flash(f'Limite de {LIMITE_DOCS_CONTA_PUBLICA} documentos por conta atingido. Exclua algum pra liberar espaço.', 'warning')
+        return redirect(url_for('escanear_publico_pastas'))
+    return render_template('escanear_publico_novo.html', conta=conta,
+                            pastas_existentes=pastas_existentes, pasta_sugerida=pasta_sugerida)
+
+
+@app.route('/escanear-publico/salvar', methods=['POST'])
+@csrf.exempt
+@conta_publica_required
+def escanear_publico_salvar():
+    from PIL import Image
+    conta = get_conta_publica()
+    total_docs = DocumentoEscaneado.query.filter_by(conta_publica_id=conta.id).count()
+    if total_docs >= LIMITE_DOCS_CONTA_PUBLICA:
+        return jsonify({'ok': False, 'erro': f'Limite de {LIMITE_DOCS_CONTA_PUBLICA} documentos atingido.'}), 400
+
+    paginas = request.files.getlist('paginas')
+    pasta = (request.form.get('pasta') or 'Geral').strip()[:100] or 'Geral'
+    nome = (request.form.get('nome') or '').strip()[:150]
+    if not paginas:
+        return jsonify({'ok': False, 'erro': 'Nenhuma página recebida.'}), 400
+
+    try:
+        imagens = [Image.open(p.stream).convert('RGB') for p in paginas]
+    except Exception as e:
+        return jsonify({'ok': False, 'erro': f'Não consegui ler as imagens: {e}'}), 400
+
+    nome_fs = f'{uuid.uuid4().hex}.pdf'
+    caminho = _caminho_escaneado_fs(nome_fs)
+    primeira, *resto = imagens
+    if resto:
+        primeira.save(caminho, save_all=True, append_images=resto)
+    else:
+        primeira.save(caminho)
+
+    doc = DocumentoEscaneado(conta_publica_id=conta.id, pasta=pasta,
+                              nome_arquivo=(nome or 'Documento') + '.pdf',
+                              arquivo=nome_fs, num_paginas=len(imagens))
+    db.session.add(doc)
+    db.session.commit()
+
+    return jsonify({'ok': True, 'pasta': pasta, 'redirect': url_for('escanear_publico_pasta', pasta=pasta)})
+
+
+@app.route('/escanear-publico/<int:id>/arquivo')
+@conta_publica_required
+def escanear_publico_baixar(id):
+    conta = get_conta_publica()
+    doc = DocumentoEscaneado.query.filter_by(id=id, conta_publica_id=conta.id).first_or_404()
+    caminho = _caminho_escaneado_fs(doc.arquivo)
+    if not os.path.isfile(caminho):
+        abort(404)
+    inline = request.args.get('inline') == '1'
+    return send_file(caminho, mimetype='application/pdf', as_attachment=not inline, download_name=doc.nome_arquivo)
+
+
+@app.route('/escanear-publico/<int:id>/excluir', methods=['POST'])
+@conta_publica_required
+def escanear_publico_excluir(id):
+    conta = get_conta_publica()
+    doc = DocumentoEscaneado.query.filter_by(id=id, conta_publica_id=conta.id).first_or_404()
+    pasta = doc.pasta
+    caminho = _caminho_escaneado_fs(doc.arquivo)
+    if os.path.isfile(caminho):
+        os.remove(caminho)
+    db.session.delete(doc)
+    db.session.commit()
+    flash('Documento removido.', 'success')
+    restantes = DocumentoEscaneado.query.filter_by(conta_publica_id=conta.id, pasta=pasta).count()
+    if restantes:
+        return redirect(url_for('escanear_publico_pasta', pasta=pasta))
+    return redirect(url_for('escanear_publico_pastas'))
 
 
 # ─── ERROS ─────────────────────────────────────────────────────────────────────
