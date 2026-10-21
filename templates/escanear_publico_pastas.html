@@ -24,6 +24,7 @@
     <div class="logo"><i class="fas fa-camera me-2"></i>Escanear Documentos</div>
     <div class="small text-muted">
       {{ conta.nome or conta.email }} &middot;
+      <a href="{{ url_for('escanear_publico_listar_assinaturas') }}">Assinaturas</a> &middot;
       <a href="{{ url_for('escanear_publico_sair') }}">Sair</a>
     </div>
   </div>

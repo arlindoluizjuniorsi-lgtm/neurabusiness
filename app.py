@@ -4944,7 +4944,12 @@ def assinar_documento(id):
             return redirect(url_for('assinar_documento', id=id))
 
     cert = CertificadoDigitalUsuario.query.filter_by(usuario_id=u.id).first()
-    return render_template('assinar_documento.html', doc=doc, cert=cert)
+    return render_template('assinar_documento.html', doc=doc, cert=cert,
+                            tem_assinatura_salva=bool(u.assinatura_salva),
+                            url_assinatura_salva_imagem=url_for('minha_assinatura_salva_imagem'),
+                            url_listar_assinaturas=url_for('listar_assinaturas'),
+                            url_certificado=url_for('certificado_assinatura'),
+                            url_pagina_png_base='/assinaturas')
 
 
 @app.route('/assinaturas/<int:id>/arquivo/<tipo>')
@@ -5594,6 +5599,304 @@ def escanear_publico_excluir(id):
     if restantes:
         return redirect(url_for('escanear_publico_pasta', pasta=pasta))
     return redirect(url_for('escanear_publico_pastas'))
+
+
+@app.route('/escanear-publico/<int:id>/assinar', methods=['POST'])
+@conta_publica_required
+def escanear_publico_enviar_para_assinatura(id):
+    """Mesma lógica de enviar_escaneado_para_assinatura, só que pra conta
+    pública -- copia o PDF escaneado pro módulo de assinatura PÚBLICO
+    (DocumentoAssinatura com conta_publica_id, nunca usuario_id)."""
+    import shutil
+    conta = get_conta_publica()
+    origem = DocumentoEscaneado.query.filter_by(id=id, conta_publica_id=conta.id).first_or_404()
+    caminho_origem = _caminho_escaneado_fs(origem.arquivo)
+    if not os.path.isfile(caminho_origem):
+        flash('Arquivo escaneado não encontrado.', 'danger')
+        return redirect(url_for('escanear_publico_pasta', pasta=origem.pasta))
+
+    doc = DocumentoAssinatura(conta_publica_id=conta.id, nome_arquivo=origem.nome_arquivo,
+                               status='pendente', pagina=1, largura_pct=25.0)
+    db.session.add(doc)
+    db.session.flush()
+    nome_fs = f'{doc.id}_original.pdf'
+    caminho_destino = _caminho_assinatura_fs(nome_fs)
+    shutil.copyfile(caminho_origem, caminho_destino)
+    try:
+        _, _, num_paginas = _pdf_tamanho_pagina(caminho_destino, 0)
+    except Exception as e:
+        db.session.delete(doc)
+        db.session.commit()
+        os.remove(caminho_destino)
+        flash(f'Não consegui ler esse PDF: {e}', 'danger')
+        return redirect(url_for('escanear_publico_pasta', pasta=origem.pasta))
+    doc.arquivo_original = nome_fs
+    doc.num_paginas = num_paginas
+    db.session.commit()
+    return redirect(url_for('escanear_publico_assinar_documento', id=doc.id))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ASSINATURA DE DOCUMENTOS -- versão pública (contas de /escanear-publico).
+# Mesmas funções de assinatura de verdade (_assinar_pdf_simples,
+# _assinar_pdf_icp_brasil) e o mesmo armazenamento (_caminho_assinatura_fs) do
+# fluxo interno -- só a dona do documento muda (conta_publica_id em vez de
+# usuario_id). Template compartilhado via _assinar_documento_conteudo.html.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route('/escanear-publico/assinaturas')
+@conta_publica_required
+def escanear_publico_listar_assinaturas():
+    conta = get_conta_publica()
+    documentos = DocumentoAssinatura.query.filter_by(conta_publica_id=conta.id)\
+        .order_by(DocumentoAssinatura.criado_em.desc()).all()
+    cert = CertificadoDigitalUsuario.query.filter_by(conta_publica_id=conta.id).first()
+    return render_template('assinaturas_publico.html', conta=conta, documentos=documentos, cert=cert)
+
+
+@app.route('/escanear-publico/assinaturas/<int:id>/pagina/<int:pagina>.png')
+@conta_publica_required
+def escanear_publico_assinatura_pagina_png(id, pagina):
+    conta = get_conta_publica()
+    doc = DocumentoAssinatura.query.filter_by(id=id, conta_publica_id=conta.id).first_or_404()
+    import pypdfium2 as pdfium
+    caminho = _caminho_assinatura_fs(doc.arquivo_original)
+    pdf = pdfium.PdfDocument(caminho)
+    idx = max(0, min(pagina - 1, len(pdf) - 1))
+    pag = pdf[idx]
+    bitmap = pag.render(scale=1.5)
+    pil_img = bitmap.to_pil()
+    pdf.close()
+    buf = io.BytesIO()
+    pil_img.save(buf, format='PNG')
+    buf.seek(0)
+    return send_file(buf, mimetype='image/png')
+
+
+@app.route('/escanear-publico/assinaturas/<int:id>/assinar', methods=['GET', 'POST'])
+@conta_publica_required
+def escanear_publico_assinar_documento(id):
+    conta = get_conta_publica()
+    doc = DocumentoAssinatura.query.filter_by(id=id, conta_publica_id=conta.id).first_or_404()
+    if doc.status == 'assinado':
+        flash('Esse documento já foi assinado.', 'info')
+        return redirect(url_for('escanear_publico_listar_assinaturas'))
+
+    if request.method == 'POST':
+        doc.pagina      = request.form.get('pagina', type=int) or 1
+        doc.pos_x_pct   = request.form.get('pos_x_pct', type=float)
+        doc.pos_y_pct   = request.form.get('pos_y_pct', type=float)
+        doc.largura_pct = request.form.get('largura_pct', type=float) or 25.0
+        metodo = request.form.get('metodo', '')
+        db.session.commit()
+
+        if doc.pos_x_pct is None or doc.pos_y_pct is None:
+            flash('Clique no documento pra marcar onde a assinatura vai ficar.', 'warning')
+            return redirect(url_for('escanear_publico_assinar_documento', id=id))
+
+        if metodo == 'simples':
+            origem = request.form.get('origem_assinatura', '')
+            imagem_bytes = None
+            mimetype_enviado = None
+            if origem == 'salva':
+                if not conta.assinatura_salva:
+                    flash('Você não tem uma assinatura salva no perfil.', 'warning')
+                    return redirect(url_for('escanear_publico_assinar_documento', id=id))
+                imagem_bytes = conta.assinatura_salva
+            else:
+                assinatura_canvas = request.form.get('assinatura_canvas_png', '')
+                if assinatura_canvas.startswith('data:image'):
+                    imagem_bytes = base64.b64decode(assinatura_canvas.split(',', 1)[1])
+                    mimetype_enviado = 'image/png'
+                elif request.files.get('assinatura_imagem') and request.files['assinatura_imagem'].filename:
+                    arq_img = request.files['assinatura_imagem']
+                    mimetype_enviado = arq_img.mimetype or 'image/png'
+                    imagem_bytes = arq_img.read()
+            if not imagem_bytes:
+                flash('Desenhe, envie ou escolha uma assinatura salva.', 'warning')
+                return redirect(url_for('escanear_publico_assinar_documento', id=id))
+            if request.form.get('salvar_assinatura_perfil') == 'on' and origem != 'salva':
+                conta.assinatura_salva = imagem_bytes
+                conta.assinatura_salva_mimetype = mimetype_enviado or 'image/png'
+            nome = request.form.get('assinante_nome', '').strip()
+            cpf  = request.form.get('assinante_cpf', '').strip()
+            ok, erro = _assinar_pdf_simples(doc, imagem_bytes, nome, cpf, _ip_cliente_real())
+        elif metodo == 'icp_brasil':
+            cert = CertificadoDigitalUsuario.query.filter_by(conta_publica_id=conta.id).first()
+            if not cert:
+                flash('Você ainda não tem um certificado cadastrado.', 'warning')
+                return redirect(url_for('escanear_publico_certificado'))
+            senha_cert = request.form.get('senha_certificado', '')
+            if not senha_cert:
+                flash('Digite a senha do certificado.', 'warning')
+                return redirect(url_for('escanear_publico_assinar_documento', id=id))
+            ok, erro = _assinar_pdf_icp_brasil(doc, cert.get_arquivo(), senha_cert,
+                                                titular_fallback=cert.titular_nome,
+                                                validade_conhecida=cert.valido_ate)
+        else:
+            flash('Escolha um método de assinatura.', 'warning')
+            return redirect(url_for('escanear_publico_assinar_documento', id=id))
+
+        if ok:
+            doc.metodo = metodo
+            doc.status = 'assinado'
+            doc.assinado_em = datetime.now()
+            db.session.commit()
+            logger.info(f'Documento de assinatura #{doc.id} ("{doc.nome_arquivo}") assinado pela conta pública {conta.email} ({metodo})')
+            flash('Documento assinado com sucesso!', 'success')
+            return redirect(url_for('escanear_publico_listar_assinaturas'))
+        else:
+            doc.status = 'erro'
+            doc.erro_msg = erro
+            db.session.commit()
+            flash(f'Erro ao assinar: {erro}', 'danger')
+            return redirect(url_for('escanear_publico_assinar_documento', id=id))
+
+    cert = CertificadoDigitalUsuario.query.filter_by(conta_publica_id=conta.id).first()
+    return render_template('assinar_documento_publico.html', conta=conta, doc=doc, cert=cert,
+                            tem_assinatura_salva=bool(conta.assinatura_salva),
+                            url_assinatura_salva_imagem=url_for('escanear_publico_assinatura_imagem'),
+                            url_listar_assinaturas=url_for('escanear_publico_listar_assinaturas'),
+                            url_certificado=url_for('escanear_publico_certificado'),
+                            url_pagina_png_base='/escanear-publico/assinaturas')
+
+
+@app.route('/escanear-publico/assinaturas/<int:id>/arquivo/<tipo>')
+@conta_publica_required
+def escanear_publico_baixar_assinatura(id, tipo):
+    conta = get_conta_publica()
+    doc = DocumentoAssinatura.query.filter_by(id=id, conta_publica_id=conta.id).first_or_404()
+    nome_fs = doc.arquivo_assinado if tipo == 'assinado' else doc.arquivo_original
+    if not nome_fs:
+        abort(404)
+    caminho = _caminho_assinatura_fs(nome_fs)
+    if not os.path.isfile(caminho):
+        abort(404)
+    nome_download = f"{'assinado' if tipo == 'assinado' else 'original'}_{doc.nome_arquivo}"
+    return send_file(caminho, mimetype='application/pdf', as_attachment=True, download_name=nome_download)
+
+
+@app.route('/escanear-publico/assinaturas/<int:id>/excluir', methods=['POST'])
+@conta_publica_required
+def escanear_publico_excluir_assinatura(id):
+    conta = get_conta_publica()
+    doc = DocumentoAssinatura.query.filter_by(id=id, conta_publica_id=conta.id).first_or_404()
+    for nome_fs in (doc.arquivo_original, doc.arquivo_assinado):
+        if nome_fs:
+            caminho = _caminho_assinatura_fs(nome_fs)
+            if os.path.isfile(caminho):
+                os.remove(caminho)
+    db.session.delete(doc)
+    db.session.commit()
+    flash('Documento removido.', 'success')
+    return redirect(url_for('escanear_publico_listar_assinaturas'))
+
+
+@app.route('/escanear-publico/certificado', methods=['GET', 'POST'])
+@conta_publica_required
+def escanear_publico_certificado():
+    conta = get_conta_publica()
+    cert = CertificadoDigitalUsuario.query.filter_by(conta_publica_id=conta.id).first()
+    if request.method == 'POST':
+        arquivo = request.files.get('arquivo_certificado')
+        senha = request.form.get('senha_certificado', '')
+        if not arquivo or not arquivo.filename:
+            flash('Selecione o arquivo do certificado (.pfx ou .p12).', 'warning')
+            return redirect(url_for('escanear_publico_certificado'))
+        if not senha:
+            flash('Digite a senha do certificado pra confirmar que ele é válido.', 'warning')
+            return redirect(url_for('escanear_publico_certificado'))
+        dados = arquivo.read()
+        try:
+            import re
+            from cryptography.hazmat.primitives.serialization import pkcs12
+            _, certificado, _ = pkcs12.load_key_and_certificates(dados, senha.encode())
+            if certificado is None:
+                raise ValueError('Arquivo não contém certificado.')
+            subject = certificado.subject.rfc4514_string()
+            cn = ''
+            for parte in certificado.subject:
+                if parte.oid._name == 'commonName':
+                    cn = parte.value
+                    break
+            titular_nome = cn.split(':')[0].strip() if cn else subject
+            doc_match = re.search(r':(\d{11}|\d{14})', cn) if cn else None
+            titular_documento = doc_match.group(1) if doc_match else None
+            emissor = certificado.issuer.rfc4514_string()
+            valido_de  = certificado.not_valid_before_utc.replace(tzinfo=None)
+            valido_ate = certificado.not_valid_after_utc.replace(tzinfo=None)
+        except Exception as e:
+            flash(f'Não consegui abrir esse certificado -- confira o arquivo e a senha. ({e})', 'danger')
+            return redirect(url_for('escanear_publico_certificado'))
+
+        if not cert:
+            cert = CertificadoDigitalUsuario(conta_publica_id=conta.id)
+            db.session.add(cert)
+        cert.nome_arquivo = secure_filename(arquivo.filename)
+        cert.set_arquivo(dados)
+        cert.titular_nome = titular_nome
+        cert.titular_documento = titular_documento
+        cert.emissor = emissor
+        cert.valido_de = valido_de
+        cert.valido_ate = valido_ate
+        db.session.commit()
+        logger.info(f'Certificado ICP-Brasil cadastrado pela conta pública {conta.email} ({titular_nome})')
+        flash('Certificado cadastrado! A senha não fica salva -- você vai digitar de novo a cada assinatura.', 'success')
+        return redirect(url_for('escanear_publico_listar_assinaturas'))
+    return render_template('certificado_assinatura_publico.html', conta=conta, cert=cert)
+
+
+@app.route('/escanear-publico/certificado/excluir', methods=['POST'])
+@conta_publica_required
+def escanear_publico_excluir_certificado():
+    conta = get_conta_publica()
+    cert = CertificadoDigitalUsuario.query.filter_by(conta_publica_id=conta.id).first_or_404()
+    db.session.delete(cert)
+    db.session.commit()
+    flash('Certificado removido.', 'success')
+    return redirect(url_for('escanear_publico_listar_assinaturas'))
+
+
+@app.route('/escanear-publico/minha-assinatura', methods=['GET', 'POST'])
+@conta_publica_required
+def escanear_publico_minha_assinatura():
+    conta = get_conta_publica()
+    if request.method == 'POST':
+        arquivo = request.files.get('arquivo_assinatura')
+        if not arquivo or not arquivo.filename:
+            flash('Selecione uma imagem (PNG ou JPG) da sua assinatura.', 'warning')
+            return redirect(url_for('escanear_publico_minha_assinatura'))
+        mimetype = arquivo.mimetype or 'image/png'
+        if mimetype not in ('image/png', 'image/jpeg'):
+            flash('Envie uma imagem PNG ou JPG.', 'warning')
+            return redirect(url_for('escanear_publico_minha_assinatura'))
+        conta.assinatura_salva = arquivo.read()
+        conta.assinatura_salva_mimetype = mimetype
+        db.session.commit()
+        flash('Assinatura salva no seu perfil! Agora é só escolher "Usar assinatura salva" ao assinar um documento.', 'success')
+        return redirect(url_for('escanear_publico_listar_assinaturas'))
+    return render_template('minha_assinatura_publico.html', conta=conta)
+
+
+@app.route('/escanear-publico/minha-assinatura/imagem')
+@conta_publica_required
+def escanear_publico_assinatura_imagem():
+    conta = get_conta_publica()
+    if not conta.assinatura_salva:
+        abort(404)
+    return send_file(io.BytesIO(conta.assinatura_salva),
+                      mimetype=conta.assinatura_salva_mimetype or 'image/png')
+
+
+@app.route('/escanear-publico/minha-assinatura/remover', methods=['POST'])
+@conta_publica_required
+def escanear_publico_remover_minha_assinatura():
+    conta = get_conta_publica()
+    conta.assinatura_salva = None
+    conta.assinatura_salva_mimetype = None
+    db.session.commit()
+    flash('Assinatura salva removida do seu perfil.', 'success')
+    return redirect(url_for('escanear_publico_listar_assinaturas'))
 
 
 # ─── ERROS ─────────────────────────────────────────────────────────────────────

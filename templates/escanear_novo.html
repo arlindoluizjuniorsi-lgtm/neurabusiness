@@ -79,6 +79,7 @@
 <script>
   window.ESC_POST_URL = "{{ url_for('salvar_digitalizacao') }}";
   window.ESC_CSRF_TOKEN = "{{ csrf_token() }}";
+  window.ESC_ASSINAR_URL_BASE = "/escanear";
 </script>
 <script src="{{ url_for('static', filename='js/escanear.js') }}"></script>
 {% endblock %}

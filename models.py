@@ -1073,7 +1073,8 @@ class CertificadoDigitalUsuario(db.Model):
     __tablename__ = 'certificados_digitais_usuario'
 
     id              = db.Column(db.Integer, primary_key=True)
-    usuario_id      = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False, unique=True)
+    usuario_id      = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True, unique=True)
+    conta_publica_id = db.Column(db.Integer, db.ForeignKey('contas_escaneamento.id'), nullable=True, unique=True)
     nome_arquivo    = db.Column(db.String(200))
     arquivo_cifrado = db.Column(db.Text, nullable=False)  # bytes do .pfx, Fernet
     titular_nome    = db.Column(db.String(200))
@@ -1084,6 +1085,7 @@ class CertificadoDigitalUsuario(db.Model):
     criado_em       = db.Column(db.DateTime, default=datetime.now)
 
     usuario = db.relationship('Usuario', backref=db.backref('certificado_digital', uselist=False, cascade='all, delete-orphan'))
+    conta_publica = db.relationship('ContaEscaneamento', backref=db.backref('certificado_digital', uselist=False, cascade='all, delete-orphan'))
 
     def set_arquivo(self, dados_bytes):
         self.arquivo_cifrado = _fernet_integracoes().encrypt(dados_bytes).decode()
@@ -1110,6 +1112,7 @@ class DocumentoAssinatura(db.Model):
 
     id          = db.Column(db.Integer, primary_key=True)
     usuario_id  = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
+    conta_publica_id = db.Column(db.Integer, db.ForeignKey('contas_escaneamento.id'), nullable=True)
     token_publico = db.Column(db.String(64), unique=True, nullable=True)
     nome_arquivo = db.Column(db.String(200), nullable=False)
     metodo      = db.Column(db.String(20))             # 'simples' | 'icp_brasil'
@@ -1136,6 +1139,7 @@ class DocumentoAssinatura(db.Model):
     assinado_em = db.Column(db.DateTime)
 
     usuario = db.relationship('Usuario', backref=db.backref('documentos_assinatura', lazy=True, cascade='all, delete-orphan'))
+    conta_publica = db.relationship('ContaEscaneamento', backref=db.backref('documentos_assinatura', lazy=True, cascade='all, delete-orphan'))
 
 
 class ContaEscaneamento(db.Model):
@@ -1151,6 +1155,10 @@ class ContaEscaneamento(db.Model):
     senha_hash = db.Column(db.String(300), nullable=False)
     ativo      = db.Column(db.Boolean, default=True)
     criado_em  = db.Column(db.DateTime, default=datetime.now)
+    # Assinatura salva (PNG/JPG), pro módulo de Assinatura de Documentos
+    # público -- mesmo esquema das colunas equivalentes em Usuario.
+    assinatura_salva          = db.Column(db.LargeBinary, nullable=True)
+    assinatura_salva_mimetype = db.Column(db.String(20), nullable=True)
 
 
 class DocumentoEscaneado(db.Model):

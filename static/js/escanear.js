@@ -272,13 +272,14 @@ function escCompartilharGerado() {
 }
 
 // Manda o PDF que acabou de ser gerado direto pro módulo de Assinatura de
-// Documentos (só existe no fluxo interno -- window.ESC_CSRF_TOKEN só é
-// definido na página que tem esse botão).
+// Documentos -- window.ESC_ASSINAR_URL_BASE e window.ESC_CSRF_TOKEN só são
+// definidos nas páginas que têm esse botão (interna e pública, cada uma
+// com sua própria base de rota).
 function escAssinarGerado() {
-  if (!escUltimoGerado || !escUltimoGerado.docId) return;
+  if (!escUltimoGerado || !escUltimoGerado.docId || !window.ESC_ASSINAR_URL_BASE) return;
   const form = document.createElement('form');
   form.method = 'POST';
-  form.action = `/escanear/${escUltimoGerado.docId}/assinar`;
+  form.action = `${window.ESC_ASSINAR_URL_BASE}/${escUltimoGerado.docId}/assinar`;
   const input = document.createElement('input');
   input.type = 'hidden'; input.name = 'csrf_token'; input.value = window.ESC_CSRF_TOKEN || '';
   form.appendChild(input);

@@ -26,6 +26,7 @@
     <div class="logo"><i class="fas fa-camera me-2"></i>Escanear Documentos</div>
     <div class="small text-muted">
       {{ conta.nome or conta.email }} &middot;
+      <a href="{{ url_for('escanear_publico_listar_assinaturas') }}">Assinaturas</a> &middot;
       <a href="{{ url_for('escanear_publico_sair') }}">Sair</a>
     </div>
   </div>
@@ -77,6 +78,9 @@
       <button type="button" class="btn btn-laranja me-2" onclick="escCompartilharGerado();">
         <i class="fas fa-share-nodes me-1"></i>Compartilhar
       </button>
+      <button type="button" class="btn btn-warning me-2" onclick="escAssinarGerado();">
+        <i class="fas fa-signature me-1"></i>Assinar
+      </button>
       <a href="#" id="esc-link-pasta" class="btn btn-outline-light">Ver na pasta</a>
     </div>
   </div>
@@ -99,7 +103,11 @@
   </div>
 </div>
 
-<script>window.ESC_POST_URL = "{{ url_for('escanear_publico_salvar') }}";</script>
+<script>
+  window.ESC_POST_URL = "{{ url_for('escanear_publico_salvar') }}";
+  window.ESC_CSRF_TOKEN = "{{ csrf_token() }}";
+  window.ESC_ASSINAR_URL_BASE = "/escanear-publico";
+</script>
 <script src="{{ url_for('static', filename='js/escanear.js') }}"></script>
 </body>
 </html>
