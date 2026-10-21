@@ -162,15 +162,23 @@ function escDesenharCantos() {
   poly.setAttribute('stroke-width', '2');
   svg.appendChild(poly);
   escCantos.forEach((p, i) => {
+    // círculo visível (menor, só pra marcar o ponto) + área de toque invisível
+    // bem maior por cima -- no dedo, 16px de raio é pequeno demais pra acertar
+    // com precisão; 28px de raio de toque sem aumentar o visual poluído.
+    const alvo = document.createElementNS(ns, 'circle');
+    alvo.setAttribute('cx', p.x); alvo.setAttribute('cy', p.y); alvo.setAttribute('r', 28);
+    alvo.setAttribute('fill', 'transparent');
+    alvo.style.cursor = 'grab';
     const c = document.createElementNS(ns, 'circle');
-    c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', 16);
+    c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', 18);
     c.setAttribute('fill', '#f97316'); c.setAttribute('stroke', '#fff'); c.setAttribute('stroke-width', '3');
-    c.style.cursor = 'grab';
-    c.addEventListener('pointerdown', (ev) => {
+    c.style.pointerEvents = 'none';
+    alvo.addEventListener('pointerdown', (ev) => {
       escArrastando = i;
       ev.target.setPointerCapture(ev.pointerId);
       escAtualizarLupa(p.x, p.y);
     });
+    svg.appendChild(alvo);
     svg.appendChild(c);
   });
 }
@@ -303,7 +311,7 @@ function escWarp(imagemOrigem, cantosOrigemPx, larguraSaida, alturaSaida) {
   const canvasOut = document.createElement('canvas');
   canvasOut.width = larguraSaida; canvasOut.height = alturaSaida;
   const ctx = canvasOut.getContext('2d');
-  const N = 24;
+  const N = 32;
   const [s0, s1, s2, s3] = cantosOrigemPx; // TL TR BR BL, em pixels da imagem ORIGINAL
   for (let j = 0; j < N; j++) {
     for (let i = 0; i < N; i++) {

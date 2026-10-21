@@ -11,12 +11,12 @@
 </div>
 
 <div class="card mb-4">
-  <div class="card-body">
+  <div class="card-body d-flex flex-wrap align-items-center gap-2">
     <input type="file" id="esc-input-foto" accept="image/*" capture="environment" style="display:none;">
     <button type="button" class="btn btn-accent" onclick="document.getElementById('esc-input-foto').click();">
       <i class="fas fa-camera me-1"></i>Tirar foto / escolher imagem
     </button>
-    <span class="text-muted small ms-2">Página <b id="esc-contador">0</b> adicionada(s)</span>
+    <span class="text-muted small">Página <b id="esc-contador">0</b> adicionada(s)</span>
   </div>
 </div>
 
@@ -59,24 +59,26 @@
   <div class="card-body text-center py-4">
     <i class="fas fa-circle-check fa-2x mb-2" style="color:#16a34a;"></i>
     <div class="mb-3">PDF gerado!</div>
-    <button type="button" class="btn btn-accent me-2" onclick="escCompartilharGerado();">
-      <i class="fas fa-share-nodes me-1"></i>Compartilhar
-    </button>
-    <button type="button" class="btn btn-warning me-2" onclick="escAssinarGerado();">
-      <i class="fas fa-signature me-1"></i>Assinar
-    </button>
-    <a href="#" id="esc-link-pasta" class="btn btn-outline-secondary">Ver na pasta</a>
+    <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mx-auto" style="max-width:420px;">
+      <button type="button" class="btn btn-accent" onclick="escCompartilharGerado();">
+        <i class="fas fa-share-nodes me-1"></i>Compartilhar
+      </button>
+      <button type="button" class="btn btn-warning" onclick="escAssinarGerado();">
+        <i class="fas fa-signature me-1"></i>Assinar
+      </button>
+      <a href="#" id="esc-link-pasta" class="btn btn-outline-secondary">Ver na pasta</a>
+    </div>
   </div>
 </div>
 
 <!-- Overlay de recorte (ajuste dos 4 cantos) -->
 <div id="esc-overlay" style="display:none; position:fixed; inset:0; background:#000; z-index:2000;">
   <div style="position:relative; width:100%; height:100%; display:flex; flex-direction:column;">
-    <div class="d-flex justify-content-between align-items-center p-2" style="background:#111;">
-      <span class="text-white small">Ajuste os 4 cantos sobre o documento</span>
-      <div>
-        <button type="button" class="btn btn-sm btn-outline-light me-2" onclick="escCancelarRecorte();">Cancelar</button>
-        <button type="button" class="btn btn-sm btn-accent" onclick="escConfirmarRecorte();">Confirmar</button>
+    <div class="d-flex justify-content-between align-items-center gap-2 p-2 flex-wrap" style="background:#111;">
+      <span class="text-white small">Ajuste os 4 cantos</span>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline-light" onclick="escCancelarRecorte();" title="Cancelar"><i class="fas fa-xmark"></i></button>
+        <button type="button" class="btn btn-sm btn-accent" onclick="escConfirmarRecorte();"><i class="fas fa-check me-1"></i>Confirmar</button>
       </div>
     </div>
     <div id="esc-canvas-wrap" style="position:relative; flex:1; overflow:hidden; touch-action:none;">
