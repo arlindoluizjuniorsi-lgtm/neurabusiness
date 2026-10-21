@@ -5341,7 +5341,9 @@ def salvar_digitalizacao():
     db.session.add(doc)
     db.session.commit()
 
-    return jsonify({'ok': True, 'pasta': pasta, 'redirect': url_for('listar_documentos_escaneados', pasta=pasta)})
+    return jsonify({'ok': True, 'pasta': pasta, 'redirect': url_for('listar_documentos_escaneados', pasta=pasta),
+                     'doc_id': doc.id, 'nome_arquivo': doc.nome_arquivo,
+                     'arquivo_url': url_for('baixar_documento_escaneado', id=doc.id, inline=1)})
 
 
 @app.route('/escanear/<int:id>/arquivo')
@@ -5521,7 +5523,9 @@ def escanear_publico_salvar():
     db.session.add(doc)
     db.session.commit()
 
-    return jsonify({'ok': True, 'pasta': pasta, 'redirect': url_for('escanear_publico_pasta', pasta=pasta)})
+    return jsonify({'ok': True, 'pasta': pasta, 'redirect': url_for('escanear_publico_pasta', pasta=pasta),
+                     'doc_id': doc.id, 'nome_arquivo': doc.nome_arquivo,
+                     'arquivo_url': url_for('escanear_publico_baixar', id=doc.id, inline=1)})
 
 
 @app.route('/escanear-publico/<int:id>/arquivo')

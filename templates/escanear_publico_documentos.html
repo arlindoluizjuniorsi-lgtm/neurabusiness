@@ -58,6 +58,7 @@
             <td>{{ d.num_paginas }}</td>
             <td class="text-muted" style="font-size:0.82rem;">{{ d.criado_em.strftime('%d/%m/%Y %H:%M') if d.criado_em else '' }}</td>
             <td class="text-end">
+              <button type="button" class="btn btn-sm btn-outline-light" title="Compartilhar" onclick="escCompartilharArquivo('{{ url_for('escanear_publico_baixar', id=d.id, inline=1) }}', '{{ d.nome_arquivo }}')"><i class="fas fa-share-nodes"></i></button>
               <a href="{{ url_for('escanear_publico_baixar', id=d.id, inline=1) }}" target="_blank" class="btn btn-sm btn-outline-light" title="Ver"><i class="fas fa-eye"></i></a>
               <a href="{{ url_for('escanear_publico_baixar', id=d.id) }}" class="btn btn-sm btn-outline-light" title="Baixar"><i class="fas fa-download"></i></a>
               <form method="POST" action="{{ url_for('escanear_publico_excluir', id=d.id) }}" class="d-inline" onsubmit="return confirm('Excluir \'{{ d.nome_arquivo }}\'?');">
@@ -72,5 +73,21 @@
     </div>
   </div>
 </div>
+<script>
+async function escCompartilharArquivo(url, nomeArquivo) {
+  try {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    const file = new File([blob], nomeArquivo || 'documento.pdf', { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: nomeArquivo || 'Documento' });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  window.open(url, '_blank');
+}
+</script>
 </body>
 </html>

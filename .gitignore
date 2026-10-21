@@ -5,3 +5,4 @@ __pycache__/
 logs/
 static/uploads/
 pacotes_neuradesk/
+dados_privados/

@@ -152,9 +152,18 @@ function escWarp(imagemOrigem, cantosOrigemPx, larguraSaida, alturaSaida) {
 function escDesenharTriangulo(ctx, img, s0, s1, s2, d0, d1, d2) {
   const m = escResolverAfim(s0, s1, s2, d0, d1, d2);
   if (!m) return;
+  // O recorte (clip) de cada triângulo é desenhado um pouquinho MAIOR que o
+  // triângulo real (esticado a partir do centro) só pra servir de máscara --
+  // a transformação em si usa os pontos originais, sem essa dilatação. Sem
+  // isso, o anti-aliasing da borda de cada triângulo deixa uma linha fina
+  // sem pintar entre um triângulo e o vizinho, e com 24x24 = 576 triângulos
+  // isso aparece como listras/riscos na imagem final.
+  const cx = (d0[0] + d1[0] + d2[0]) / 3, cy = (d0[1] + d1[1] + d2[1]) / 3;
+  const dilatar = (p) => [cx + (p[0] - cx) * 1.03, cy + (p[1] - cy) * 1.03];
+  const D0 = dilatar(d0), D1 = dilatar(d1), D2 = dilatar(d2);
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(d0[0], d0[1]); ctx.lineTo(d1[0], d1[1]); ctx.lineTo(d2[0], d2[1]);
+  ctx.moveTo(D0[0], D0[1]); ctx.lineTo(D1[0], D1[1]); ctx.lineTo(D2[0], D2[1]);
   ctx.closePath();
   ctx.clip();
   ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
@@ -239,6 +248,29 @@ function escCanvasParaBlob(canvas) {
   return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
 }
 
+// Abre o menu nativo de compartilhamento do celular (Web Share API) com o
+// PDF já baixado como arquivo -- cai pra só abrir o PDF numa aba nova se o
+// navegador não suportar compartilhar arquivo (ex: desktop mais antigo).
+async function escCompartilharArquivo(url, nomeArquivo) {
+  try {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    const file = new File([blob], nomeArquivo || 'documento.pdf', { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: nomeArquivo || 'Documento' });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // usuário cancelou o compartilhamento
+  }
+  window.open(url, '_blank');
+}
+
+let escUltimoGerado = null;
+function escCompartilharGerado() {
+  if (escUltimoGerado) escCompartilharArquivo(escUltimoGerado.url, escUltimoGerado.nome);
+}
+
 async function escGerarPdf() {
   if (!escPaginas.length) return;
   const status = document.getElementById('esc-status');
@@ -257,8 +289,15 @@ async function escGerarPdf() {
     const resp = await fetch(window.ESC_POST_URL, { method: 'POST', body: fd });
     const data = await resp.json();
     if (data.ok) {
-      status.textContent = 'Salvo!';
-      window.location.href = data.redirect;
+      status.textContent = '';
+      btn.disabled = false;
+      escUltimoGerado = { url: data.arquivo_url, nome: data.nome_arquivo };
+      document.getElementById('esc-card-salvar').style.display = 'none';
+      document.getElementById('esc-paginas').style.display = 'none';
+      const linkPasta = document.getElementById('esc-link-pasta');
+      if (linkPasta) linkPasta.href = data.redirect;
+      const sucesso = document.getElementById('esc-card-sucesso');
+      if (sucesso) sucesso.style.display = 'block';
     } else {
       status.textContent = 'Erro: ' + (data.erro || 'falha ao salvar');
       btn.disabled = false;
