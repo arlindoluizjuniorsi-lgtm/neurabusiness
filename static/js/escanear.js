@@ -10,6 +10,7 @@ let escImgAtual = null;   // ImageBitmap/Image da foto crua sendo recortada
 let escCantos = [];       // [{x,y}] em coordenadas de EXIBIÇÃO (não da imagem original)
 let escEscala = 1;        // fator exibição -> imagem original
 let escArrastando = -1;
+let escOffX = 0, escOffY = 0; // posição do canvas de origem dentro do wrap (usado pela lupa)
 
 document.getElementById('esc-input-foto').addEventListener('change', async function (e) {
   const file = e.target.files[0];
@@ -27,6 +28,117 @@ document.getElementById('esc-input-foto').addEventListener('change', async funct
   }
   escAbrirRecorte();
 });
+
+// Tenta localizar os 4 cantos do documento automaticamente (como o
+// CamScanner faz), pra já sugerir o recorte certo em vez de uma margem fixa.
+// Sem OpenCV: monta um mapa de gradiente (estilo Sobel simplificado), varre
+// cada borda da foto de fora pra dentro procurando a 1ª transição forte de
+// contraste, ajusta uma reta por mínimos quadrados em cada lado e cruza as
+// retas pra achar os 4 cantos. Se não achar um resultado plausível (poucas
+// amostras, área absurda, quadrilátero torto) retorna null e quem chamou
+// cai pra margem fixa de sempre -- o ajuste manual continua disponível.
+function escDetectarBordas(ctx, W, H) {
+  try {
+    if (W < 40 || H < 40) return null;
+    const dados = ctx.getImageData(0, 0, W, H).data;
+    const cinza = new Float32Array(W * H);
+    for (let i = 0, p = 0; i < dados.length; i += 4, p++) {
+      cinza[p] = 0.299 * dados[i] + 0.587 * dados[i + 1] + 0.114 * dados[i + 2];
+    }
+    const mag = new Float32Array(W * H);
+    let soma = 0, soma2 = 0, cont = 0;
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        const idx = y * W + x;
+        const gx = cinza[idx + 1] - cinza[idx - 1];
+        const gy = cinza[idx + W] - cinza[idx - W];
+        const m = Math.sqrt(gx * gx + gy * gy);
+        mag[idx] = m;
+        soma += m; soma2 += m * m; cont++;
+      }
+    }
+    const media = soma / cont;
+    const limiar = media + Math.sqrt(Math.max(0, soma2 / cont - media * media)) * 1.4;
+
+    const AMOSTRAS = 11, INICIO = 0.12, FIM = 0.88;
+    const pontosTopo = [], pontosBase = [], pontosEsq = [], pontosDir = [];
+    for (let k = 0; k < AMOSTRAS; k++) {
+      const t = INICIO + (FIM - INICIO) * (k / (AMOSTRAS - 1));
+
+      const x = Math.round(t * (W - 1));
+      for (let y = Math.round(H * 0.03); y < Math.round(H * 0.62); y++) {
+        if (mag[y * W + x] > limiar) { pontosTopo.push([x, y]); break; }
+      }
+      for (let y = Math.round(H * 0.97); y > Math.round(H * 0.38); y--) {
+        if (mag[y * W + x] > limiar) { pontosBase.push([x, y]); break; }
+      }
+
+      const y2 = Math.round(t * (H - 1));
+      for (let x2 = Math.round(W * 0.03); x2 < Math.round(W * 0.62); x2++) {
+        if (mag[y2 * W + x2] > limiar) { pontosEsq.push([x2, y2]); break; }
+      }
+      for (let x2 = Math.round(W * 0.97); x2 > Math.round(W * 0.38); x2--) {
+        if (mag[y2 * W + x2] > limiar) { pontosDir.push([x2, y2]); break; }
+      }
+    }
+
+    if (pontosTopo.length < 6 || pontosBase.length < 6 || pontosEsq.length < 6 || pontosDir.length < 6) return null;
+
+    function ajustarHorizontal(pts) { // y = m*x + b
+      let sx = 0, sy = 0, sxy = 0, sxx = 0;
+      pts.forEach(([x, y]) => { sx += x; sy += y; sxy += x * y; sxx += x * x; });
+      const n = pts.length, den = n * sxx - sx * sx;
+      if (Math.abs(den) < 1e-6) return null;
+      const m = (n * sxy - sx * sy) / den;
+      return { m, b: (sy - m * sx) / n };
+    }
+    function ajustarVertical(pts) { // x = m*y + b
+      let sy = 0, sx = 0, syx = 0, syy = 0;
+      pts.forEach(([x, y]) => { sy += y; sx += x; syx += y * x; syy += y * y; });
+      const n = pts.length, den = n * syy - sy * sy;
+      if (Math.abs(den) < 1e-6) return null;
+      const m = (n * syx - sy * sx) / den;
+      return { m, b: (sx - m * sy) / n };
+    }
+
+    const topo = ajustarHorizontal(pontosTopo), base = ajustarHorizontal(pontosBase);
+    const esq = ajustarVertical(pontosEsq), dir = ajustarVertical(pontosDir);
+    if (!topo || !base || !esq || !dir) return null;
+
+    function cruzar(h, v) { // h: y=h.m*x+h.b -- v: x=v.m*y+v.b
+      const den = 1 - h.m * v.m;
+      if (Math.abs(den) < 1e-6) return null;
+      const x = (v.m * h.b + v.b) / den;
+      return [x, h.m * x + h.b];
+    }
+    const tl = cruzar(topo, esq), tr = cruzar(topo, dir);
+    const bl = cruzar(base, esq), br = cruzar(base, dir);
+    if (!tl || !tr || !bl || !br) return null;
+    const pontos = [tl, tr, br, bl];
+    if (pontos.some(([x, y]) => !Number.isFinite(x) || !Number.isFinite(y))) return null;
+
+    const folgaX = W * 0.15, folgaY = H * 0.15; // reta extrapolada longe do quadro = provável ruído
+    for (const [x, y] of pontos) {
+      if (x < -folgaX || x > W + folgaX || y < -folgaY || y > H + folgaY) return null;
+    }
+
+    const clamp = ([x, y]) => [Math.max(0, Math.min(W, x)), Math.max(0, Math.min(H, y))];
+    const [TL, TR, BR, BL] = pontos.map(clamp);
+
+    if ((TR[0] - TL[0]) < W * 0.05 || (BR[0] - BL[0]) < W * 0.05) return null;
+    if ((BL[1] - TL[1]) < H * 0.05 || (BR[1] - TR[1]) < H * 0.05) return null;
+    const area = Math.abs(
+      (TL[0] * TR[1] - TR[0] * TL[1]) + (TR[0] * BR[1] - BR[0] * TR[1]) +
+      (BR[0] * BL[1] - BL[0] * BR[1]) + (BL[0] * TL[1] - TL[0] * BL[1])
+    ) / 2;
+    const areaTotal = W * H;
+    if (area < areaTotal * 0.12 || area > areaTotal * 1.03) return null;
+
+    return [{ x: TL[0], y: TL[1] }, { x: TR[0], y: TR[1] }, { x: BR[0], y: BR[1] }, { x: BL[0], y: BL[1] }];
+  } catch (e) {
+    return null;
+  }
+}
 
 function escAbrirRecorte() {
   const overlay = document.getElementById('esc-overlay');
@@ -51,13 +163,20 @@ function escAbrirRecorte() {
   svg.setAttribute('width', larguraTela);
   svg.setAttribute('height', alturaTela);
   const ox = (larguraTela - dw) / 2, oy = (alturaTela - dh) / 2;
-  const m = 0.06; // margem inicial sugerida, 6% pra dentro de cada borda
-  escCantos = [
-    { x: ox + dw * m, y: oy + dh * m },             // TL
-    { x: ox + dw * (1 - m), y: oy + dh * m },        // TR
-    { x: ox + dw * (1 - m), y: oy + dh * (1 - m) },  // BR
-    { x: ox + dw * m, y: oy + dh * (1 - m) },        // BL
-  ];
+  escOffX = ox; escOffY = oy;
+
+  const detectado = escDetectarBordas(ctx, canvas.width, canvas.height);
+  if (detectado) {
+    escCantos = detectado.map(p => ({ x: ox + p.x, y: oy + p.y }));
+  } else {
+    const m = 0.06; // margem inicial sugerida (fallback), 6% pra dentro de cada borda
+    escCantos = [
+      { x: ox + dw * m, y: oy + dh * m },             // TL
+      { x: ox + dw * (1 - m), y: oy + dh * m },        // TR
+      { x: ox + dw * (1 - m), y: oy + dh * (1 - m) },  // BR
+      { x: ox + dw * m, y: oy + dh * (1 - m) },        // BL
+    ];
+  }
   escDesenharCantos();
 }
 
@@ -77,7 +196,11 @@ function escDesenharCantos() {
     c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', 16);
     c.setAttribute('fill', '#f97316'); c.setAttribute('stroke', '#fff'); c.setAttribute('stroke-width', '3');
     c.style.cursor = 'grab';
-    c.addEventListener('pointerdown', (ev) => { escArrastando = i; ev.target.setPointerCapture(ev.pointerId); });
+    c.addEventListener('pointerdown', (ev) => {
+      escArrastando = i;
+      ev.target.setPointerCapture(ev.pointerId);
+      escAtualizarLupa(p.x, p.y);
+    });
     svg.appendChild(c);
   });
 }
@@ -85,16 +208,67 @@ function escDesenharCantos() {
 document.getElementById('esc-svg-cantos').addEventListener('pointermove', (ev) => {
   if (escArrastando < 0) return;
   const rect = ev.currentTarget.getBoundingClientRect();
-  escCantos[escArrastando] = { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+  escCantos[escArrastando] = { x, y };
   escDesenharCantos();
+  escAtualizarLupa(x, y);
 });
 ['pointerup', 'pointercancel'].forEach(evt =>
-  document.getElementById('esc-svg-cantos').addEventListener(evt, () => { escArrastando = -1; })
+  document.getElementById('esc-svg-cantos').addEventListener(evt, () => {
+    escArrastando = -1;
+    escEsconderLupa();
+  })
 );
+
+// Lupa de precisão: mostra um recorte ampliado (2,8x) da imagem ORIGINAL
+// (não da versão reduzida da tela, pra ficar nítida) em volta do ponto que
+// está sendo arrastado, deslocada pra cima do dedo -- senão o próprio dedo
+// cobre o canto e fica impossível ver se o ajuste ficou exato.
+function escAtualizarLupa(dispX, dispY) {
+  const lupa = document.getElementById('esc-lupa');
+  const wrap = document.getElementById('esc-canvas-wrap');
+  if (!lupa || !wrap || !escImgAtual) return;
+  const TAM = lupa.width, ZOOM = 2.8;
+  const raioFonte = (TAM / ZOOM) / 2;
+  const imgX = (dispX - escOffX) / escEscala;
+  const imgY = (dispY - escOffY) / escEscala;
+
+  const ctx = lupa.getContext('2d');
+  ctx.save();
+  ctx.clearRect(0, 0, TAM, TAM);
+  ctx.beginPath();
+  ctx.arc(TAM / 2, TAM / 2, TAM / 2 - 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, TAM, TAM);
+  ctx.drawImage(escImgAtual, imgX - raioFonte, imgY - raioFonte, raioFonte * 2, raioFonte * 2, 0, 0, TAM, TAM);
+  ctx.strokeStyle = 'rgba(249,115,22,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(TAM / 2 - 10, TAM / 2); ctx.lineTo(TAM / 2 + 10, TAM / 2);
+  ctx.moveTo(TAM / 2, TAM / 2 - 10); ctx.lineTo(TAM / 2, TAM / 2 + 10);
+  ctx.stroke();
+  ctx.restore();
+
+  const larguraTela = wrap.clientWidth;
+  let left = Math.max(4, Math.min(larguraTela - TAM - 4, dispX - TAM / 2));
+  const GAP = 36;
+  let top = dispY - GAP - TAM;
+  if (top < 4) top = dispY + GAP;
+  lupa.style.left = left + 'px';
+  lupa.style.top = top + 'px';
+  lupa.style.display = 'block';
+}
+function escEsconderLupa() {
+  const lupa = document.getElementById('esc-lupa');
+  if (lupa) lupa.style.display = 'none';
+}
 
 function escCancelarRecorte() {
   document.getElementById('esc-overlay').style.display = 'none';
   escImgAtual = null;
+  escEsconderLupa();
 }
 
 // Resolve o sistema 2x3 que leva 3 pontos de origem em 3 pontos de destino --
@@ -198,6 +372,7 @@ function escConfirmarRecorte() {
   escPaginas.push({ canvas: canvasFinal, pb: false });
   document.getElementById('esc-overlay').style.display = 'none';
   escImgAtual = null;
+  escEsconderLupa();
   escRenderPaginas();
 }
 
