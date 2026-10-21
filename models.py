@@ -1136,4 +1136,24 @@ class DocumentoAssinatura(db.Model):
     assinado_em = db.Column(db.DateTime)
 
     usuario = db.relationship('Usuario', backref=db.backref('documentos_assinatura', lazy=True, cascade='all, delete-orphan'))
+
+
+class DocumentoEscaneado(db.Model):
+    """PDF gerado pelo módulo "Escanear Documentos" -- fotos tiradas pela
+    câmera do celular (ou enviadas de um arquivo), recortadas/endireitadas
+    na hora no próprio navegador (usuário ajusta os 4 cantos, sem precisar
+    de IA/OpenCV) e juntadas num único PDF. "pasta" é só texto livre
+    digitado na hora de salvar -- organiza a listagem, não é uma
+    hierarquia de verdade."""
+    __tablename__ = 'documentos_escaneados'
+
+    id           = db.Column(db.Integer, primary_key=True)
+    usuario_id   = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    pasta        = db.Column(db.String(100), nullable=False, default='Geral')
+    nome_arquivo = db.Column(db.String(200), nullable=False)
+    arquivo      = db.Column(db.String(300), nullable=False)   # caminho relativo na pasta privada
+    num_paginas  = db.Column(db.Integer, default=1)
+    criado_em    = db.Column(db.DateTime, default=datetime.now)
+
+    usuario = db.relationship('Usuario', backref=db.backref('documentos_escaneados', lazy=True, cascade='all, delete-orphan'))
     criado_em           = db.Column(db.DateTime, default=datetime.now)

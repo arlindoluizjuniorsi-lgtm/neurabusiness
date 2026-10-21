@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Escanear Documentos — NeuraBusiness{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <div>
+    <h1><i class="fas fa-camera me-2"></i>Escanear Documentos</h1>
+    <p>Tire foto com a câmera do celular, ajuste os cantos e vira PDF — organizado em pastas.</p>
+  </div>
+  <a href="{{ url_for('nova_digitalizacao') }}" class="btn btn-accent">
+    <i class="fas fa-plus me-1"></i>Nova digitalização
+  </a>
+</div>
+
+{% if pastas %}
+<div class="row g-3">
+  {% for p in pastas %}
+  <div class="col-6 col-md-4 col-lg-3">
+    <a href="{{ url_for('listar_documentos_escaneados', pasta=p.nome) }}" class="text-decoration-none">
+      <div class="card h-100">
+        <div class="card-body text-center py-4">
+          <i class="fas fa-folder fa-2x mb-2" style="color:#f97316;"></i>
+          <div class="fw-bold" style="color:var(--nb-text);">{{ p.nome }}</div>
+          <div class="text-muted small">{{ p.total }} documento{{ 's' if p.total != 1 else '' }}</div>
+          <div class="text-muted small">{{ p.ultimo.strftime('%d/%m/%Y') if p.ultimo else '' }}</div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body text-center text-muted py-5">
+    <i class="fas fa-camera fa-3x mb-3 d-block opacity-25"></i>
+    Nenhum documento escaneado ainda.
+    <div class="mt-3"><a href="{{ url_for('nova_digitalizacao') }}" class="btn btn-sm btn-accent">Escanear o primeiro</a></div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

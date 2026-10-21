@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ pasta }} — Escanear Documentos{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <div>
+    <a href="{{ url_for('listar_pastas_escaneadas') }}" class="text-muted small"><i class="fas fa-arrow-left me-1"></i>Pastas</a>
+    <h1><i class="fas fa-folder-open me-2"></i>{{ pasta }}</h1>
+  </div>
+  <a href="{{ url_for('nova_digitalizacao', pasta=pasta) }}" class="btn btn-accent">
+    <i class="fas fa-plus me-1"></i>Nova digitalização
+  </a>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Documento</th>
+          <th>Páginas</th>
+          <th>Enviado em</th>
+          <th class="text-end">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in documentos %}
+        <tr>
+          <td><i class="fas fa-file-pdf text-danger me-1"></i><b>{{ d.nome_arquivo }}</b></td>
+          <td>{{ d.num_paginas }}</td>
+          <td class="text-muted" style="font-size:0.82rem;">{{ d.criado_em.strftime('%d/%m/%Y %H:%M') if d.criado_em else '' }}</td>
+          <td class="text-end">
+            <a href="{{ url_for('baixar_documento_escaneado', id=d.id, inline=1) }}" target="_blank" class="btn btn-sm btn-outline-primary" title="Ver"><i class="fas fa-eye"></i></a>
+            <a href="{{ url_for('baixar_documento_escaneado', id=d.id) }}" class="btn btn-sm btn-outline-secondary" title="Baixar"><i class="fas fa-download"></i></a>
+            <form method="POST" action="{{ url_for('excluir_documento_escaneado', id=d.id) }}" class="d-inline" onsubmit="return confirm('Excluir \'{{ d.nome_arquivo }}\'?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

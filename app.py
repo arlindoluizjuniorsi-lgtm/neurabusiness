@@ -26,7 +26,7 @@ from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CartaoPessoal, GastoPessoal, RendaPessoal, GastoCarro, GastoCasa,
                     VeiculoPessoal, RevisaoCarro, ManutencaoRecorrente, ItemVendaTroca,
                     SimulacaoTrocaCarro, TIPOS_DOCUMENTO_PROPOSTA,
-                    CertificadoDigitalUsuario, DocumentoAssinatura)
+                    CertificadoDigitalUsuario, DocumentoAssinatura, DocumentoEscaneado)
 
 # ─── APP ───────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -73,6 +73,9 @@ ANEXOS_FOLDER   = os.path.join(os.path.dirname(__file__), 'static', 'uploads', '
 # não podem ficar expostos assim.
 PASTA_ASSINATURAS = os.path.join(os.path.dirname(__file__), 'dados_privados', 'assinaturas')
 os.makedirs(PASTA_ASSINATURAS, exist_ok=True)
+
+PASTA_DOCS_ESCANEADOS = os.path.join(os.path.dirname(__file__), 'dados_privados', 'documentos_escaneados')
+os.makedirs(PASTA_DOCS_ESCANEADOS, exist_ok=True)
 
 # ─── FILTROS DE TEMPLATE ───────────────────────────────────────────────────────
 @app.template_filter('data')
@@ -5238,6 +5241,121 @@ def _loop_limpeza_assinador_publico():
 
 _t_limpeza_assinador_publico = threading.Thread(target=_loop_limpeza_assinador_publico, daemon=True, name='LimpezaAssinadorPublico')
 _t_limpeza_assinador_publico.start()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ESCANEAR DOCUMENTOS -- câmera do celular -> foto recortada/endireitada
+# (4 cantos ajustados na tela, sem IA/OpenCV) -> PDF. Tudo client-side até o
+# PDF final (uma página por foto já processada, enviadas juntas num só POST);
+# o servidor só junta as imagens já prontas num PDF com o Pillow.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _caminho_escaneado_fs(nome_fs):
+    return os.path.join(PASTA_DOCS_ESCANEADOS, nome_fs)
+
+
+@app.route('/escanear')
+@login_required
+@empresa_required
+def listar_pastas_escaneadas():
+    u = get_current_user()
+    linhas = db.session.query(
+        DocumentoEscaneado.pasta,
+        func.count(DocumentoEscaneado.id),
+        func.max(DocumentoEscaneado.criado_em),
+    ).filter_by(usuario_id=u.id).group_by(DocumentoEscaneado.pasta).order_by(func.max(DocumentoEscaneado.criado_em).desc()).all()
+    pastas = [{'nome': nome, 'total': total, 'ultimo': ultimo} for nome, total, ultimo in linhas]
+    return render_template('escanear_pastas.html', pastas=pastas)
+
+
+@app.route('/escanear/pasta/<pasta>')
+@login_required
+@empresa_required
+def listar_documentos_escaneados(pasta):
+    u = get_current_user()
+    documentos = DocumentoEscaneado.query.filter_by(usuario_id=u.id, pasta=pasta)\
+        .order_by(DocumentoEscaneado.criado_em.desc()).all()
+    if not documentos:
+        abort(404)
+    return render_template('escanear_documentos.html', pasta=pasta, documentos=documentos)
+
+
+@app.route('/escanear/novo')
+@login_required
+@empresa_required
+def nova_digitalizacao():
+    u = get_current_user()
+    pastas_existentes = [p[0] for p in db.session.query(DocumentoEscaneado.pasta)
+                         .filter_by(usuario_id=u.id).distinct().order_by(DocumentoEscaneado.pasta).all()]
+    pasta_sugerida = request.args.get('pasta', '')
+    return render_template('escanear_novo.html', pastas_existentes=pastas_existentes, pasta_sugerida=pasta_sugerida)
+
+
+@app.route('/escanear/salvar', methods=['POST'])
+@csrf.exempt
+@login_required
+@empresa_required
+def salvar_digitalizacao():
+    from PIL import Image
+    u = get_current_user()
+    paginas = request.files.getlist('paginas')
+    pasta = (request.form.get('pasta') or 'Geral').strip()[:100] or 'Geral'
+    nome = (request.form.get('nome') or '').strip()[:150]
+    if not paginas:
+        return jsonify({'ok': False, 'erro': 'Nenhuma página recebida.'}), 400
+
+    try:
+        imagens = [Image.open(p.stream).convert('RGB') for p in paginas]
+    except Exception as e:
+        return jsonify({'ok': False, 'erro': f'Não consegui ler as imagens: {e}'}), 400
+
+    nome_fs = f'{uuid.uuid4().hex}.pdf'
+    caminho = _caminho_escaneado_fs(nome_fs)
+    primeira, *resto = imagens
+    if resto:
+        primeira.save(caminho, save_all=True, append_images=resto)
+    else:
+        primeira.save(caminho)
+
+    doc = DocumentoEscaneado(usuario_id=u.id, pasta=pasta,
+                              nome_arquivo=(nome or 'Documento') + '.pdf',
+                              arquivo=nome_fs, num_paginas=len(imagens))
+    db.session.add(doc)
+    db.session.commit()
+
+    return jsonify({'ok': True, 'pasta': pasta, 'redirect': url_for('listar_documentos_escaneados', pasta=pasta)})
+
+
+@app.route('/escanear/<int:id>/arquivo')
+@login_required
+@empresa_required
+def baixar_documento_escaneado(id):
+    u = get_current_user()
+    doc = DocumentoEscaneado.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    caminho = _caminho_escaneado_fs(doc.arquivo)
+    if not os.path.isfile(caminho):
+        abort(404)
+    inline = request.args.get('inline') == '1'
+    return send_file(caminho, mimetype='application/pdf', as_attachment=not inline, download_name=doc.nome_arquivo)
+
+
+@app.route('/escanear/<int:id>/excluir', methods=['POST'])
+@login_required
+@empresa_required
+def excluir_documento_escaneado(id):
+    u = get_current_user()
+    doc = DocumentoEscaneado.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    pasta = doc.pasta
+    caminho = _caminho_escaneado_fs(doc.arquivo)
+    if os.path.isfile(caminho):
+        os.remove(caminho)
+    db.session.delete(doc)
+    db.session.commit()
+    flash('Documento removido.', 'success')
+    restantes = DocumentoEscaneado.query.filter_by(usuario_id=u.id, pasta=pasta).count()
+    if restantes:
+        return redirect(url_for('listar_documentos_escaneados', pasta=pasta))
+    return redirect(url_for('listar_pastas_escaneadas'))
 
 
 # ─── ERROS ─────────────────────────────────────────────────────────────────────
