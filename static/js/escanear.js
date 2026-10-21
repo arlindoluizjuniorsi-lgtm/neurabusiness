@@ -31,108 +31,78 @@ document.getElementById('esc-input-foto').addEventListener('change', async funct
 
 // Tenta localizar os 4 cantos do documento automaticamente (como o
 // CamScanner faz), pra já sugerir o recorte certo em vez de uma margem fixa.
-// Sem OpenCV: monta um mapa de gradiente (estilo Sobel simplificado), varre
-// cada borda da foto de fora pra dentro procurando a 1ª transição forte de
-// contraste, ajusta uma reta por mínimos quadrados em cada lado e cruza as
-// retas pra achar os 4 cantos. Se não achar um resultado plausível (poucas
-// amostras, área absurda, quadrilátero torto) retorna null e quem chamou
-// cai pra margem fixa de sempre -- o ajuste manual continua disponível.
+// Sem OpenCV: reduz a foto pra uma grade pequena (isso também "borra" texto
+// e ruído do papel, deixando só o contorno grande), estima a cor do fundo
+// pela moldura da própria foto e marca como "documento" todo pixel que se
+// afasta bastante dessa cor. Os 4 cantos (mesmo com a foto em ângulo) são
+// os pontos extremos de x+y e x-y dentro dessa máscara -- jeito clássico de
+// achar os cantos de um quadrilátero rotacionado sem contorno de verdade.
+// Se o resultado não for plausível (fundo sem contraste, documento colado
+// na borda, área implausível) retorna null e quem chamou cai pra margem
+// fixa de sempre -- o ajuste manual continua disponível sempre.
 function escDetectarBordas(ctx, W, H) {
   try {
     if (W < 40 || H < 40) return null;
-    const dados = ctx.getImageData(0, 0, W, H).data;
-    const cinza = new Float32Array(W * H);
-    for (let i = 0, p = 0; i < dados.length; i += 4, p++) {
-      cinza[p] = 0.299 * dados[i] + 0.587 * dados[i + 1] + 0.114 * dados[i + 2];
+    const GW = Math.min(140, W);
+    const GH = Math.max(1, Math.round(GW * H / W));
+    const off = document.createElement('canvas');
+    off.width = GW; off.height = GH;
+    const octx = off.getContext('2d');
+    octx.drawImage(ctx.canvas, 0, 0, GW, GH);
+    const dados = octx.getImageData(0, 0, GW, GH).data;
+
+    const faixa = Math.max(1, Math.round(Math.min(GW, GH) * 0.035));
+    let rs = 0, gs = 0, bs = 0, cont = 0;
+    function amostrar(x, y) {
+      const i = (y * GW + x) * 4;
+      rs += dados[i]; gs += dados[i + 1]; bs += dados[i + 2]; cont++;
     }
-    const mag = new Float32Array(W * H);
-    let soma = 0, soma2 = 0, cont = 0;
-    for (let y = 1; y < H - 1; y++) {
-      for (let x = 1; x < W - 1; x++) {
-        const idx = y * W + x;
-        const gx = cinza[idx + 1] - cinza[idx - 1];
-        const gy = cinza[idx + W] - cinza[idx - W];
-        const m = Math.sqrt(gx * gx + gy * gy);
-        mag[idx] = m;
-        soma += m; soma2 += m * m; cont++;
+    for (let x = 0; x < GW; x++) { amostrar(x, faixa); amostrar(x, GH - 1 - faixa); }
+    for (let y = 0; y < GH; y++) { amostrar(faixa, y); amostrar(GW - 1 - faixa, y); }
+    const fundoR = rs / cont, fundoG = gs / cont, fundoB = bs / cont;
+
+    const dist = new Float32Array(GW * GH);
+    let somaDist = 0, maxDist = 0;
+    for (let p = 0, i = 0; p < GW * GH; p++, i += 4) {
+      const dr = dados[i] - fundoR, dg = dados[i + 1] - fundoG, db = dados[i + 2] - fundoB;
+      const d = Math.sqrt(dr * dr + dg * dg + db * db);
+      dist[p] = d;
+      somaDist += d;
+      if (d > maxDist) maxDist = d;
+    }
+    if (maxDist < 35) return null; // sem contraste suficiente com o fundo pra confiar
+    const mediaDist = somaDist / (GW * GH);
+    const limiar = mediaDist + (maxDist - mediaDist) * 0.3;
+
+    let minSoma = Infinity, maxSoma = -Infinity, minDif = Infinity, maxDif = -Infinity;
+    let pTL = null, pTR = null, pBR = null, pBL = null, achou = 0;
+    for (let y = 0; y < GH; y++) {
+      for (let x = 0; x < GW; x++) {
+        if (dist[y * GW + x] < limiar) continue;
+        achou++;
+        const soma = x + y, dif = x - y;
+        if (soma < minSoma) { minSoma = soma; pTL = [x, y]; }
+        if (soma > maxSoma) { maxSoma = soma; pBR = [x, y]; }
+        if (dif > maxDif) { maxDif = dif; pTR = [x, y]; }
+        if (dif < minDif) { minDif = dif; pBL = [x, y]; }
       }
     }
-    const media = soma / cont;
-    const limiar = media + Math.sqrt(Math.max(0, soma2 / cont - media * media)) * 1.4;
+    if (!pTL || !pTR || !pBR || !pBL) return null;
+    if (achou < GW * GH * 0.06) return null; // documento ocupa área irrelevante -- não confia
 
-    const AMOSTRAS = 11, INICIO = 0.12, FIM = 0.88;
-    const pontosTopo = [], pontosBase = [], pontosEsq = [], pontosDir = [];
-    for (let k = 0; k < AMOSTRAS; k++) {
-      const t = INICIO + (FIM - INICIO) * (k / (AMOSTRAS - 1));
+    const fatorX = W / GW, fatorY = H / GH;
+    const [TL, TR, BR, BL] = [pTL, pTR, pBR, pBL].map(([x, y]) => [(x + 0.5) * fatorX, (y + 0.5) * fatorY]);
 
-      const x = Math.round(t * (W - 1));
-      for (let y = Math.round(H * 0.03); y < Math.round(H * 0.62); y++) {
-        if (mag[y * W + x] > limiar) { pontosTopo.push([x, y]); break; }
-      }
-      for (let y = Math.round(H * 0.97); y > Math.round(H * 0.38); y--) {
-        if (mag[y * W + x] > limiar) { pontosBase.push([x, y]); break; }
-      }
+    function dist2(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
+    const ladoMin = Math.min(dist2(TL, TR), dist2(TR, BR), dist2(BR, BL), dist2(BL, TL));
+    if (ladoMin < Math.min(W, H) * 0.12) return null; // quadrilátero degenerado
 
-      const y2 = Math.round(t * (H - 1));
-      for (let x2 = Math.round(W * 0.03); x2 < Math.round(W * 0.62); x2++) {
-        if (mag[y2 * W + x2] > limiar) { pontosEsq.push([x2, y2]); break; }
-      }
-      for (let x2 = Math.round(W * 0.97); x2 > Math.round(W * 0.38); x2--) {
-        if (mag[y2 * W + x2] > limiar) { pontosDir.push([x2, y2]); break; }
-      }
-    }
-
-    if (pontosTopo.length < 6 || pontosBase.length < 6 || pontosEsq.length < 6 || pontosDir.length < 6) return null;
-
-    function ajustarHorizontal(pts) { // y = m*x + b
-      let sx = 0, sy = 0, sxy = 0, sxx = 0;
-      pts.forEach(([x, y]) => { sx += x; sy += y; sxy += x * y; sxx += x * x; });
-      const n = pts.length, den = n * sxx - sx * sx;
-      if (Math.abs(den) < 1e-6) return null;
-      const m = (n * sxy - sx * sy) / den;
-      return { m, b: (sy - m * sx) / n };
-    }
-    function ajustarVertical(pts) { // x = m*y + b
-      let sy = 0, sx = 0, syx = 0, syy = 0;
-      pts.forEach(([x, y]) => { sy += y; sx += x; syx += y * x; syy += y * y; });
-      const n = pts.length, den = n * syy - sy * sy;
-      if (Math.abs(den) < 1e-6) return null;
-      const m = (n * syx - sy * sx) / den;
-      return { m, b: (sx - m * sy) / n };
-    }
-
-    const topo = ajustarHorizontal(pontosTopo), base = ajustarHorizontal(pontosBase);
-    const esq = ajustarVertical(pontosEsq), dir = ajustarVertical(pontosDir);
-    if (!topo || !base || !esq || !dir) return null;
-
-    function cruzar(h, v) { // h: y=h.m*x+h.b -- v: x=v.m*y+v.b
-      const den = 1 - h.m * v.m;
-      if (Math.abs(den) < 1e-6) return null;
-      const x = (v.m * h.b + v.b) / den;
-      return [x, h.m * x + h.b];
-    }
-    const tl = cruzar(topo, esq), tr = cruzar(topo, dir);
-    const bl = cruzar(base, esq), br = cruzar(base, dir);
-    if (!tl || !tr || !bl || !br) return null;
-    const pontos = [tl, tr, br, bl];
-    if (pontos.some(([x, y]) => !Number.isFinite(x) || !Number.isFinite(y))) return null;
-
-    const folgaX = W * 0.15, folgaY = H * 0.15; // reta extrapolada longe do quadro = provável ruído
-    for (const [x, y] of pontos) {
-      if (x < -folgaX || x > W + folgaX || y < -folgaY || y > H + folgaY) return null;
-    }
-
-    const clamp = ([x, y]) => [Math.max(0, Math.min(W, x)), Math.max(0, Math.min(H, y))];
-    const [TL, TR, BR, BL] = pontos.map(clamp);
-
-    if ((TR[0] - TL[0]) < W * 0.05 || (BR[0] - BL[0]) < W * 0.05) return null;
-    if ((BL[1] - TL[1]) < H * 0.05 || (BR[1] - TR[1]) < H * 0.05) return null;
     const area = Math.abs(
       (TL[0] * TR[1] - TR[0] * TL[1]) + (TR[0] * BR[1] - BR[0] * TR[1]) +
       (BR[0] * BL[1] - BL[0] * BR[1]) + (BL[0] * TL[1] - TL[0] * BL[1])
     ) / 2;
     const areaTotal = W * H;
-    if (area < areaTotal * 0.12 || area > areaTotal * 1.03) return null;
+    if (area < areaTotal * 0.1 || area > areaTotal * 1.02) return null;
 
     return [{ x: TL[0], y: TL[1] }, { x: TR[0], y: TR[1] }, { x: BR[0], y: BR[1] }, { x: BL[0], y: BL[1] }];
   } catch (e) {
@@ -227,33 +197,40 @@ document.getElementById('esc-svg-cantos').addEventListener('pointermove', (ev) =
 function escAtualizarLupa(dispX, dispY) {
   const lupa = document.getElementById('esc-lupa');
   const wrap = document.getElementById('esc-canvas-wrap');
-  if (!lupa || !wrap || !escImgAtual) return;
-  const TAM = lupa.width, ZOOM = 2.8;
-  const raioFonte = (TAM / ZOOM) / 2;
-  const imgX = (dispX - escOffX) / escEscala;
-  const imgY = (dispY - escOffY) / escEscala;
+  if (!lupa || !wrap) return;
+  const TAM = lupa.width || 150, ZOOM = 2.8;
+  try {
+    if (escImgAtual) {
+      const raioFonte = (TAM / ZOOM) / 2;
+      const imgX = (dispX - escOffX) / escEscala;
+      const imgY = (dispY - escOffY) / escEscala;
+      const ctx = lupa.getContext('2d');
+      ctx.save();
+      ctx.clearRect(0, 0, TAM, TAM);
+      ctx.beginPath();
+      ctx.arc(TAM / 2, TAM / 2, TAM / 2 - 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, TAM, TAM);
+      ctx.drawImage(escImgAtual, imgX - raioFonte, imgY - raioFonte, raioFonte * 2, raioFonte * 2, 0, 0, TAM, TAM);
+      ctx.strokeStyle = 'rgba(249,115,22,0.95)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(TAM / 2 - 12, TAM / 2); ctx.lineTo(TAM / 2 + 12, TAM / 2);
+      ctx.moveTo(TAM / 2, TAM / 2 - 12); ctx.lineTo(TAM / 2, TAM / 2 + 12);
+      ctx.stroke();
+      ctx.restore();
+    }
+  } catch (e) {
+    // mesmo que o desenho em si falhe por algum motivo, ainda posiciona e
+    // mostra a lupa (com o conteúdo que sobrou) -- melhor que desaparecer
+    // silenciosamente sem dar nenhuma pista visual do que está errado.
+  }
 
-  const ctx = lupa.getContext('2d');
-  ctx.save();
-  ctx.clearRect(0, 0, TAM, TAM);
-  ctx.beginPath();
-  ctx.arc(TAM / 2, TAM / 2, TAM / 2 - 2, 0, Math.PI * 2);
-  ctx.closePath();
-  ctx.clip();
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, TAM, TAM);
-  ctx.drawImage(escImgAtual, imgX - raioFonte, imgY - raioFonte, raioFonte * 2, raioFonte * 2, 0, 0, TAM, TAM);
-  ctx.strokeStyle = 'rgba(249,115,22,0.9)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(TAM / 2 - 10, TAM / 2); ctx.lineTo(TAM / 2 + 10, TAM / 2);
-  ctx.moveTo(TAM / 2, TAM / 2 - 10); ctx.lineTo(TAM / 2, TAM / 2 + 10);
-  ctx.stroke();
-  ctx.restore();
-
-  const larguraTela = wrap.clientWidth;
-  let left = Math.max(4, Math.min(larguraTela - TAM - 4, dispX - TAM / 2));
-  const GAP = 36;
+  const larguraTela = wrap.clientWidth || (TAM + 8);
+  const left = Math.max(4, Math.min(larguraTela - TAM - 4, dispX - TAM / 2));
+  const GAP = 48;
   let top = dispY - GAP - TAM;
   if (top < 4) top = dispY + GAP;
   lupa.style.left = left + 'px';
@@ -263,6 +240,29 @@ function escAtualizarLupa(dispX, dispY) {
 function escEsconderLupa() {
   const lupa = document.getElementById('esc-lupa');
   if (lupa) lupa.style.display = 'none';
+}
+
+// Pasta de destino: por padrão só deixa ESCOLHER entre as pastas que já
+// existem (evita duplicar pasta por erro de digitação/acento), e só mostra
+// um campo de texto livre quando o usuário pede explicitamente "Nova pasta".
+function escAlternarPasta(nova) {
+  const modoExistente = document.getElementById('esc-pasta-modo-existente');
+  const modoNova = document.getElementById('esc-pasta-modo-nova');
+  if (modoExistente) modoExistente.style.display = nova ? 'none' : '';
+  if (modoNova) modoNova.style.display = nova ? '' : 'none';
+  if (nova) {
+    const input = document.getElementById('esc-pasta-nova');
+    if (input) input.focus();
+  }
+}
+function escPastaAtual() {
+  const modoNova = document.getElementById('esc-pasta-modo-nova');
+  if (modoNova && modoNova.style.display !== 'none') {
+    const input = document.getElementById('esc-pasta-nova');
+    return (input && input.value.trim()) || 'Geral';
+  }
+  const sel = document.getElementById('esc-pasta-select');
+  return (sel && sel.value) || 'Geral';
 }
 
 function escCancelarRecorte() {
@@ -369,14 +369,22 @@ function escConfirmarRecorte() {
   alturaSaida = Math.max(50, Math.round(alturaSaida));
 
   const canvasFinal = escWarp(escImgAtual, cantosImg, larguraSaida, alturaSaida);
-  escPaginas.push({ canvas: canvasFinal, pb: false });
+  escPaginas.push({ canvas: canvasFinal, filtro: 'original' });
   document.getElementById('esc-overlay').style.display = 'none';
   escImgAtual = null;
   escEsconderLupa();
   escRenderPaginas();
 }
 
-function escAplicarPB(canvasOrigem) {
+const ESC_FILTROS = [
+  { v: 'original', l: 'Original (cor)' },
+  { v: 'cinza', l: 'Cinza' },
+  { v: 'pb', l: 'Preto e branco' },
+  { v: 'realce', l: 'Realce de contraste' },
+];
+
+function escAplicarFiltro(canvasOrigem, tipo) {
+  if (!tipo || tipo === 'original') return canvasOrigem;
   const c = document.createElement('canvas');
   c.width = canvasOrigem.width; c.height = canvasOrigem.height;
   const ctx = c.getContext('2d');
@@ -384,9 +392,22 @@ function escAplicarPB(canvasOrigem) {
   const img = ctx.getImageData(0, 0, c.width, c.height);
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    g = Math.min(255, Math.max(0, (g - 128) * 1.35 + 128)); // contraste leve
-    d[i] = d[i + 1] = d[i + 2] = g;
+    if (tipo === 'cinza') {
+      const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      d[i] = d[i + 1] = d[i + 2] = g;
+    } else if (tipo === 'pb') {
+      // escala de cinza + contraste forte -- aproxima da "página escaneada"
+      // clássica (fundo bem branco, texto bem preto)
+      let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      g = Math.min(255, Math.max(0, (g - 128) * 1.8 + 128));
+      d[i] = d[i + 1] = d[i + 2] = g;
+    } else if (tipo === 'realce') {
+      // mantém a cor, mas reforça contraste -- bom pra tinta apagada/papel
+      // amarelado sem perder a cor do documento
+      d[i] = Math.min(255, Math.max(0, (d[i] - 128) * 1.3 + 128 + 6));
+      d[i + 1] = Math.min(255, Math.max(0, (d[i + 1] - 128) * 1.3 + 128 + 6));
+      d[i + 2] = Math.min(255, Math.max(0, (d[i + 2] - 128) * 1.3 + 128 + 6));
+    }
   }
   ctx.putImageData(img, 0, 0);
   return c;
@@ -396,18 +417,17 @@ function escRenderPaginas() {
   const cont = document.getElementById('esc-paginas');
   cont.innerHTML = '';
   escPaginas.forEach((pg, idx) => {
-    const exibicao = pg.pb ? escAplicarPB(pg.canvas) : pg.canvas;
+    const exibicao = escAplicarFiltro(pg.canvas, pg.filtro);
     const col = document.createElement('div');
     col.className = 'col-6 col-md-3 col-lg-2';
+    const opcoes = ESC_FILTROS.map(f => `<option value="${f.v}" ${f.v === pg.filtro ? 'selected' : ''}>${f.l}</option>`).join('');
     col.innerHTML = `
       <div class="card h-100">
         <div class="card-body p-2 text-center">
           <img src="${exibicao.toDataURL('image/jpeg', 0.7)}" class="img-fluid rounded mb-1" style="max-height:160px; object-fit:contain;">
           <div class="small text-muted">Página ${idx + 1}</div>
-          <div class="btn-group btn-group-sm w-100 mt-1">
-            <button type="button" class="btn btn-outline-secondary" onclick="escTogglePB(${idx})">${pg.pb ? 'Cor' : 'P&B'}</button>
-            <button type="button" class="btn btn-outline-danger" onclick="escRemoverPagina(${idx})"><i class="fas fa-trash"></i></button>
-          </div>
+          <select class="form-select form-select-sm mt-1" onchange="escDefinirFiltro(${idx}, this.value)">${opcoes}</select>
+          <button type="button" class="btn btn-outline-danger btn-sm w-100 mt-1" onclick="escRemoverPagina(${idx})"><i class="fas fa-trash me-1"></i>Remover</button>
         </div>
       </div>`;
     cont.appendChild(col);
@@ -416,7 +436,7 @@ function escRenderPaginas() {
   document.getElementById('esc-card-salvar').style.display = escPaginas.length ? 'block' : 'none';
 }
 
-function escTogglePB(idx) { escPaginas[idx].pb = !escPaginas[idx].pb; escRenderPaginas(); }
+function escDefinirFiltro(idx, tipo) { escPaginas[idx].filtro = tipo; escRenderPaginas(); }
 function escRemoverPagina(idx) { escPaginas.splice(idx, 1); escRenderPaginas(); }
 
 function escCanvasParaBlob(canvas) {
@@ -470,10 +490,10 @@ async function escGerarPdf() {
   status.textContent = 'Gerando PDF...';
   try {
     const fd = new FormData();
-    fd.append('pasta', document.getElementById('esc-pasta').value || 'Geral');
+    fd.append('pasta', escPastaAtual());
     fd.append('nome', document.getElementById('esc-nome').value || '');
     for (const pg of escPaginas) {
-      const canvasFinal = pg.pb ? escAplicarPB(pg.canvas) : pg.canvas;
+      const canvasFinal = escAplicarFiltro(pg.canvas, pg.filtro);
       const blob = await escCanvasParaBlob(canvasFinal);
       fd.append('paginas', blob, 'pagina.jpg');
     }

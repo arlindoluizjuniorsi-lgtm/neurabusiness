@@ -54,10 +54,20 @@
       <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label small text-muted">Pasta</label>
-          <input type="text" id="esc-pasta" class="form-control" list="esc-pastas-lista" value="{{ pasta_sugerida or '' }}" placeholder="Ex: Notas fiscais">
-          <datalist id="esc-pastas-lista">
-            {% for p in pastas_existentes %}<option value="{{ p }}">{% endfor %}
-          </datalist>
+          <div id="esc-pasta-modo-existente" style="{{ 'display:none;' if not pastas_existentes else '' }}">
+            <select id="esc-pasta-select" class="form-select">
+              {% for p in pastas_existentes %}
+              <option value="{{ p }}" {{ 'selected' if p == pasta_sugerida else '' }}>{{ p }}</option>
+              {% endfor %}
+            </select>
+            <div class="mt-1"><a href="#" class="small" onclick="escAlternarPasta(true); return false;"><i class="fas fa-plus me-1"></i>Nova pasta</a></div>
+          </div>
+          <div id="esc-pasta-modo-nova" style="{{ '' if not pastas_existentes else 'display:none;' }}">
+            <input type="text" id="esc-pasta-nova" class="form-control" placeholder="Nome da nova pasta" value="{{ pasta_sugerida or '' }}">
+            {% if pastas_existentes %}
+            <div class="mt-1"><a href="#" class="small" onclick="escAlternarPasta(false); return false;"><i class="fas fa-list me-1"></i>Escolher pasta existente</a></div>
+            {% endif %}
+          </div>
         </div>
         <div class="col-md-6">
           <label class="form-label small text-muted">Nome do documento</label>
