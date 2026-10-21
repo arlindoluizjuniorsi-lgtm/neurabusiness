@@ -30,6 +30,10 @@
           <td>{{ d.num_paginas }}</td>
           <td class="text-muted" style="font-size:0.82rem;">{{ d.criado_em.strftime('%d/%m/%Y %H:%M') if d.criado_em else '' }}</td>
           <td class="text-end">
+            <form method="POST" action="{{ url_for('enviar_escaneado_para_assinatura', id=d.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-warning" title="Assinar"><i class="fas fa-signature"></i></button>
+            </form>
             <button type="button" class="btn btn-sm btn-outline-success" title="Compartilhar" onclick="escCompartilharArquivo('{{ url_for('baixar_documento_escaneado', id=d.id, inline=1) }}', '{{ d.nome_arquivo }}')"><i class="fas fa-share-nodes"></i></button>
             <a href="{{ url_for('baixar_documento_escaneado', id=d.id, inline=1) }}" target="_blank" class="btn btn-sm btn-outline-primary" title="Ver"><i class="fas fa-eye"></i></a>
             <a href="{{ url_for('baixar_documento_escaneado', id=d.id) }}" class="btn btn-sm btn-outline-secondary" title="Baixar"><i class="fas fa-download"></i></a>

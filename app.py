@@ -5378,6 +5378,44 @@ def excluir_documento_escaneado(id):
     return redirect(url_for('listar_pastas_escaneadas'))
 
 
+@app.route('/escanear/<int:id>/assinar', methods=['POST'])
+@login_required
+@empresa_required
+def enviar_escaneado_para_assinatura(id):
+    """Copia o PDF já escaneado pra dentro do módulo de Assinatura de
+    Documentos (como um DocumentoAssinatura novo, independente) e manda
+    direto pra tela de assinar -- reaproveita tudo que já existe lá
+    (assinatura salva em PNG, certificado ICP-Brasil), sem precisar
+    baixar o PDF escaneado e subir de novo na mão."""
+    import shutil
+    u = get_current_user()
+    origem = DocumentoEscaneado.query.filter_by(id=id, usuario_id=u.id).first_or_404()
+    caminho_origem = _caminho_escaneado_fs(origem.arquivo)
+    if not os.path.isfile(caminho_origem):
+        flash('Arquivo escaneado não encontrado.', 'danger')
+        return redirect(url_for('listar_documentos_escaneados', pasta=origem.pasta))
+
+    doc = DocumentoAssinatura(usuario_id=u.id, nome_arquivo=origem.nome_arquivo,
+                               status='pendente', pagina=1, largura_pct=25.0)
+    db.session.add(doc)
+    db.session.flush()
+    nome_fs = f'{doc.id}_original.pdf'
+    caminho_destino = _caminho_assinatura_fs(nome_fs)
+    shutil.copyfile(caminho_origem, caminho_destino)
+    try:
+        _, _, num_paginas = _pdf_tamanho_pagina(caminho_destino, 0)
+    except Exception as e:
+        db.session.delete(doc)
+        db.session.commit()
+        os.remove(caminho_destino)
+        flash(f'Não consegui ler esse PDF: {e}', 'danger')
+        return redirect(url_for('listar_documentos_escaneados', pasta=origem.pasta))
+    doc.arquivo_original = nome_fs
+    doc.num_paginas = num_paginas
+    db.session.commit()
+    return redirect(url_for('assinar_documento', id=doc.id))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ESCANEAR DOCUMENTOS -- LINK PÚBLICO (self-signup, sem relação com o staff
 # interno do NeuraBusiness). Mesmo motor de recorte/PDF de cima, mas com

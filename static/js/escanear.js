@@ -271,6 +271,21 @@ function escCompartilharGerado() {
   if (escUltimoGerado) escCompartilharArquivo(escUltimoGerado.url, escUltimoGerado.nome);
 }
 
+// Manda o PDF que acabou de ser gerado direto pro módulo de Assinatura de
+// Documentos (só existe no fluxo interno -- window.ESC_CSRF_TOKEN só é
+// definido na página que tem esse botão).
+function escAssinarGerado() {
+  if (!escUltimoGerado || !escUltimoGerado.docId) return;
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = `/escanear/${escUltimoGerado.docId}/assinar`;
+  const input = document.createElement('input');
+  input.type = 'hidden'; input.name = 'csrf_token'; input.value = window.ESC_CSRF_TOKEN || '';
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
+}
+
 async function escGerarPdf() {
   if (!escPaginas.length) return;
   const status = document.getElementById('esc-status');
@@ -291,7 +306,7 @@ async function escGerarPdf() {
     if (data.ok) {
       status.textContent = '';
       btn.disabled = false;
-      escUltimoGerado = { url: data.arquivo_url, nome: data.nome_arquivo };
+      escUltimoGerado = { url: data.arquivo_url, nome: data.nome_arquivo, docId: data.doc_id };
       document.getElementById('esc-card-salvar').style.display = 'none';
       document.getElementById('esc-paginas').style.display = 'none';
       const linkPasta = document.getElementById('esc-link-pasta');
