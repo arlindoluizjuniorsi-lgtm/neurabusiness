@@ -41,8 +41,12 @@ document.getElementById('esc-input-foto').addEventListener('change', async funct
 // na borda, área implausível) retorna null e quem chamou cai pra margem
 // fixa de sempre -- o ajuste manual continua disponível sempre.
 function escDetectarBordas(ctx, W, H) {
+  // loga o motivo de cada falha no console -- sem efeito visível pra quem
+  // usa, mas ajuda a diagnosticar remotamente (Chrome/Safari via USB) por
+  // que a detecção não pegou uma foto específica.
+  function falha(motivo) { try { console.debug('[escDetectarBordas] não detectou:', motivo); } catch (e) {} return null; }
   try {
-    if (W < 40 || H < 40) return null;
+    if (W < 40 || H < 40) return falha('canvas pequeno demais');
     const GW = Math.min(140, W);
     const GH = Math.max(1, Math.round(GW * H / W));
     const off = document.createElement('canvas');
@@ -51,34 +55,64 @@ function escDetectarBordas(ctx, W, H) {
     octx.drawImage(ctx.canvas, 0, 0, GW, GH);
     const dados = octx.getImageData(0, 0, GW, GH).data;
 
-    const faixa = Math.max(1, Math.round(Math.min(GW, GH) * 0.035));
-    let rs = 0, gs = 0, bs = 0, cont = 0;
-    function amostrar(x, y) {
-      const i = (y * GW + x) * 4;
-      rs += dados[i]; gs += dados[i + 1]; bs += dados[i + 2]; cont++;
+    // estima a cor do fundo pela MOLDURA inteira (6% de margem, não só uma
+    // linha fina) e usa MEDIANA em vez de média -- se o documento chegar
+    // perto da borda e "contaminar" uma parte da moldura, a mediana ainda
+    // acerta a cor certa contanto que a maioria da moldura seja fundo.
+    const margem = Math.max(2, Math.round(Math.min(GW, GH) * 0.06));
+    const rs = [], gs = [], bs = [];
+    for (let y = 0; y < GH; y++) {
+      const dentro = y >= margem && y < GH - margem;
+      for (let x = 0; x < GW; x++) {
+        if (dentro && x >= margem && x < GW - margem) continue; // só a moldura
+        const i = (y * GW + x) * 4;
+        rs.push(dados[i]); gs.push(dados[i + 1]); bs.push(dados[i + 2]);
+      }
     }
-    for (let x = 0; x < GW; x++) { amostrar(x, faixa); amostrar(x, GH - 1 - faixa); }
-    for (let y = 0; y < GH; y++) { amostrar(faixa, y); amostrar(GW - 1 - faixa, y); }
-    const fundoR = rs / cont, fundoG = gs / cont, fundoB = bs / cont;
+    function mediana(arr) { const s = arr.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; }
+    const fundoR = mediana(rs), fundoG = mediana(gs), fundoB = mediana(bs);
 
-    const dist = new Float32Array(GW * GH);
-    let somaDist = 0, maxDist = 0;
-    for (let p = 0, i = 0; p < GW * GH; p++, i += 4) {
+    const N = GW * GH;
+    const dist = new Float32Array(N);
+    let maxDist = 0;
+    for (let p = 0, i = 0; p < N; p++, i += 4) {
       const dr = dados[i] - fundoR, dg = dados[i + 1] - fundoG, db = dados[i + 2] - fundoB;
       const d = Math.sqrt(dr * dr + dg * dg + db * db);
       dist[p] = d;
-      somaDist += d;
       if (d > maxDist) maxDist = d;
     }
-    if (maxDist < 35) return null; // sem contraste suficiente com o fundo pra confiar
-    const mediaDist = somaDist / (GW * GH);
-    const limiar = mediaDist + (maxDist - mediaDist) * 0.3;
+    if (maxDist < 30) return falha('sem contraste suficiente com o fundo (maxDist=' + maxDist.toFixed(1) + ')');
+
+    // limiar automático (Otsu) em cima do histograma de distâncias -- separa
+    // fundo (distância baixa) de documento (distância alta) se adaptando à
+    // iluminação de cada foto, em vez de uma proporção fixa chutada.
+    const BINS = 256;
+    const hist = new Array(BINS).fill(0);
+    for (let p = 0; p < N; p++) {
+      let b = Math.floor((dist[p] / maxDist) * (BINS - 1));
+      if (b < 0) b = 0; else if (b > BINS - 1) b = BINS - 1;
+      hist[b]++;
+    }
+    let somaTotal = 0;
+    for (let i = 0; i < BINS; i++) somaTotal += i * hist[i];
+    let somaB = 0, wB = 0, melhorVar = -1, melhorT = 0;
+    for (let t = 0; t < BINS; t++) {
+      wB += hist[t];
+      if (wB === 0) continue;
+      somaB += t * hist[t];
+      const wF = N - wB;
+      if (wF === 0) break;
+      const mB = somaB / wB, mF = (somaTotal - somaB) / wF;
+      const varEntre = wB * wF * (mB - mF) * (mB - mF);
+      if (varEntre > melhorVar) { melhorVar = varEntre; melhorT = t; }
+    }
+    const limiar = (melhorT / (BINS - 1)) * maxDist;
 
     let minSoma = Infinity, maxSoma = -Infinity, minDif = Infinity, maxDif = -Infinity;
     let pTL = null, pTR = null, pBR = null, pBL = null, achou = 0;
     for (let y = 0; y < GH; y++) {
       for (let x = 0; x < GW; x++) {
-        if (dist[y * GW + x] < limiar) continue;
+        if (dist[y * GW + x] <= limiar) continue;
         achou++;
         const soma = x + y, dif = x - y;
         if (soma < minSoma) { minSoma = soma; pTL = [x, y]; }
@@ -87,26 +121,29 @@ function escDetectarBordas(ctx, W, H) {
         if (dif < minDif) { minDif = dif; pBL = [x, y]; }
       }
     }
-    if (!pTL || !pTR || !pBR || !pBL) return null;
-    if (achou < GW * GH * 0.06) return null; // documento ocupa área irrelevante -- não confia
+    if (!pTL || !pTR || !pBR || !pBL) return falha('não achou pixel acima do limiar');
+    if (achou < N * 0.06 || achou > N * 0.97) return falha('área de documento implausível (' + (achou / N * 100).toFixed(0) + '% do quadro)');
 
     const fatorX = W / GW, fatorY = H / GH;
     const [TL, TR, BR, BL] = [pTL, pTR, pBR, pBL].map(([x, y]) => [(x + 0.5) * fatorX, (y + 0.5) * fatorY]);
 
     function dist2(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
     const ladoMin = Math.min(dist2(TL, TR), dist2(TR, BR), dist2(BR, BL), dist2(BL, TL));
-    if (ladoMin < Math.min(W, H) * 0.12) return null; // quadrilátero degenerado
+    if (ladoMin < Math.min(W, H) * 0.12) return falha('quadrilátero degenerado (lado mínimo ' + ladoMin.toFixed(0) + 'px)');
 
     const area = Math.abs(
       (TL[0] * TR[1] - TR[0] * TL[1]) + (TR[0] * BR[1] - BR[0] * TR[1]) +
       (BR[0] * BL[1] - BL[0] * BR[1]) + (BL[0] * TL[1] - TL[0] * BL[1])
     ) / 2;
     const areaTotal = W * H;
-    if (area < areaTotal * 0.1 || area > areaTotal * 1.02) return null;
+    if (area < areaTotal * 0.1 || area > areaTotal * 1.02) {
+      return falha('área implausível (' + (area / areaTotal * 100).toFixed(0) + '% do quadro)');
+    }
 
+    try { console.debug('[escDetectarBordas] detectou', { TL, TR, BR, BL, limiar, maxDist }); } catch (e) {}
     return [{ x: TL[0], y: TL[1] }, { x: TR[0], y: TR[1] }, { x: BR[0], y: BR[1] }, { x: BL[0], y: BL[1] }];
   } catch (e) {
-    return null;
+    return falha('erro: ' + (e && e.message));
   }
 }
 
@@ -161,28 +198,41 @@ function escDesenharCantos() {
   poly.setAttribute('stroke', '#f97316');
   poly.setAttribute('stroke-width', '2');
   svg.appendChild(poly);
-  escCantos.forEach((p, i) => {
-    // círculo visível (menor, só pra marcar o ponto) + área de toque invisível
-    // bem maior por cima -- no dedo, 16px de raio é pequeno demais pra acertar
-    // com precisão; 28px de raio de toque sem aumentar o visual poluído.
-    const alvo = document.createElementNS(ns, 'circle');
-    alvo.setAttribute('cx', p.x); alvo.setAttribute('cy', p.y); alvo.setAttribute('r', 28);
-    alvo.setAttribute('fill', 'transparent');
-    alvo.style.cursor = 'grab';
+  // só desenho visual aqui -- o toque/arraste é tratado de uma vez só pelo
+  // pointerdown no SVG inteiro (função escIniciarArraste), por distância até
+  // cada canto. Depender de hit-test em cima de um <circle> (ainda mais com
+  // fill transparente, que tem suporte inconsistente de pointer-events entre
+  // navegadores) e de setPointerCapture num elemento que é recriado a cada
+  // frame do arraste é frágil -- explica o toque ter que ser "mais forte"
+  // pra registrar.
+  escCantos.forEach((p) => {
     const c = document.createElementNS(ns, 'circle');
     c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', 18);
     c.setAttribute('fill', '#f97316'); c.setAttribute('stroke', '#fff'); c.setAttribute('stroke-width', '3');
     c.style.pointerEvents = 'none';
-    alvo.addEventListener('pointerdown', (ev) => {
-      escArrastando = i;
-      ev.target.setPointerCapture(ev.pointerId);
-      escAtualizarLupa(p.x, p.y);
-    });
-    svg.appendChild(alvo);
     svg.appendChild(c);
   });
 }
 
+// Toca em qualquer lugar perto de um canto (raio bem generoso, 55px --
+// não tem outra coisa pra tocar dentro desse SVG) já pega esse canto pra
+// arrastar, sem depender de acertar o círculo exato. A lupa já aparece no
+// mesmo pointerdown, antes de qualquer movimento.
+document.getElementById('esc-svg-cantos').addEventListener('pointerdown', (ev) => {
+  const svgEl = ev.currentTarget;
+  const rect = svgEl.getBoundingClientRect();
+  const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+  let melhorI = -1, melhorDist = Infinity;
+  escCantos.forEach((p, i) => {
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < melhorDist) { melhorDist = d; melhorI = i; }
+  });
+  const RAIO_TOQUE = 55;
+  if (melhorI < 0 || melhorDist > RAIO_TOQUE) return;
+  escArrastando = melhorI;
+  svgEl.setPointerCapture(ev.pointerId);
+  escAtualizarLupa(x, y);
+});
 document.getElementById('esc-svg-cantos').addEventListener('pointermove', (ev) => {
   if (escArrastando < 0) return;
   const rect = ev.currentTarget.getBoundingClientRect();
