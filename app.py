@@ -2409,6 +2409,15 @@ def api_versao_neuradesk_remote_atual():
     })
 
 
+@app.route('/downloads')
+@login_required
+def listar_downloads():
+    """Catálogo de programas pra baixar. Por enquanto só o NeuraDesk
+    Remote; outros entram aqui depois como mais itens na mesma lista."""
+    versao_remote = VersaoNeuraDeskRemote.query.get(1)
+    return render_template('downloads.html', versao_remote=versao_remote)
+
+
 @app.route('/download/neuradesk-remote')
 def download_neuradesk_remote():
     """Link estável pra mandar pra clientes -- sempre redireciona pro
