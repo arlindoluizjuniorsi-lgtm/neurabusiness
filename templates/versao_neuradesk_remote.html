@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Versão NeuraDesk Remote — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h1><i class="fas fa-rocket me-2" style="color:var(--nb-accent)"></i>Versão do NeuraDesk Remote</h1>
+    <p>Publica o build atual pros clientes verem o aviso de atualização dentro do app.</p>
+  </div>
+  <a href="{{ url_for('listar_licencas_neuradesk_remote') }}" class="btn btn-nb btn-sm"><i class="fas fa-arrow-left me-1"></i>Licenças</a>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-md-8">
+    {% if versao %}
+    <div class="alert alert-light border mb-3" style="font-size:.85rem;">
+      Versão publicada atualmente: <code>{{ versao.build_date }}</code>
+      {% if versao.atualizado_em %}— atualizado em {{ versao.atualizado_em.strftime('%d/%m/%Y %H:%M') }}{% if versao.atualizado_por %} por {{ versao.atualizado_por }}{% endif %}{% endif %}
+    </div>
+    {% endif %}
+
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="card mb-3">
+        <div class="card-body p-4">
+          <div class="mb-3">
+            <label class="form-label">Build date <span class="text-danger">*</span></label>
+            <input type="text" name="build_date" class="form-control" required
+                   placeholder="2026-11-03 16:05" value="{{ versao.build_date if versao else '' }}">
+            <div class="form-text">
+              Copia exatamente como aparece na tela "Sobre" do NeuraDesk Remote que você acabou de buildar
+              (formato <code>AAAA-MM-DD HH:MM</code>). O app compara essa data com a própria pra saber se tem atualização.
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Link de download <span class="text-danger">*</span></label>
+            <input type="text" name="download_url" class="form-control" required
+                   placeholder="https://github.com/arlindoluizjuniorsi-lgtm/neuradesk-remote-client/releases/download/nightly/neuradesk-1.5.1-x86_64.exe"
+                   value="{{ versao.download_url if versao else '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Notas (opcional)</label>
+            <textarea name="notas" class="form-control" rows="2" placeholder="O que mudou nessa versão...">{{ versao.notas if versao else '' }}</textarea>
+          </div>
+          <div class="form-text text-warning">
+            <i class="fas fa-triangle-exclamation me-1"></i>Isso é manual de propósito -- só publica quando esse build
+            específico já for o que você quer distribuir pros clientes. Builds de teste não devem ser publicados aqui.
+          </div>
+        </div>
+      </div>
+      <div class="d-flex justify-content-end mb-4">
+        <button type="submit" class="btn btn-accent"><i class="fas fa-paper-plane me-1"></i>Publicar versão</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

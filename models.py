@@ -474,6 +474,20 @@ class LicencaNeuraDeskRemote(db.Model):
         return 'NDRC-' + '-'.join(grupos)
 
 
+class VersaoNeuraDeskRemote(db.Model):
+    """Linha única (id=1) com a última versão publicada do NeuraDesk Remote
+    pra avisar o cliente dentro do próprio app. build_date usa o mesmo
+    formato "YYYY-MM-DD HH:MM" que o Rust embute no build (crate::BUILD_DATE),
+    pra comparar direto como string (ordenação lexicográfica = cronológica)."""
+    __tablename__ = 'versao_neuradesk_remote'
+    id              = db.Column(db.Integer, primary_key=True)
+    build_date      = db.Column(db.String(20), nullable=False)
+    download_url    = db.Column(db.String(300), nullable=False)
+    notas           = db.Column(db.Text)
+    atualizado_em   = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    atualizado_por  = db.Column(db.String(120))
+
+
 class ContratoNeuraDesk(db.Model):
     """Contrato de licenciamento de uso do NeuraDesk vendido a um cliente.
     Independente do Contrato/Proposta usado no negocio de propostas

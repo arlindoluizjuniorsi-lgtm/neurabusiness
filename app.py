@@ -22,7 +22,7 @@ import infinitypay_integracao
 from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CatalogoServico, MaterialInfra, Cliente, Proposta,
                     ItemProposta, OrdemServico, ItemOs, ProjetoAnexo, Contrato, OsAssinatura,
-                    LicencaNeuraDesk, LicencaNeuraDeskRemote, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk,
+                    LicencaNeuraDesk, LicencaNeuraDeskRemote, VersaoNeuraDeskRemote, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk,
                     CartaoPessoal, GastoPessoal, RendaPessoal, GastoCarro, GastoCasa,
                     VeiculoPessoal, RevisaoCarro, ManutencaoRecorrente, ItemVendaTroca,
                     SimulacaoTrocaCarro, TIPOS_DOCUMENTO_PROPOSTA,
@@ -2369,6 +2369,43 @@ def api_licenca_remote_verificar():
         'situacao': situacao,
         'data_vencimento': lic.data_vencimento.isoformat() if lic.data_vencimento else None,
         'dias_restantes_carencia': dias_restantes_carencia,
+    })
+
+
+@app.route('/admin/neuradesk-remote/versao', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def versao_neuradesk_remote():
+    """Avisa o app de uma atualização disponível. O cliente compara o
+    build_date daqui com o seu próprio (crate::BUILD_DATE); se o daqui for
+    mais novo, mostra um aviso com link pra baixar. Não é um gatilho
+    automático de CI -- fica manual de propósito, pra só avisar quando o
+    build atual realmente for pra ser distribuído."""
+    versao = VersaoNeuraDeskRemote.query.get(1)
+    if request.method == 'POST':
+        if not versao:
+            versao = VersaoNeuraDeskRemote(id=1)
+            db.session.add(versao)
+        versao.build_date = request.form['build_date'].strip()
+        versao.download_url = request.form['download_url'].strip()
+        versao.notas = request.form.get('notas')
+        versao.atualizado_por = get_current_user().nome
+        db.session.commit()
+        flash('Versão publicada -- os clientes vão ver o aviso no próximo lançamento do app.', 'success')
+        return redirect(url_for('versao_neuradesk_remote'))
+
+    return render_template('versao_neuradesk_remote.html', versao=versao)
+
+
+@app.route('/api/neuradesk-remote/versao-atual')
+def api_versao_neuradesk_remote_atual():
+    versao = VersaoNeuraDeskRemote.query.get(1)
+    if not versao:
+        return jsonify({'build_date': None, 'download_url': None})
+    return jsonify({
+        'build_date': versao.build_date,
+        'download_url': versao.download_url,
+        'notas': versao.notas,
     })
 
 
