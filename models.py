@@ -454,6 +454,10 @@ class LicencaNeuraDeskRemote(db.Model):
     empresa_cnpj            = db.Column(db.String(30))
     empresa_id_nb           = db.Column(db.Integer, db.ForeignKey('empresas.id'), nullable=True)
     fingerprint_dispositivo = db.Column(db.String(128))
+    # Serial mestre: não trava em um único dispositivo -- ativa em quantas
+    # máquinas precisar. Uso interno (testes, demos, suporte), não pra
+    # revenda normal.
+    mestre                  = db.Column(db.Boolean, default=False, nullable=False)
     ativada_em              = db.Column(db.DateTime)
     status                  = db.Column(db.String(20), default='pendente')  # pendente, ativa, bloqueada, cancelada
     data_vencimento         = db.Column(db.DateTime)  # NULL = licença vitalícia

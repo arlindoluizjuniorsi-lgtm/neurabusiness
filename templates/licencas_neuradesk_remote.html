@@ -26,12 +26,18 @@
         {% for lic in licencas %}
         <tr>
           <td class="ps-3">
-            <div style="font-weight:600;">{{ lic.empresa_nome }}</div>
+            <div style="font-weight:600;">{{ lic.empresa_nome }}
+              {% if lic.mestre %}<span class="badge bg-warning text-dark ms-1" title="Ativa em qualquer dispositivo">MESTRE</span>{% endif %}
+            </div>
             <div style="font-size:.76rem;color:var(--nb-muted);">{{ lic.empresa_cnpj or '—' }}</div>
           </td>
           <td><code style="font-size:.8rem;">{{ lic.chave }}</code></td>
           <td>
-            {% if lic.fingerprint_dispositivo %}
+            {% if lic.mestre %}
+              <span style="font-size:.76rem;color:var(--nb-muted);">
+                <i class="fas fa-infinity text-warning me-1"></i>Sem limite de dispositivo
+              </span>
+            {% elif lic.fingerprint_dispositivo %}
               <span style="font-size:.76rem;color:var(--nb-muted);" title="{{ lic.fingerprint_dispositivo }}">
                 <i class="fas fa-check-circle text-success me-1"></i>Ativado em {{ lic.ativada_em.strftime('%d/%m/%Y') if lic.ativada_em else '—' }}
               </span>

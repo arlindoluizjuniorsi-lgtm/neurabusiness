@@ -2234,6 +2234,7 @@ def nova_licenca_neuradesk_remote():
             data_vencimento=vencimento,
             status='pendente',
             observacoes=request.form.get('observacoes'),
+            mestre=request.form.get('mestre') == 'on',
         )
         empresa_id_nb = request.form.get('empresa_id_nb')
         if empresa_id_nb:
@@ -2308,7 +2309,14 @@ def api_licenca_remote_ativar():
     if lic.status == 'bloqueada':
         return jsonify({'ok': False, 'erro': 'serial bloqueado'}), 403
 
-    if lic.fingerprint_dispositivo:
+    if lic.mestre:
+        # Não trava em um dispositivo -- só registra o último usado, pra log.
+        lic.fingerprint_dispositivo = fingerprint
+        if lic.status == 'pendente':
+            lic.status = 'ativa'
+        if not lic.ativada_em:
+            lic.ativada_em = datetime.now()
+    elif lic.fingerprint_dispositivo:
         if lic.fingerprint_dispositivo != fingerprint:
             return jsonify({'ok': False, 'erro': 'serial já ativado em outro dispositivo'}), 403
     else:
@@ -2342,7 +2350,7 @@ def api_licenca_remote_verificar():
     if not lic:
         return jsonify({'ok': False, 'erro': 'chave inválida'}), 404
 
-    if lic.fingerprint_dispositivo and lic.fingerprint_dispositivo != fingerprint:
+    if not lic.mestre and lic.fingerprint_dispositivo and lic.fingerprint_dispositivo != fingerprint:
         return jsonify({'ok': False, 'erro': 'fingerprint não confere'}), 403
 
     lic.ultima_verificacao = datetime.now()
