@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Licenças NeuraDesk Remote — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div>
+    <h1><i class="fas fa-desktop me-2" style="color:var(--nb-accent)"></i>Licenças NeuraDesk Remote</h1>
+    <p>{{ licencas|length }} serial(is) gerado(s) — cliente de acesso remoto</p>
+  </div>
+  <a href="{{ url_for('nova_licenca_neuradesk_remote') }}" class="btn btn-accent"><i class="fas fa-plus me-1"></i>Novo Serial</a>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Empresa</th>
+          <th>Serial</th>
+          <th>Dispositivo</th>
+          <th>Vencimento</th>
+          <th class="text-center">Status</th>
+          <th class="pe-3 text-center">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lic in licencas %}
+        <tr>
+          <td class="ps-3">
+            <div style="font-weight:600;">{{ lic.empresa_nome }}</div>
+            <div style="font-size:.76rem;color:var(--nb-muted);">{{ lic.empresa_cnpj or '—' }}</div>
+          </td>
+          <td><code style="font-size:.8rem;">{{ lic.chave }}</code></td>
+          <td>
+            {% if lic.fingerprint_dispositivo %}
+              <span style="font-size:.76rem;color:var(--nb-muted);" title="{{ lic.fingerprint_dispositivo }}">
+                <i class="fas fa-check-circle text-success me-1"></i>Ativado em {{ lic.ativada_em.strftime('%d/%m/%Y') if lic.ativada_em else '—' }}
+              </span>
+            {% else %}
+              <span style="font-size:.76rem;color:var(--nb-muted);">Aguardando ativação</span>
+            {% endif %}
+          </td>
+          <td>{{ lic.data_vencimento.strftime('%d/%m/%Y') if lic.data_vencimento else 'Vitalícia' }}</td>
+          <td class="text-center">
+            {% if lic.situacao_calc == 'ativa' %}
+              <span class="status-badge s-aprovada">Ativa</span>
+            {% elif lic.situacao_calc == 'carencia' %}
+              <span class="status-badge s-em_andamento">Em carência</span>
+            {% elif lic.situacao_calc == 'bloqueada' %}
+              <span class="status-badge s-recusada">Bloqueada</span>
+            {% elif lic.situacao_calc == 'cancelada' %}
+              <span class="status-badge s-cancelada">Cancelada</span>
+            {% else %}
+              <span class="status-badge s-rascunho">Pendente ativação</span>
+            {% endif %}
+          </td>
+          <td class="pe-3 text-center">
+            <div class="dropdown">
+              <button class="btn btn-sm btn-nb dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                <i class="fas fa-ellipsis-v"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                {% if lic.status != 'bloqueada' %}
+                <li>
+                  <form method="POST" action="{{ url_for('bloquear_licenca_neuradesk_remote', id=lic.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="dropdown-item"><i class="fas fa-lock me-2"></i>Bloquear</button>
+                  </form>
+                </li>
+                {% else %}
+                <li>
+                  <form method="POST" action="{{ url_for('reativar_licenca_neuradesk_remote', id=lic.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="dropdown-item"><i class="fas fa-unlock me-2"></i>Reativar</button>
+                  </form>
+                </li>
+                {% endif %}
+                {% if lic.fingerprint_dispositivo %}
+                <li>
+                  <form method="POST" action="{{ url_for('resetar_dispositivo_licenca_neuradesk_remote', id=lic.id) }}" onsubmit="return confirm('Liberar esse serial para ativar em outro dispositivo?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="dropdown-item"><i class="fas fa-sync-alt me-2"></i>Liberar dispositivo</button>
+                  </form>
+                </li>
+                {% endif %}
+              </ul>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center py-5" style="color:var(--nb-muted);">
+          <i class="fas fa-desktop fa-2x mb-2 d-block opacity-25"></i>Nenhum serial gerado ainda
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

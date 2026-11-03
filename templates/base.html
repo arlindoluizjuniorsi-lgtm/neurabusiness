@@ -124,6 +124,7 @@ body{background:var(--nb-bg);color:var(--nb-text);padding-top:58px;min-height:10
           {% endif %}
           {% if current_user and current_user.is_super_admin %}
           <li><a class="dropdown-item" href="{{ url_for('listar_licencas_neuradesk') }}"><i class="fas fa-key me-2" style="color:#f97316"></i>Licenças NeuraDesk</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('listar_licencas_neuradesk_remote') }}"><i class="fas fa-desktop me-2" style="color:#f97316"></i>Licenças NeuraDesk Remote</a></li>
           <li><a class="dropdown-item" href="{{ url_for('admin_integracoes') }}"><i class="fas fa-plug me-2" style="color:#f97316"></i>Integrações</a></li>
           <li><a class="dropdown-item" href="{{ url_for('instalador_neuradesk') }}"><i class="fas fa-box-open me-2" style="color:#f97316"></i>Instalador NeuraDesk</a></li>
           {% endif %}

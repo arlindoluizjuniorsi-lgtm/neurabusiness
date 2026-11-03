@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Novo Serial NeuraDesk Remote — NeuraBusiness{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <div><h1><i class="fas fa-desktop me-2" style="color:var(--nb-accent)"></i>Novo Serial NeuraDesk Remote</h1>
+  <p>Gera a chave de ativação. O cliente digita ela no app na primeira vez que abrir.</p></div>
+  <a href="{{ url_for('listar_licencas_neuradesk_remote') }}" class="btn btn-nb btn-sm"><i class="fas fa-times me-1"></i>Cancelar</a>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-md-8">
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="card mb-3">
+        <div class="card-body p-4">
+          <h6 class="fw-bold mb-3">Dados do cliente</h6>
+          <div class="mb-3">
+            <label class="form-label">Razão social / nome <span class="text-danger">*</span></label>
+            <input type="text" name="empresa_nome" class="form-control" required placeholder="Ex: D'Pádua Destilação Ltda">
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label">CNPJ</label>
+              <input type="text" name="empresa_cnpj" class="form-control" placeholder="00.000.000/0001-00">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Vincular a uma Empresa já cadastrada (opcional)</label>
+              <select name="empresa_id_nb" class="form-select">
+                <option value="">— Não vincular —</option>
+                {% for emp in empresas %}
+                <option value="{{ emp.id }}">{{ emp.fantasia }} ({{ emp.cnpj or 'sem CNPJ' }})</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Vencimento (opcional)</label>
+            <input type="date" name="data_vencimento" class="form-control" style="max-width:220px;">
+            <div class="form-text">Deixe em branco para licença vitalícia (sem data de expiração).</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Observações</label>
+            <textarea name="observacoes" class="form-control" rows="2" placeholder="Condições combinadas, contato responsável, etc."></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 justify-content-end mb-4">
+        <a href="{{ url_for('listar_licencas_neuradesk_remote') }}" class="btn btn-nb">Cancelar</a>
+        <button type="submit" class="btn btn-accent"><i class="fas fa-key me-1"></i>Gerar Serial</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

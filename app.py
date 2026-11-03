@@ -22,7 +22,7 @@ import infinitypay_integracao
 from models import (db, Empresa, Usuario, UsuarioEmpresa, Produto, Servico,
                     CatalogoServico, MaterialInfra, Cliente, Proposta,
                     ItemProposta, OrdemServico, ItemOs, ProjetoAnexo, Contrato, OsAssinatura,
-                    LicencaNeuraDesk, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk,
+                    LicencaNeuraDesk, LicencaNeuraDeskRemote, Integracao, ContratoNeuraDesk, PagamentoNeuraDesk,
                     CartaoPessoal, GastoPessoal, RendaPessoal, GastoCarro, GastoCasa,
                     VeiculoPessoal, RevisaoCarro, ManutencaoRecorrente, ItemVendaTroca,
                     SimulacaoTrocaCarro, TIPOS_DOCUMENTO_PROPOSTA,
@@ -2183,6 +2183,185 @@ def nova_licenca_neuradesk():
 def detalhe_licenca_neuradesk(id):
     lic = LicencaNeuraDesk.query.get_or_404(id)
     return render_template('detalhe_licenca_neuradesk.html', lic=lic)
+
+
+# ─── LICENÇAS NEURADESK REMOTE (cliente de acesso remoto) ─────────────────────
+
+DIAS_CARENCIA_REMOTE = 10
+
+
+def _situacao_licenca_remote(lic):
+    hoje = datetime.now()
+    if lic.status in ('bloqueada', 'cancelada'):
+        return lic.status
+    if not lic.data_vencimento:
+        return 'ativa' if lic.status == 'ativa' else 'pendente'
+    if hoje <= lic.data_vencimento:
+        return 'ativa'
+    if hoje <= lic.data_vencimento + timedelta(days=DIAS_CARENCIA_REMOTE):
+        return 'carencia'
+    return 'bloqueada'
+
+
+@app.route('/admin/licencas-remote')
+@login_required
+@super_admin_required
+def listar_licencas_neuradesk_remote():
+    licencas = LicencaNeuraDeskRemote.query.order_by(LicencaNeuraDeskRemote.criado_em.desc()).all()
+    for lic in licencas:
+        lic.situacao_calc = _situacao_licenca_remote(lic)
+    return render_template('licencas_neuradesk_remote.html', licencas=licencas)
+
+
+@app.route('/admin/licencas-remote/nova', methods=['GET', 'POST'])
+@login_required
+@super_admin_required
+def nova_licenca_neuradesk_remote():
+    if request.method == 'POST':
+        chave = LicencaNeuraDeskRemote.gerar_chave()
+        while LicencaNeuraDeskRemote.query.filter_by(chave=chave).first():
+            chave = LicencaNeuraDeskRemote.gerar_chave()
+
+        vencimento = None
+        vencimento_str = (request.form.get('data_vencimento') or '').strip()
+        if vencimento_str:
+            vencimento = datetime.strptime(vencimento_str, '%Y-%m-%d')
+
+        lic = LicencaNeuraDeskRemote(
+            chave=chave,
+            empresa_nome=request.form['empresa_nome'],
+            empresa_cnpj=request.form.get('empresa_cnpj'),
+            data_vencimento=vencimento,
+            status='pendente',
+            observacoes=request.form.get('observacoes'),
+        )
+        empresa_id_nb = request.form.get('empresa_id_nb')
+        if empresa_id_nb:
+            lic.empresa_id_nb = int(empresa_id_nb)
+
+        db.session.add(lic)
+        db.session.commit()
+        flash(f'Serial gerado com sucesso: {chave}', 'success')
+        return redirect(url_for('listar_licencas_neuradesk_remote'))
+
+    empresas = Empresa.query.filter_by(ativa=True).order_by(Empresa.fantasia).all()
+    return render_template('form_licenca_neuradesk_remote.html', empresas=empresas)
+
+
+@app.route('/admin/licencas-remote/<int:id>/bloquear', methods=['POST'])
+@login_required
+@super_admin_required
+def bloquear_licenca_neuradesk_remote(id):
+    lic = LicencaNeuraDeskRemote.query.get_or_404(id)
+    lic.status = 'bloqueada'
+    db.session.commit()
+    flash(f'Serial {lic.chave} bloqueado.', 'success')
+    return redirect(url_for('listar_licencas_neuradesk_remote'))
+
+
+@app.route('/admin/licencas-remote/<int:id>/reativar', methods=['POST'])
+@login_required
+@super_admin_required
+def reativar_licenca_neuradesk_remote(id):
+    lic = LicencaNeuraDeskRemote.query.get_or_404(id)
+    lic.status = 'ativa' if lic.fingerprint_dispositivo else 'pendente'
+    db.session.commit()
+    flash(f'Serial {lic.chave} reativado.', 'success')
+    return redirect(url_for('listar_licencas_neuradesk_remote'))
+
+
+@app.route('/admin/licencas-remote/<int:id>/resetar-dispositivo', methods=['POST'])
+@login_required
+@super_admin_required
+def resetar_dispositivo_licenca_neuradesk_remote(id):
+    """Libera a chave pra ativar em outro dispositivo (ex: cliente trocou de PC)."""
+    lic = LicencaNeuraDeskRemote.query.get_or_404(id)
+    lic.fingerprint_dispositivo = None
+    lic.ativada_em = None
+    if lic.status == 'ativa':
+        lic.status = 'pendente'
+    db.session.commit()
+    flash(f'Dispositivo do serial {lic.chave} foi liberado para nova ativação.', 'success')
+    return redirect(url_for('listar_licencas_neuradesk_remote'))
+
+
+@app.route('/api/licencas-remote/ativar', methods=['POST'])
+@csrf.exempt
+@limiter.limit('20 per hour')
+def api_licenca_remote_ativar():
+    """Chamado pelo NeuraDesk Remote na primeira ativação. Trava o serial
+    no fingerprint desse dispositivo -- se a mesma chave tentar ativar em
+    outro dispositivo depois, a ativação é recusada."""
+    dados = request.get_json(silent=True) or {}
+    chave = (dados.get('chave') or '').strip().upper()
+    fingerprint = (dados.get('fingerprint') or '').strip()
+
+    if not chave or not fingerprint:
+        return jsonify({'ok': False, 'erro': 'chave e fingerprint são obrigatórios'}), 400
+
+    lic = LicencaNeuraDeskRemote.query.filter_by(chave=chave).first()
+    if not lic:
+        return jsonify({'ok': False, 'erro': 'chave inválida'}), 404
+
+    if lic.status == 'cancelada':
+        return jsonify({'ok': False, 'erro': 'serial cancelado'}), 403
+    if lic.status == 'bloqueada':
+        return jsonify({'ok': False, 'erro': 'serial bloqueado'}), 403
+
+    if lic.fingerprint_dispositivo:
+        if lic.fingerprint_dispositivo != fingerprint:
+            return jsonify({'ok': False, 'erro': 'serial já ativado em outro dispositivo'}), 403
+    else:
+        lic.fingerprint_dispositivo = fingerprint
+        lic.ativada_em = datetime.now()
+        lic.status = 'ativa'
+
+    lic.ultima_verificacao = datetime.now()
+    lic.ultimo_ip_verificacao = request.remote_addr
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'empresa_nome': lic.empresa_nome,
+        'status': lic.status,
+        'data_vencimento': lic.data_vencimento.isoformat() if lic.data_vencimento else None,
+    })
+
+
+@app.route('/api/licencas-remote/verificar', methods=['POST'])
+@csrf.exempt
+@limiter.limit('60 per hour')
+def api_licenca_remote_verificar():
+    """Chamado periodicamente pelo NeuraDesk Remote pra confirmar que o
+    serial continua válido."""
+    dados = request.get_json(silent=True) or {}
+    chave = (dados.get('chave') or '').strip().upper()
+    fingerprint = (dados.get('fingerprint') or '').strip()
+
+    lic = LicencaNeuraDeskRemote.query.filter_by(chave=chave).first()
+    if not lic:
+        return jsonify({'ok': False, 'erro': 'chave inválida'}), 404
+
+    if lic.fingerprint_dispositivo and lic.fingerprint_dispositivo != fingerprint:
+        return jsonify({'ok': False, 'erro': 'fingerprint não confere'}), 403
+
+    lic.ultima_verificacao = datetime.now()
+    lic.ultimo_ip_verificacao = request.remote_addr
+    db.session.commit()
+
+    situacao = _situacao_licenca_remote(lic)
+    dias_restantes_carencia = None
+    if situacao == 'carencia':
+        dias_restantes_carencia = (
+            lic.data_vencimento + timedelta(days=DIAS_CARENCIA_REMOTE) - datetime.now()
+        ).days
+
+    return jsonify({
+        'ok': True,
+        'situacao': situacao,
+        'data_vencimento': lic.data_vencimento.isoformat() if lic.data_vencimento else None,
+        'dias_restantes_carencia': dias_restantes_carencia,
+    })
 
 
 # ─── CONTRATO NEURADESK ─────────────────────────────────────────────────────────

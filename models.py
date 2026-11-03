@@ -443,6 +443,33 @@ class LicencaNeuraDesk(db.Model):
         return 'NRDK-' + '-'.join(grupos)
 
 
+class LicencaNeuraDeskRemote(db.Model):
+    """Licenças do NeuraDesk Remote (cliente de acesso remoto, produto
+    separado do NeuraDesk ERP). Uma linha por serial -- v1 trava em UM
+    dispositivo por chave, igual ao padrão do LicencaNeuraDesk."""
+    __tablename__ = 'licencas_neuradesk_remote'
+    id                      = db.Column(db.Integer, primary_key=True)
+    chave                   = db.Column(db.String(40), unique=True, nullable=False)
+    empresa_nome            = db.Column(db.String(200), nullable=False)
+    empresa_cnpj            = db.Column(db.String(30))
+    empresa_id_nb           = db.Column(db.Integer, db.ForeignKey('empresas.id'), nullable=True)
+    fingerprint_dispositivo = db.Column(db.String(128))
+    ativada_em              = db.Column(db.DateTime)
+    status                  = db.Column(db.String(20), default='pendente')  # pendente, ativa, bloqueada, cancelada
+    data_vencimento         = db.Column(db.DateTime)  # NULL = licença vitalícia
+    ultima_verificacao      = db.Column(db.DateTime)
+    ultimo_ip_verificacao   = db.Column(db.String(45))
+    observacoes             = db.Column(db.Text)
+    criado_em               = db.Column(db.DateTime, default=datetime.now)
+
+    empresa_nb = db.relationship('Empresa', foreign_keys=[empresa_id_nb], lazy=True)
+
+    @staticmethod
+    def gerar_chave():
+        grupos = [secrets.token_hex(2).upper() for _ in range(4)]
+        return 'NDRC-' + '-'.join(grupos)
+
+
 class ContratoNeuraDesk(db.Model):
     """Contrato de licenciamento de uso do NeuraDesk vendido a um cliente.
     Independente do Contrato/Proposta usado no negocio de propostas
