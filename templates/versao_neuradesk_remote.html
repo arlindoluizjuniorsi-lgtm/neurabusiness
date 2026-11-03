@@ -15,6 +15,9 @@
     <div class="alert alert-light border mb-3" style="font-size:.85rem;">
       Versão publicada atualmente: <code>{{ versao.build_date }}</code>
       {% if versao.atualizado_em %}— atualizado em {{ versao.atualizado_em.strftime('%d/%m/%Y %H:%M') }}{% if versao.atualizado_por %} por {{ versao.atualizado_por }}{% endif %}{% endif %}
+      <br>
+      Link estável pra mandar pra clientes (sempre a última versão publicada):
+      <code>{{ url_for('download_neuradesk_remote', _external=True) }}</code>
     </div>
     {% endif %}
 

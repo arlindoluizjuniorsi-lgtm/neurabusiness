@@ -2409,6 +2409,17 @@ def api_versao_neuradesk_remote_atual():
     })
 
 
+@app.route('/download/neuradesk-remote')
+def download_neuradesk_remote():
+    """Link estável pra mandar pra clientes -- sempre redireciona pro
+    download_url publicado em /admin/neuradesk-remote/versao, então o link
+    em si nunca muda mesmo quando a versão trocar."""
+    versao = VersaoNeuraDeskRemote.query.get(1)
+    if not versao or not versao.download_url:
+        abort(404)
+    return redirect(versao.download_url)
+
+
 # ─── CONTRATO NEURADESK ─────────────────────────────────────────────────────────
 
 @app.route('/contrato-neuradesk/assinar/<token>', methods=['GET', 'POST'])
